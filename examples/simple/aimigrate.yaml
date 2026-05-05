@@ -1,0 +1,38 @@
+# Minimal EvalShift example: one prompt, one length-based evaluator.
+#
+# Run end-to-end with mocked LLMs (CI / no API keys):
+#   pytest tests/integration/test_simple_example.py
+#
+# Or with real keys:
+#   cd examples/simple
+#   export GOOGLE_API_KEY=...
+#   evalshift run --yes --from gemini-2.5-flash --to gemini-2.5-pro
+#   evalshift evaluate <run-id>
+#   evalshift analyze <run-id>
+#   evalshift report <run-id> --open
+
+version: 1
+prompts:
+  - id: greet
+    detection: python_string
+    path: prompts.py
+    variable: GREET_PROMPT
+    variables: [name, tone]
+
+defaults:
+  source_model: gemini-2.5-flash
+  target_model: gemini-2.5-pro
+  concurrency: 4
+  cache: true
+
+evaluators:
+  structural:
+    - type: length
+      min_chars: 5
+      max_chars: 200
+
+slices:
+  - name: formal
+    filter: formal
+  - name: casual
+    filter: casual

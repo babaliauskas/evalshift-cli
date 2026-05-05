@@ -1,0 +1,42 @@
+# Showcase scenario: tool argument drift.
+#
+# The drift_router prompt instructs the model to cap refunds at 50% of
+# the requested amount — a "goodwill cap" policy. The tool_arguments
+# evaluator (numeric strategy on amount_usd, tolerance 5%) catches the
+# halved amounts vs the ground truth (which is the FULL requested
+# amount).
+#
+# Live (both models see the drift prompt): expect both to drift; the
+# evaluator catches it as an absolute failure on amount_usd.
+# Offline: fixtures engineer a clean regression — source returns the
+# correct amount, target returns the halved amount.
+version: 1
+
+prompts:
+  - id: refunder
+    detection: python_string
+    path: ../shared/prompts/drift_router.py
+    variable: AGENT_SYSTEM_PROMPT
+    variables: [query]
+    tools_path: ../shared/tools.yaml
+
+defaults:
+  source_model: claude-opus-4-5
+  target_model: claude-sonnet-4-5
+  concurrency: 4
+  cache: false
+
+evaluators:
+  tool_selection:
+    - name: routing
+      mode: expected
+  tool_arguments:
+    - name: refund_amounts
+      strategies:
+        amount_usd: numeric
+        order_id: exact
+      numeric_tolerance: 0.05
+
+slices:
+  - name: refunds
+    filter: "True"

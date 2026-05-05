@@ -1,0 +1,34 @@
+# Showcase scenario: target model drops a critical tool call.
+#
+# The prompt (sloppy_router) deliberately omits the "always page security"
+# rule. A weaker target model, without that explicit instruction, more
+# readily skips notify_security_team — which is the regression we want
+# evalshift to catch.
+#
+# Live: source (claude-sonnet-4-5) typically still pages security; target
+# (gpt-4o-mini) often doesn't. Offline: fixtures are 100% deterministic.
+version: 1
+
+prompts:
+  - id: router
+    detection: python_string
+    path: ../shared/prompts/sloppy_router.py
+    variable: AGENT_SYSTEM_PROMPT
+    variables: [query]
+    tools_path: ../shared/tools.yaml
+
+defaults:
+  source_model: claude-sonnet-4-5
+  target_model: gpt-4o-mini
+  concurrency: 4
+  cache: false
+
+evaluators:
+  tool_selection:
+    - name: routing
+      mode: expected
+      severity_floor: high
+
+slices:
+  - name: security
+    filter: "True"

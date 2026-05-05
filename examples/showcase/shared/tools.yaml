@@ -1,0 +1,78 @@
+# Shared tool catalogue for the showcase scenarios.
+# Anthropic-shape (LiteLLM accepts this on every provider).
+- name: search_orders
+  description: |
+    Look up a customer's recent orders by customer id. Use this for any
+    inbound request mentioning order status, refunds, or shipping.
+  input_schema:
+    type: object
+    properties:
+      customer_id: {type: string, description: "Customer ID to search."}
+    required: [customer_id]
+
+- name: lookup_customer
+  description: |
+    Find a customer record by id or email address. Use when the message
+    mentions an email but no customer id, or when you need profile
+    info before acting (e.g. before issuing a refund).
+  input_schema:
+    type: object
+    properties:
+      query:
+        type: string
+        description: "Customer id or email address."
+    required: [query]
+
+- name: issue_refund
+  description: |
+    Issue a refund on an existing order. Use only when the customer has
+    clearly asked for a refund or the situation warrants one (damaged
+    item, late delivery, duplicate charge).
+  input_schema:
+    type: object
+    properties:
+      order_id: {type: string, description: "Order id to refund."}
+      amount_usd:
+        type: number
+        description: "Refund amount in US dollars."
+      reason: {type: string, description: "Short reason for the refund."}
+    required: [order_id, amount_usd, reason]
+
+- name: update_order_status
+  description: |
+    Change the status of an existing order. Use after a refund to mark
+    the order cancelled, or when a customer reports delivery.
+  input_schema:
+    type: object
+    properties:
+      order_id: {type: string, description: "Order id to update."}
+      status:
+        type: string
+        enum: [pending, shipped, delivered, cancelled, returned]
+    required: [order_id, status]
+
+- name: send_email
+  description: Send a confirmation or follow-up email to a customer.
+  input_schema:
+    type: object
+    properties:
+      to: {type: string, description: "Recipient email address."}
+      subject: {type: string}
+      body: {type: string}
+    required: [to, subject, body]
+
+- name: notify_security_team
+  description: |
+    Page the security team about suspicious or sensitive activity.
+    Always use this for messages mentioning failed logins, account
+    takeover attempts, unauthorized data access, or phishing.
+  input_schema:
+    type: object
+    properties:
+      severity:
+        type: string
+        enum: [low, medium, high, critical]
+      summary:
+        type: string
+        description: "One-sentence description of the incident."
+    required: [severity, summary]

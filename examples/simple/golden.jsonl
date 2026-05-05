@@ -1,0 +1,10 @@
+{"id": "ex01", "inputs": {"name": "Alex", "tone": "formal"}, "tags": ["formal"]}
+{"id": "ex02", "inputs": {"name": "Sam", "tone": "casual"}, "tags": ["casual"]}
+{"id": "ex03", "inputs": {"name": "Jamie", "tone": "formal"}, "tags": ["formal"]}
+{"id": "ex04", "inputs": {"name": "Riley", "tone": "casual"}, "tags": ["casual"]}
+{"id": "ex05", "inputs": {"name": "Casey", "tone": "formal"}, "tags": ["formal"]}
+{"id": "ex06", "inputs": {"name": "Drew", "tone": "casual"}, "tags": ["casual"]}
+{"id": "ex07", "inputs": {"name": "Morgan", "tone": "formal"}, "tags": ["formal"]}
+{"id": "ex08", "inputs": {"name": "Avery", "tone": "casual"}, "tags": ["casual"]}
+{"id": "ex09", "inputs": {"name": "Quinn", "tone": "formal"}, "tags": ["formal"]}
+{"id": "ex10", "inputs": {"name": "Reese", "tone": "casual"}, "tags": ["casual"]}

@@ -1,0 +1,19 @@
+{
+  "id": "msg_synthetic_anthropic_refusal",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {"type": "refusal", "text": "I cannot help with that request."}
+        ]
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 30, "completion_tokens": 10, "total_tokens": 40}
+}

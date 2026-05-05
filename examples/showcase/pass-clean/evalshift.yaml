@@ -1,0 +1,35 @@
+# Showcase scenario: clean pass — both source and target behave correctly.
+#
+# Live (default): hits the configured models. Both should pass.
+# Offline: replays canned fixtures from ./fixtures.jsonl (no API keys).
+version: 1
+
+prompts:
+  - id: router
+    detection: python_string
+    path: ../shared/prompts/strict_router.py
+    variable: AGENT_SYSTEM_PROMPT
+    variables: [query]
+    tools_path: ../shared/tools.yaml
+
+defaults:
+  source_model: claude-sonnet-4-5
+  target_model: claude-opus-4-5
+  concurrency: 4
+  cache: false
+
+evaluators:
+  tool_selection:
+    - name: routing
+      mode: expected
+  tool_trace_structure:
+    - name: structure
+      check_call_count: true
+      check_parallelism: false
+      check_refusals: false
+
+slices:
+  - name: routine
+    filter: "'order' in query.lower() or 'refund' in query.lower()"
+  - name: text_only
+    filter: "'?' in query and 'order' not in query.lower() and 'refund' not in query.lower()"

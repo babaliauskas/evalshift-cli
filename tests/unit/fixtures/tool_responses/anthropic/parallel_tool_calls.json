@@ -1,0 +1,30 @@
+{
+  "id": "msg_synthetic_anthropic_parallel",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_use",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01ABC",
+            "name": "search_db",
+            "input": {"query": "ACME"}
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01DEF",
+            "name": "search_db",
+            "input": {"query": "Initech"}
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 50, "completion_tokens": 40, "total_tokens": 90}
+}

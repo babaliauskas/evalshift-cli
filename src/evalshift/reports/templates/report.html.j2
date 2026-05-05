@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>evalshift · {{ run_id }}</title>
+<style>{{ css|safe }}</style>
+</head>
+<body>
+<header class="hdr">
+  <h1>EvalShift report</h1>
+  <p class="sub">
+    <span class="run-id">{{ run_id }}</span>
+    · <span>{{ started_at }}</span>
+  </p>
+  <table class="meta">
+    <tr><th>Source model</th><td><code>{{ source_model }}</code></td></tr>
+    <tr><th>Target model</th><td><code>{{ target_model }}</code></td></tr>
+    <tr><th>Suite</th><td><code>{{ suite_path }}</code></td></tr>
+    <tr><th>Examples</th><td>{{ n_examples }}</td></tr>
+    <tr><th>Calls</th><td>{{ n_calls }} ({{ cached_calls }} cached, {{ failed_calls }} failed)</td></tr>
+    <tr><th>Total cost</th><td>${{ "%.4f"|format(total_cost_usd) }}</td></tr>
+  </table>
+</header>
+
+<section>
+<h2>Executive summary</h2>
+{% if executive_summary %}
+<table class="summary">
+  <thead><tr>
+    <th class="glyph"></th>
+    <th>Prompt</th>
+    <th>Worst severity</th>
+    <th>Slice</th>
+    <th class="num">n</th>
+    <th class="num">Δ avg score</th>
+    <th class="num">|d|</th>
+    <th class="num">p<sub>corrected</sub></th>
+  </tr></thead>
+  <tbody>
+  {% for row in executive_summary %}
+    <tr class="sev-{{ row.severity }}">
+      <td class="glyph">{{ severity_glyph(row.severity) }}</td>
+      <td><code>{{ row.prompt_id }}</code></td>
+      <td>{{ row.severity }}</td>
+      <td>{{ row.slice_name }}</td>
+      <td class="num">{{ row.n }}</td>
+      <td class="num">{{ "%+.3f"|format(row.delta_avg_score) }}</td>
+      <td class="num">{{ "%.2f"|format(row.effect_size|abs) }}</td>
+      <td class="num">{{ "%.3f"|format(row.p_value_corrected) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No comparisons available.</p>
+{% endif %}
+</section>
+
+{% for section in prompt_sections %}
+<section>
+<h2>Prompt: <code>{{ section.prompt_id }}</code></h2>
+
+<h3>Run economics</h3>
+<table class="econ">
+  <thead><tr>
+    <th></th>
+    <th class="num">Calls</th>
+    <th class="num">Cached</th>
+    <th class="num">Failed</th>
+    <th class="num">Cost (USD)</th>
+    <th class="num">Avg latency</th>
+    <th class="num">p95 latency</th>
+    <th class="num">Input tokens</th>
+    <th class="num">Output tokens</th>
+  </tr></thead>
+  <tbody>
+  {% for label, r in [("Source", section.economics.source), ("Target", section.economics.target)] %}
+    <tr>
+      <th>{{ label }}</th>
+      <td class="num">{{ r.calls }}</td>
+      <td class="num">{{ r.cached_calls }}</td>
+      <td class="num">{{ r.failed_calls }}</td>
+      <td class="num">${{ "%.4f"|format(r.total_cost_usd) }}</td>
+      <td class="num">{{ "%.0f"|format(r.latency_ms_avg) }} ms</td>
+      <td class="num">{{ "%.0f"|format(r.latency_ms_p95) }} ms</td>
+      <td class="num">{{ "{:,}".format(r.total_input_tokens) }}</td>
+      <td class="num">{{ "{:,}".format(r.total_output_tokens) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="econ-note">Latency stats cover live calls only ({{ section.economics.source.live_calls }} source / {{ section.economics.target.live_calls }} target); cache hits replay from disk.</p>
+
+<h3>Per-example breakdown</h3>
+{% if section.example_rows %}
+<table class="examples">
+  <thead><tr>
+    <th>Example</th>
+    <th>Tags</th>
+    <th class="num">Δ time</th>
+    <th class="num">Δ cost</th>
+    <th class="num">Worst Δ score</th>
+    <th>Tool match</th>
+  </tr></thead>
+  <tbody>
+  {% for row in section.example_rows %}
+    <tr class="{% if row.worst_delta_score is not none and row.worst_delta_score < 0 %}ex-regression{% elif row.worst_delta_score is not none and row.worst_delta_score > 0 %}ex-improved{% endif %}">
+      <td><code>{{ row.example_id }}</code></td>
+      <td class="tags">{% for t in row.tags %}<span class="chip">{{ t }}</span>{% endfor %}</td>
+      <td class="num">{{ "%+.2f"|format(row.delta_latency_ms / 1000.0) }}s</td>
+      <td class="num">{% if row.delta_cost_usd >= 0 %}+${{ "%.4f"|format(row.delta_cost_usd) }}{% else %}-${{ "%.4f"|format(-row.delta_cost_usd) }}{% endif %}</td>
+      <td class="num">{% if row.worst_delta_score is none %}—{% else %}{{ "%+.2f"|format(row.worst_delta_score) }}{% endif %}</td>
+      <td>{% if row.tool_match is none %}<span class="muted">—</span>{% elif row.tool_match %}<span class="ok">✓</span>{% else %}<span class="bad">✗</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No examples available.</p>
+{% endif %}
+
+<h3>Aggregate (slice = "all")</h3>
+{% if section.aggregate_rows %}
+<table>
+  <thead><tr>
+    <th>Evaluator</th>
+    <th>Test</th>
+    <th class="num">n</th>
+    <th class="num">Δ avg score</th>
+    <th class="num">|d|</th>
+    <th class="num">95% CI</th>
+    <th class="num">p<sub>raw</sub></th>
+    <th class="num">p<sub>corrected</sub></th>
+    <th>Severity</th>
+  </tr></thead>
+  <tbody>
+  {% for row in section.aggregate_rows %}
+    <tr class="sev-{{ row.severity }}">
+      <td><code>{{ row.evaluator_name }}</code></td>
+      <td>{{ row.test }}</td>
+      <td class="num">{{ row.n }}</td>
+      <td class="num">{{ "%+.3f"|format(row.delta_avg_score) }}</td>
+      <td class="num">{{ "%.2f"|format(row.effect_size|abs) }}</td>
+      <td class="num">[{{ "%.2f"|format(row.effect_size_ci_low) }}, {{ "%.2f"|format(row.effect_size_ci_high) }}]</td>
+      <td class="num">{{ "%.3f"|format(row.p_value) }}</td>
+      <td class="num">{{ "%.3f"|format(row.p_value_corrected) }}</td>
+      <td>{{ severity_glyph(row.severity) }} {{ row.severity }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No aggregate comparisons.</p>
+{% endif %}
+
+<h3>Slices with significant change</h3>
+{% set significant = section.slice_rows|selectattr("severity", "in", ["critical", "high", "medium", "low", "improved"])|list %}
+{% if significant %}
+<table>
+  <thead><tr>
+    <th>Slice</th>
+    <th>Evaluator</th>
+    <th class="num">n</th>
+    <th class="num">Δ avg score</th>
+    <th class="num">|d|</th>
+    <th class="num">p<sub>corrected</sub></th>
+    <th>Severity</th>
+  </tr></thead>
+  <tbody>
+  {% for row in significant %}
+    <tr class="sev-{{ row.severity }}">
+      <td>{{ row.slice_name }}</td>
+      <td><code>{{ row.evaluator_name }}</code></td>
+      <td class="num">{{ row.n }}</td>
+      <td class="num">{{ "%+.3f"|format(row.delta_avg_score) }}</td>
+      <td class="num">{{ "%.2f"|format(row.effect_size|abs) }}</td>
+      <td class="num">{{ "%.3f"|format(row.p_value_corrected) }}</td>
+      <td>{{ severity_glyph(row.severity) }} {{ row.severity }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No slices reached significance after BH correction.</p>
+{% endif %}
+
+<h3>Top regressions</h3>
+{% if section.top_regressions %}
+{% for tr in section.top_regressions %}
+<div class="regression">
+  <div class="reg-head">
+    <code>{{ tr.example_id }}</code>
+    · <span>{{ tr.evaluator_name }}</span>
+    · <span class="delta">Δ {{ "%+.3f"|format(tr.delta) }}</span>
+  </div>
+  {% if tr.source_trace or tr.target_trace %}
+  {# v0.2 — tool regression: render the trace diff in place of text. #}
+  <div class="reg-grid">
+    <div>
+      <h4>Source trace</h4>
+      {% if tr.source_trace and tr.source_trace.calls %}
+      <ol class="trace-list">
+        {% for c in tr.source_trace.calls %}
+        <li class="trace-call"><code>{{ c.tool_name }}</code><span class="trace-args">({{ c.arguments|tojson|escape }})</span></li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="trace-empty">(no tool calls)</p>
+      {% endif %}
+      {% if tr.source_trace and tr.source_trace.final_text %}
+      <p class="trace-final"><em>final text:</em> {{ tr.source_trace.final_text|escape }}</p>
+      {% endif %}
+    </div>
+    <div>
+      <h4>Target trace</h4>
+      {% if tr.target_trace and tr.target_trace.calls %}
+      <ol class="trace-list">
+        {% set source_names = (tr.source_trace.calls if tr.source_trace else []) | map(attribute='tool_name') | list %}
+        {% for c in tr.target_trace.calls %}
+        <li class="trace-call {% if c.tool_name in source_names %}trace-match{% else %}trace-extra{% endif %}">
+          <code>{{ c.tool_name }}</code><span class="trace-args">({{ c.arguments|tojson|escape }})</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="trace-empty trace-missing">(no tool calls)</p>
+      {% endif %}
+      {% if tr.target_trace and tr.target_trace.final_text %}
+      <p class="trace-final"><em>final text:</em> {{ tr.target_trace.final_text|escape }}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="reg-grid">
+    <div>
+      <h4>Source</h4>
+      <pre>{{ tr.source_text|escape }}</pre>
+    </div>
+    <div>
+      <h4>Target</h4>
+      <pre>{{ tr.target_text|escape }}</pre>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<p class="empty">No specific regressions to surface.</p>
+{% endif %}
+
+</section>
+{% endfor %}
+
+<section>
+<h2>Methodology</h2>
+<ul>
+{% for note in methodology_notes %}
+  <li>{{ note }}</li>
+{% endfor %}
+</ul>
+</section>
+
+<footer>
+  <p>Generated by <a href="https://github.com/babaliauskas/EvalShift">EvalShift</a>.</p>
+</footer>
+
+</body>
+</html>

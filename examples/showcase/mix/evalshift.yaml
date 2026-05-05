@@ -1,0 +1,46 @@
+# Showcase scenario: mixed evaluators on diverse traffic.
+#
+# Demonstrates parallel tool calls, refusals, structural text checks,
+# and tool-call evaluators all in one run. Useful when you want to see
+# every evaluator family side-by-side in the report.
+version: 1
+
+prompts:
+  - id: router
+    detection: python_string
+    path: ../shared/prompts/strict_router.py
+    variable: AGENT_SYSTEM_PROMPT
+    variables: [query]
+    tools_path: ../shared/tools.yaml
+
+defaults:
+  source_model: claude-sonnet-4-5
+  target_model: claude-opus-4-5
+  concurrency: 4
+  cache: false
+
+evaluators:
+  tool_selection:
+    - name: routing
+      mode: expected
+  tool_trace_structure:
+    - name: structure
+      check_call_count: true
+      check_parallelism: true
+      check_refusals: true
+  structural:
+    - type: length
+      min_chars: 20
+      max_chars: 400
+      applies_to: ["router"]
+    - type: regex
+      pattern: "^(?!.*(password|api[_ ]?key|secret)).*"
+      applies_to: ["router"]
+
+slices:
+  - name: parallel
+    filter: "'AND' in query or 'and email' in query.lower()"
+  - name: refusal
+    filter: "'ignore' in query.lower() or 'forget' in query.lower()"
+  - name: text_only
+    filter: "'?' in query and 'and' not in query.lower() and 'ignore' not in query.lower() and 'forget' not in query.lower()"
