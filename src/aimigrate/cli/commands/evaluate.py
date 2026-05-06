@@ -137,7 +137,7 @@ def evaluate(
         f"[green]✓[/green] wrote {len(records)} eval records to {output_path}",
     )
     console.print(
-        f"[bold]Next:[/bold] [cyan]aimigrate analyze {run_id}[/cyan]   [dim](Phase 6)[/dim]",
+        f"[bold]Next:[/bold] [cyan]aimigrate analyze {run_id}[/cyan]",
     )
 
 
