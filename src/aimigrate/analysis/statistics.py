@@ -189,8 +189,10 @@ def _one_comparison(
     if n < MIN_N_RELIABLE:
         notes.append(f"n={n} < {MIN_N_RELIABLE}; results uncertain")
 
-    # Variance == 0 (every delta identical) → no inference possible.
-    if float(np.std(deltas, ddof=1)) == 0.0:
+    # Variance ≈ 0 (every delta identical, modulo float noise) → no
+    # inference possible. Use a small tolerance to dodge catastrophic
+    # cancellation that scipy already warns about.
+    if float(np.std(deltas, ddof=1)) < 1e-9:
         return ComparisonResult(
             prompt_id=prompt_id,
             evaluator_name=evaluator_name,
@@ -266,7 +268,7 @@ def _is_normal(deltas: np.ndarray) -> bool:
 
 def _cohens_d_paired(deltas: np.ndarray) -> float:
     sd = float(np.std(deltas, ddof=1))
-    if sd == 0:
+    if sd < 1e-9:
         return 0.0
     return float(np.mean(deltas) / sd)
 

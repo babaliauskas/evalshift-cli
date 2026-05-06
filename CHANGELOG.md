@@ -7,29 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- The model registry is now **advisory, not gating**: `aimigrate.models.registry.resolve_model()` accepts any user-supplied id, falls back to provider-prefix inference for ids not in the registry, and lets LiteLLM be the source of truth at call time. Users can now pass model ids directly from a vendor playground (e.g. `gemini-3.1-flash-lite-preview` from Google AI Studio) without waiting for an AIMigrate release. The strict `get_model()` is still available for internal/test use.
-- `Provider` literal widened to include `"other"` for fully-unknown ids.
+## [0.1.0]
 
-### Fixed
-- `aimigrate run` no longer crashes with an `UnknownModelError` traceback when the user supplies a model id that isn't in the curated registry. The id is passed through to LiteLLM, which produces a clean error if it's truly invalid.
+First alpha release. Every command in the planned MVP pipeline is shipped.
 
-### Added
-- Initial repository scaffolding: `pyproject.toml`, lint/type/test config, CI, MIT license.
-- Empty `src/aimigrate` package skeleton matching the planned module layout.
+### Live commands
+
+| Command                | What it does                                                            |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `aimigrate doctor`     | Check Python version, provider API keys, and `aimigrate.yaml` validity. |
+| `aimigrate init`       | Scaffold a starter project (yaml + prompts.py + golden.jsonl).          |
+| `aimigrate run`        | Call source + target models on every (prompt, example) → `raw.jsonl`.   |
+| `aimigrate evaluate`   | Score every (source, target) pair → `scores.jsonl`.                     |
+| `aimigrate analyze`    | Paired tests + BH correction → `analysis.json`.                         |
+| `aimigrate report`     | Single-file HTML report → `report.html` + `report.json`.                |
+| `aimigrate cache clear`| Wipe the local SQLite response cache.                                   |
+| `aimigrate validate`   | (hidden dev) Verify config + suite + prompts are compatible.            |
+| `aimigrate test-call`  | (hidden dev) One-shot smoke call to confirm provider connectivity.      |
+
+### Added — Phase 0–1
+
+- `pyproject.toml` (Python ≥3.14, hatchling, MIT, pinned deps), `ruff.toml`, `mypy.ini`, pytest config, `.pre-commit-config.yaml`, GitHub Actions CI.
+- Full `src/aimigrate` package skeleton across cli/config/parsers/models/suite/runner/evaluators/analysis/reports/cache/utils with module docstrings and a `py.typed` marker.
 - `aimigrate.config.models`: pydantic v2 schema for `aimigrate.yaml` (prompts, evaluators, slices, defaults) with strict validation, `extra='forbid'`, and detection-mode field invariants.
-- `aimigrate.config.loader`: `load_config()` plus a structured `ConfigError` carrying file path, error kind, and per-field details with both plain-text and Rich panel rendering.
-- `aimigrate doctor` command: reports Python version, presence of provider API keys, and `aimigrate.yaml` validity. Exits 1 only on hard failures (invalid config); missing keys are warnings.
-- `aimigrate init` command: scaffolds `aimigrate.yaml` + `prompts.py` + `golden.jsonl` starter files. Refuses to overwrite by default; `--force` enables overwrite, `--directory` targets a non-cwd path.
-- `aimigrate.suite` package: pydantic models (`SuiteExample`, `Suite`) plus a JSONL loader (`load_jsonl`) with line-numbered error reporting, blank-line tolerance, multi-error collection, and `extra='forbid'` rejection of unknown row keys.
-- `aimigrate.parsers` package: `PromptParser` protocol with `ManualParser` for inline prompts and `PythonStringParser` that safely AST-extracts string-literal prompts from `.py` files. Non-literal value forms (f-strings, concatenation, function calls, attribute access, name references) are explicitly rejected; the parser never runs user code.
-- `aimigrate.utils.templating` module: `extract_variables`, `render` (strict, missing-var aware), and a bulk `validate_suite_against_prompts` pre-flight check that collects every (prompt, example) compatibility issue at once.
-- `aimigrate validate` command (hidden dev command): loads config + suite + prompts and verifies they are mutually compatible. Will be removed or relocated under a hidden `--debug` group at the v0.1.0 cut.
-- `aimigrate.models.registry`: hard-coded metadata for the supported model set (Anthropic Claude Sonnet 4.5 / Opus 4.5, OpenAI GPT-4o / mini, Gemini 2.5 Pro / Flash) plus PDF-style aliases (`claude-4.5-sonnet`, `gemini-2.5-flash`, etc.) that resolve to LiteLLM canonical IDs.
-- `aimigrate.cache`: SQLAlchemy 2.0 schema + async `CacheStore` (`get`/`put`/`clear`/`count`) with sha256 cache keys and a 7-day default TTL. Backing file at `~/.aimigrate/cache.db`. Added `greenlet` runtime dep (required by SQLAlchemy async).
-- `aimigrate cache clear` CLI command (under a new `cache` sub-app) wipes the local cache.
-- `aimigrate.models.client`: async `ModelClient` wrapping `litellm.acompletion` with uniform error mapping (`RateLimitError` / `AuthError` / `ModelError`), full-jitter exponential backoff retries (`AuthError` short-circuits), and per-call cost + token bookkeeping in a `CompletionResult` dataclass.
-- `aimigrate.utils.cost`: `estimate_run_cost(...)` for pre-flight cost estimation with a sample-based prompt-token average and defensive fallbacks when LiteLLM lacks pricing or token-counter data.
-- `aimigrate test-call` command (hidden): one-shot smoke test that sends a single prompt to a single model. Renders the response, token counts, cost, and latency in a Rich panel; exits 1 on auth/rate-limit/unknown-model errors.
-- `aimigrate.runner` package: pydantic `RunState` + `Call` models (per-call rows), checkpoint helpers (`generate_run_id`, atomic `write_state`/`read_state`, append-only `raw.jsonl`, crash-safe `iter_calls`, `validate_resume`, hash-drift detection), and an async `run_orchestrator` that wires everything together with a concurrency semaphore, Rich progress bar, cost gate, and 50-call checkpoint cadence.
-- `aimigrate run` command: the headline command. Loads config + suite, parses prompts, validates suite compatibility, resolves model aliases, optionally resumes, and prints a final summary panel with run id, cached/live/failed counts, cost, and a Phase-5 hint. Per-call errors are recorded in `raw.jsonl` and don't fail the run.
+- `aimigrate.config.loader`: `load_config()` plus a structured `ConfigError` with both plain-text and Rich panel rendering.
+- `aimigrate doctor`: reports Python version, provider API keys, and `aimigrate.yaml` validity. Exits 1 only on hard failures.
+- `aimigrate init`: scaffolds `aimigrate.yaml` + `prompts.py` + `golden.jsonl`. `--force` overwrite, `--directory` target dir.
+
+### Added — Phase 2 (suite + prompt loading)
+
+- `aimigrate.suite` package: pydantic `SuiteExample` + `Suite` models, JSONL loader with line-numbered errors, blank-line tolerance, multi-error collection.
+- `aimigrate.parsers` package: `ManualParser` (inline content) and `PythonStringParser` (AST-walks `.py` for module-level string literals; rejects f-strings, concatenation, function calls, attribute access, name references — never runs user code).
+- `aimigrate.utils.templating`: `extract_variables`, `render` with strict missing-var detection, and a bulk `validate_suite_against_prompts` pre-flight check.
+- `aimigrate validate` (hidden): end-to-end pre-flight that confirms config + suite + prompts are mutually compatible.
+
+### Added — Phase 3 (model client + cache)
+
+- `aimigrate.models.registry`: advisory, not gating. `resolve_model()` accepts any model id, falling back to prefix-inferred provider when not in the curated registry. `get_model()` strict variant kept for tests.
+- `aimigrate.cache`: SQLAlchemy 2.0 + async `CacheStore` (sha256 keys, 7-day TTL) at `~/.aimigrate/cache.db`. Added `greenlet` runtime dep.
+- `aimigrate cache clear` CLI command (under a `cache` sub-app).
+- `aimigrate.models.client`: async `ModelClient` wrapping `litellm.acompletion` with uniform error mapping (`RateLimitError` / `AuthError` / `ModelError`), full-jitter exponential backoff retries (auth short-circuits), and per-call cost + token bookkeeping.
+- `aimigrate.utils.cost`: `estimate_run_cost(...)` for pre-flight cost estimation with defensive fallbacks for missing LiteLLM pricing/token-counter data.
+- `aimigrate test-call` (hidden): one-shot smoke test renderer with response/tokens/cost/latency Rich panel.
+
+### Added — Phase 4 (run orchestrator)
+
+- `aimigrate.runner` package: pydantic `RunState` + `Call` models, atomic `state.json` checkpointing, append-only `raw.jsonl`, crash-safe iterator, `validate_resume` with hash-drift detection.
+- `run_orchestrator`: async loop with `asyncio.Semaphore(concurrency)`, cache-check → live-call → record per (prompt, example, role), Rich progress bar, $10 cost gate (skip with `--yes`), 50-call checkpoint cadence.
+- `aimigrate run` command: `--from`, `--to`, `--config`, `--suite`, `--resume`, `--yes`. Outputs go to `.aimigrate/runs/<run-id>/`. Per-call errors are recorded but don't fail the run.
+
+### Added — Phase 5 (evaluators)
+
+- `aimigrate.evaluators` package: `Evaluator` Protocol, `PairedScore`, `EvalRecord`.
+- Structural: `JsonSchemaEvaluator`, `RegexEvaluator`, `LengthEvaluator` (1.0 inside bounds, distance-decayed outside).
+- Semantic: `CosineSimilarityEvaluator` (target preservation framing — source = 1.0, target = cosine to source).
+- LLM judge: `PairwiseJudgeEvaluator` with order-randomization and defensive JSON parsing.
+- `aimigrate evaluate <run-id>` command: pairs source/target calls, runs every configured evaluator, writes `scores.jsonl`.
+
+### Added — Phase 6 (statistics)
+
+- `aimigrate.analysis.slicing`: `build_slices` groups records by tag (with implicit `"all"` slice); `aggregates()` computes per-slice n/mean/std.
+- `aimigrate.analysis.statistics`: per-comparison Shapiro-Wilk → paired t-test or Wilcoxon signed-rank, Cohen's d, 95% CI (analytical for t-test, bootstrap for Wilcoxon), Benjamini-Hochberg correction across the whole run, severity classification (critical/high/medium/low/improved/none/insufficient).
+- `aimigrate analyze <run-id>` command: writes `analysis.json` and prints a Rich summary table.
+
+### Added — Phase 7 (report)
+
+- `aimigrate.reports.json`: `build_report_payload` + `ReportData` stitching state + raw + scores + analysis into a single payload. Persists `report.json`.
+- `aimigrate.reports.templates/report.html.j2` + `report.css`: self-contained HTML (CSS inlined, zero external assets, no JS) with executive summary, per-prompt aggregate + slice tables, top-5 regressions side-by-side, methodology appendix.
+- `aimigrate report <run-id>` command, with optional `--open` to launch in the user's default browser.
+
+### Added — Phase 8 (polish + OSS)
+
+- Documentation site (MkDocs Material) covering Getting Started, Configuration, Evaluators, Methodology, FAQ.
+- `examples/simple/` runnable example.
+- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `SECURITY.md`, GitHub issue + PR templates.
+- README polished with badges, status, full pipeline walkthrough, non-goals.
+
+### Quality
+
+- 371+ tests, ≥95% line coverage, `mypy --strict` clean, `ruff check` clean, `ruff format` clean.
+- Mocked CI throughout (no API keys needed); `scripts/smoke_live.py` deferred for the user's manual live verification.

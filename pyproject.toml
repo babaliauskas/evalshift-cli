@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aimigrate"
-version = "0.0.1"
+version = "0.1.0"
 description = "Run your prompts on two LLMs and find out, with statistical confidence, what regressed."
 readme = "README.md"
 license = { text = "MIT" }

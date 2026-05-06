@@ -204,7 +204,7 @@ def _print_summary(
         f"[green]✓[/green] wrote analysis to [bold]{out_path}[/bold]",
     )
     console.print(
-        f"[bold]Next:[/bold] [cyan]aimigrate report {run_id}[/cyan]   [dim](Phase 7)[/dim]",
+        f"[bold]Next:[/bold] [cyan]aimigrate report {run_id}[/cyan]",
     )
 
 

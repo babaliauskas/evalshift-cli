@@ -150,8 +150,7 @@ def _print_summary(console: Console, result: RunResult) -> None:
         f"[red]{result.failed_calls} failed[/red])\n"
         f"[dim]cost:[/dim]    ${result.total_cost_usd:.4f}\n"
         f"[dim]outputs:[/dim] {result.run_dir / 'raw.jsonl'}\n\n"
-        f"[bold]Next:[/bold] [cyan]aimigrate evaluate {result.run_id}[/cyan]   "
-        "[dim](Phase 5 — coming soon)[/dim]"
+        f"[bold]Next:[/bold] [cyan]aimigrate evaluate {result.run_id}[/cyan]"
     )
     console.print(
         Panel(
