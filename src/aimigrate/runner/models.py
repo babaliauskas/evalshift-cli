@@ -25,6 +25,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from aimigrate.evaluators.tool_models import ToolTrace
+
 CallRole = Literal["source", "target"]
 RunStatus = Literal["in_progress", "completed", "failed"]
 
@@ -129,6 +131,11 @@ class Call(_StrictModel):
     latency_ms: int = 0
     cached: bool = False
     error: str | None = None
+    # v0.2 — populated only for tool-aware (agent) prompts; ``None`` for
+    # plain text prompts. The orchestrator switches between
+    # ``ModelClient.complete`` and ``complete_with_tools`` based on
+    # whether the owning ``PromptDefinition.tools_path`` is set.
+    trace: ToolTrace | None = None
 
     @property
     def succeeded(self) -> bool:

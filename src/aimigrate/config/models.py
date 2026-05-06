@@ -67,6 +67,14 @@ class PromptDefinition(_StrictModel):
         default_factory=list,
         description="Template variables the prompt expects.",
     )
+    # v0.2 — agent-style prompts have a ``tools_path`` pointing at a
+    # yaml/json file with the tool specs. When set, the orchestrator
+    # uses ``ModelClient.complete_with_tools`` and tool evaluators
+    # apply.
+    tools_path: str | None = Field(
+        default=None,
+        description="Path to a tools.yaml/json file. When set, the prompt is treated agent-style.",
+    )
 
     @model_validator(mode="after")
     def _check_detection_fields(self) -> Self:
@@ -169,12 +177,91 @@ class LLMJudgeConfig(_StrictModel):
     applies_to: list[str] = Field(default_factory=lambda: ["*"])
 
 
+# ---------------------------------------------------------------------------
+# v0.2 — tool-call evaluator configs
+# ---------------------------------------------------------------------------
+
+
+class ToolSelectionEvaluatorConfig(_StrictModel):
+    """Configuration for the tool-selection evaluator.
+
+    Attributes:
+        name: Stable identifier surfaced in reports.
+        mode:
+            * ``exact`` — target's tool-name sequence must equal source's.
+            * ``set`` — target's tool-name set must equal source's
+              (Jaccard-like).
+            * ``first`` — only the first call is checked.
+            * ``expected`` — match against ``example.expected_tools``
+              (default; most useful for migrations with ground truth).
+        applies_to: Glob list of prompt ids this evaluator applies to.
+        severity_floor: When set, the analysis layer can floor severity
+            at this level for any non-``none`` result on this evaluator
+            (e.g. force ``high`` whenever the security agent loses a
+            tool call).
+    """
+
+    name: str = Field(min_length=1)
+    mode: Literal["exact", "set", "first", "expected"] = "expected"
+    applies_to: list[str] = Field(default_factory=lambda: ["*"])
+    severity_floor: Literal["low", "medium", "high", "critical"] | None = None
+
+
+class ToolArgumentsEvaluatorConfig(_StrictModel):
+    """Configuration for the tool-arguments evaluator.
+
+    Attributes:
+        name: Stable identifier surfaced in reports.
+        applies_to: Glob list of prompt ids this evaluator applies to.
+        strategies: Per-field strategy overrides. Field name → strategy.
+            Unlisted fields default to ``exact``.
+        numeric_tolerance: Relative-error tolerance for the ``numeric``
+            strategy (0.05 = 5%).
+        use_llm_judge_fallback: Reserved for v0.3; ignored in v0.2.
+    """
+
+    name: str = Field(min_length=1)
+    applies_to: list[str] = Field(default_factory=lambda: ["*"])
+    strategies: dict[str, Literal["exact", "subset", "numeric", "semantic"]] = Field(
+        default_factory=dict,
+    )
+    numeric_tolerance: float = Field(default=0.05, ge=0.0, le=1.0)
+    use_llm_judge_fallback: bool = False
+
+
+class ToolTraceStructureEvaluatorConfig(_StrictModel):
+    """Configuration for the trace-structure evaluator.
+
+    Attributes:
+        name: Stable identifier surfaced in reports.
+        applies_to: Glob list of prompt ids this evaluator applies to.
+        check_call_count: Score the number of calls.
+        check_parallelism: Score whether parallel-call usage matches.
+        check_refusals: Score whether refusal alignment matches; a
+            refusal regression always forces ``severity_floor="high"``.
+        call_count_tolerance: ``+/- N`` calls considered equivalent.
+    """
+
+    name: str = Field(min_length=1)
+    applies_to: list[str] = Field(default_factory=lambda: ["*"])
+    check_call_count: bool = True
+    check_parallelism: bool = True
+    check_refusals: bool = True
+    call_count_tolerance: int = Field(default=1, ge=0)
+
+
 class EvaluatorsConfig(_StrictModel):
     """Container for all evaluator configurations attached to a run."""
 
     structural: list[StructuralEvaluatorConfig] = Field(default_factory=list)
     semantic: SemanticEvaluatorConfig | None = None
     llm_judge: list[LLMJudgeConfig] = Field(default_factory=list)
+    # v0.2 — tool-call evaluators (all optional; v0.1 configs unaffected).
+    tool_selection: list[ToolSelectionEvaluatorConfig] = Field(default_factory=list)
+    tool_arguments: list[ToolArgumentsEvaluatorConfig] = Field(default_factory=list)
+    tool_trace_structure: list[ToolTraceStructureEvaluatorConfig] = Field(
+        default_factory=list,
+    )
 
 
 class SliceConfig(_StrictModel):
@@ -245,4 +332,7 @@ __all__ = [
     "SemanticEvaluatorConfig",
     "SliceConfig",
     "StructuralEvaluatorConfig",
+    "ToolArgumentsEvaluatorConfig",
+    "ToolSelectionEvaluatorConfig",
+    "ToolTraceStructureEvaluatorConfig",
 ]

@@ -1,0 +1,12 @@
+{"id": "ex_security_01", "inputs": {"query": "User account_42 had 5 failed login attempts in the last hour"}, "tags": ["security"], "expected_tools": [{"tool_name": "notify_security_team", "match_strategy": "subset"}]}
+{"id": "ex_security_02", "inputs": {"query": "I think someone is trying to access account_77 from a new IP"}, "tags": ["security"], "expected_tools": [{"tool_name": "notify_security_team", "match_strategy": "subset"}]}
+{"id": "ex_security_03", "inputs": {"query": "Customer reports they cannot log in and admin panel was probed"}, "tags": ["security"], "expected_tools": [{"tool_name": "notify_security_team", "match_strategy": "subset"}, {"tool_name": "send_email", "match_strategy": "subset"}]}
+{"id": "ex_security_04", "inputs": {"query": "Our SOC alerted on user_99 — possible account takeover"}, "tags": ["security"], "expected_tools": [{"tool_name": "notify_security_team", "match_strategy": "subset"}]}
+{"id": "ex_security_05", "inputs": {"query": "alice@example.com tried to access the admin dashboard 8 times"}, "tags": ["security"], "expected_tools": [{"tool_name": "notify_security_team", "match_strategy": "subset"}]}
+{"id": "ex_routine_01", "inputs": {"query": "Where is order #12345 for customer_42?"}, "tags": ["routine"], "expected_tools": [{"tool_name": "search_orders", "match_strategy": "subset"}]}
+{"id": "ex_routine_02", "inputs": {"query": "Customer customer_77 is asking about their refund"}, "tags": ["routine"], "expected_tools": [{"tool_name": "search_orders", "match_strategy": "subset"}]}
+{"id": "ex_routine_03", "inputs": {"query": "Send a follow-up email to billing@acme.com about ticket 203"}, "tags": ["routine"], "expected_tools": [{"tool_name": "send_email", "match_strategy": "subset"}]}
+{"id": "ex_routine_04", "inputs": {"query": "Please look up customer_88's last 3 orders"}, "tags": ["routine"], "expected_tools": [{"tool_name": "search_orders", "match_strategy": "subset"}]}
+{"id": "ex_routine_05", "inputs": {"query": "Confirmation email needed for order #98765"}, "tags": ["routine"], "expected_tools": [{"tool_name": "send_email", "match_strategy": "subset"}]}
+{"id": "ex_text_01", "inputs": {"query": "What is your refund policy?"}, "tags": ["text_only"], "expected_no_tools": true}
+{"id": "ex_text_02", "inputs": {"query": "How do I reach billing?"}, "tags": ["text_only"], "expected_no_tools": true}

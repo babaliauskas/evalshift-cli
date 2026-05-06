@@ -39,6 +39,7 @@ from aimigrate.evaluators.structural import (
     LengthEvaluator,
     RegexEvaluator,
 )
+from aimigrate.evaluators.tool_selection import ToolSelectionEvaluator
 from aimigrate.runner.checkpoint import (
     CheckpointError,
     iter_calls,
@@ -46,6 +47,8 @@ from aimigrate.runner.checkpoint import (
     run_dir_for,
 )
 from aimigrate.runner.models import Call
+from aimigrate.suite.loader import SuiteError, load_jsonl
+from aimigrate.suite.models import Suite, SuiteExample
 
 SCORES_FILENAME: str = "scores.jsonl"
 
@@ -125,7 +128,14 @@ def evaluate(
         console.print("[red]✗[/red] no (source, target) pairs found in raw.jsonl")
         raise typer.Exit(code=1)
 
-    records = asyncio.run(_score_all(console, evaluators, pairs, run_id))
+    # Load the suite so tool evaluators (which consume ``SuiteExample``)
+    # can find the row matching each pair. v0.1 evaluators don't need it
+    # but loading it is cheap and makes the dispatch uniform.
+    examples_by_id = _load_examples_by_id(state.suite_path)
+
+    records = asyncio.run(
+        _score_all(console, evaluators, pairs, run_id, examples_by_id),
+    )
 
     output_path = run_dir / SCORES_FILENAME
     with output_path.open("w", encoding="utf-8") as fh:
@@ -142,6 +152,11 @@ def evaluate(
 
 
 def _build_evaluators(cfg: AIMigrateConfig, project_root: Path) -> list[Evaluator]:
+    # Tool evaluators (v0.2) implement ``score_pair`` rather than the
+    # text-evaluator ``score`` method, so they don't satisfy the
+    # :class:`Evaluator` Protocol structurally. We treat them as
+    # duck-typed ``Evaluator``-likes — the dispatch in ``_score_one``
+    # checks for ``score_pair`` before calling.
     out: list[Evaluator] = []
     for s in cfg.evaluators.structural:
         if s.type == "json_schema":
@@ -173,7 +188,19 @@ def _build_evaluators(cfg: AIMigrateConfig, project_root: Path) -> list[Evaluato
                 judge_model=j.judge_model,
             ),
         )
+
+    # v0.2 — tool-call evaluators. Each implements ``score_pair`` rather
+    # than ``score`` because they consume the (source, target) ToolTrace
+    # pair directly.
+    for ts in cfg.evaluators.tool_selection:
+        out.append(ToolSelectionEvaluator(ts))  # type: ignore[arg-type]
+
     return out
+
+
+def _is_tool_evaluator(evaluator: Evaluator) -> bool:
+    """True iff ``evaluator`` consumes :class:`ToolTrace` pairs (v0.2)."""
+    return hasattr(evaluator, "score_pair")
 
 
 def _pair_calls(run_dir: Path) -> list[_PairedCalls]:
@@ -195,11 +222,21 @@ def _pair_calls(run_dir: Path) -> list[_PairedCalls]:
     return pairs
 
 
+def _load_examples_by_id(suite_path: str) -> dict[str, SuiteExample]:
+    """Load the suite and index examples by id; tolerate failures."""
+    try:
+        suite: Suite = load_jsonl(suite_path)
+    except (SuiteError, FileNotFoundError, OSError):
+        return {}
+    return {ex.id: ex for ex in suite.examples}
+
+
 async def _score_all(
     console: Console,
     evaluators: list[Evaluator],
     pairs: list[_PairedCalls],
     run_id: str,
+    examples_by_id: dict[str, SuiteExample],
 ) -> list[EvalRecord]:
     records: list[EvalRecord] = []
     total = len(pairs) * len(evaluators)
@@ -220,7 +257,7 @@ async def _score_all(
     with progress:
         for pair in pairs:
             for evaluator in evaluators:
-                record = await _score_one(evaluator, pair, run_id)
+                record = await _score_one(evaluator, pair, run_id, examples_by_id)
                 records.append(record)
                 progress.advance(task_id)
     return records
@@ -230,6 +267,7 @@ async def _score_one(
     evaluator: Evaluator,
     pair: _PairedCalls,
     run_id: str,
+    examples_by_id: dict[str, SuiteExample],
 ) -> EvalRecord:
     upstream_failed = pair.source.error is not None or pair.target.error is not None
     if upstream_failed:
@@ -244,6 +282,13 @@ async def _score_one(
             delta=0.0,
             error=f"upstream call failed: {upstream}",
         )
+
+    # v0.2 — tool evaluators consume the (source, target) ToolTrace pair.
+    # Plain prompts have ``call.trace is None`` and we skip cleanly with
+    # a neutral record so the analysis layer doesn't see noise.
+    if _is_tool_evaluator(evaluator):
+        return await _score_one_tool(evaluator, pair, run_id, examples_by_id)
+
     try:
         score: PairedScore = await evaluator.score(
             prompt_id=pair.prompt_id,
@@ -275,6 +320,48 @@ async def _score_one(
         explanation=score.explanation,
         metadata=score.metadata,
     )
+
+
+async def _score_one_tool(
+    evaluator: Evaluator,
+    pair: _PairedCalls,
+    run_id: str,
+    examples_by_id: dict[str, SuiteExample],
+) -> EvalRecord:
+    """Dispatch a v0.2 tool evaluator. Skips plain (text) calls cleanly."""
+    if pair.source.trace is None or pair.target.trace is None:
+        # No tool trace on either side → nothing for this evaluator to do.
+        return EvalRecord(
+            run_id=run_id,
+            prompt_id=pair.prompt_id,
+            example_id=pair.example_id,
+            evaluator_name=evaluator.name,
+            source_score=1.0,
+            target_score=1.0,
+            delta=0.0,
+            metadata={"skipped": "no tool trace on this pair"},
+        )
+    example = examples_by_id.get(pair.example_id) or SuiteExample(id=pair.example_id)
+    try:
+        record = await evaluator.score_pair(  # type: ignore[attr-defined]
+            run_id=run_id,
+            prompt_id=pair.prompt_id,
+            example=example,
+            source_trace=pair.source.trace,
+            target_trace=pair.target.trace,
+        )
+    except Exception as exc:
+        return EvalRecord(
+            run_id=run_id,
+            prompt_id=pair.prompt_id,
+            example_id=pair.example_id,
+            evaluator_name=evaluator.name,
+            source_score=0.5,
+            target_score=0.5,
+            delta=0.0,
+            error=f"evaluator error: {exc}",
+        )
+    return record  # type: ignore[no-any-return]
 
 
 __all__ = ["SCORES_FILENAME", "evaluate"]

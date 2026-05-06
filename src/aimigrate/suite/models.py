@@ -19,7 +19,7 @@ would just block adoption. The only invariants we enforce:
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -37,6 +37,25 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
+class ExpectedToolCall(_StrictModel):
+    """Ground-truth expectation for a single tool call (v0.2).
+
+    Attributes:
+        tool_name: Name of the tool the model is expected to call.
+        arguments: Optional ground-truth args. ``None`` means only the
+            tool name is checked; argument matching is skipped.
+        match_strategy:
+            * ``exact`` — every argument key + value matches exactly.
+            * ``subset`` — expected args ⊆ actual args (recursive).
+            * ``contains_per_field`` — every expected field is present;
+              values compared per-field by the configured strategy.
+    """
+
+    tool_name: str = Field(min_length=1)
+    arguments: dict[str, Any] | None = None
+    match_strategy: Literal["exact", "subset", "contains_per_field"] = "subset"
+
+
 class SuiteExample(_StrictModel):
     """A single row from a golden suite file.
 
@@ -51,6 +70,15 @@ class SuiteExample(_StrictModel):
             example may carry multiple tags.
         expected: Optional reference output for evaluators that take an
             "expected" answer (most evaluators in the MVP do not).
+        expected_tools: v0.2 — ground-truth list of tool calls the model
+            should make. ``None`` means no expectation (tool evaluators
+            skip).
+        expected_tool_count: v0.2 — exact total tool-call count expected.
+            Used by the trace-structure evaluator.
+        expected_no_tools: v0.2 — set ``True`` when the example expects a
+            text-only response (refusal-equivalent for agent prompts).
+        expected_parallel: v0.2 — when set, the trace-structure evaluator
+            checks the parallel-vs-sequential flag of the model output.
     """
 
     id: str = Field(min_length=1, description="Stable, unique identifier.")
@@ -66,6 +94,29 @@ class SuiteExample(_StrictModel):
         default=None,
         description="Optional reference output (unused by most evaluators).",
     )
+    # v0.2 — tool-call ground truth (all optional; v0.1 suites still load).
+    expected_tools: list[ExpectedToolCall] | None = None
+    expected_tool_count: int | None = Field(default=None, ge=0)
+    expected_no_tools: bool = False
+    expected_parallel: bool | None = None
+
+    @model_validator(mode="after")
+    def _check_tool_expectations_consistent(self) -> Self:
+        """Reject mutually-exclusive tool expectations.
+
+        If ``expected_no_tools`` is ``True``, ``expected_tools`` must be
+        ``None`` or an empty list (you can't expect zero AND expect a
+        specific tool to be called).
+        """
+        if self.expected_no_tools and self.expected_tools:
+            raise ValueError(
+                "expected_no_tools=True is incompatible with a non-empty expected_tools list",
+            )
+        if self.expected_no_tools and self.expected_tool_count not in (None, 0):
+            raise ValueError(
+                "expected_no_tools=True is incompatible with expected_tool_count != 0",
+            )
+        return self
 
 
 class Suite(_StrictModel):
@@ -102,4 +153,4 @@ class Suite(_StrictModel):
         return len(self.examples)
 
 
-__all__ = ["Suite", "SuiteExample"]
+__all__ = ["ExpectedToolCall", "Suite", "SuiteExample"]

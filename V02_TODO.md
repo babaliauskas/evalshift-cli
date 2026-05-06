@@ -92,53 +92,53 @@ Goal: `aimigrate test-call --model X --tools tools.yaml --prompt "..."` returns 
 Goal: end-to-end pipeline runs an agent prompt through both models, scores with `tool_selection`, and renders existing report sections.
 
 ### 2.1 Suite extension (`src/aimigrate/suite/models.py`, extend)
-- [ ] `ExpectedToolCall` model: `tool_name`, optional `arguments`, `match_strategy: Literal["exact", "subset", "contains_per_field"] = "subset"`. `extra='forbid'`.
-- [ ] Extend `SuiteExample` with optional fields: `expected_tools: list[ExpectedToolCall] | None`, `expected_tool_count: int | None`, `expected_no_tools: bool = False`, `expected_parallel: bool | None`.
-- [ ] **Backward compatibility test**: existing v0.1 suite JSONL (no tool fields) still loads via `aimigrate.suite.loader.load_jsonl`.
-- [ ] **Tests**: round-trip new fields; mutual-exclusion check (`expected_no_tools=True` + non-empty `expected_tools` → validation error); load v0.1 suite still works.
+- [x] `ExpectedToolCall` model: `tool_name`, optional `arguments`, `match_strategy: Literal["exact", "subset", "contains_per_field"] = "subset"`. `extra='forbid'`.
+- [x] Extend `SuiteExample` with optional fields: `expected_tools: list[ExpectedToolCall] | None`, `expected_tool_count: int | None`, `expected_no_tools: bool = False`, `expected_parallel: bool | None`.
+- [x] **Backward compatibility test**: existing v0.1 suite JSONL (no tool fields) still loads via `aimigrate.suite.loader.load_jsonl`.
+- [x] **Tests**: round-trip new fields; mutual-exclusion check (`expected_no_tools=True` + non-empty `expected_tools` → validation error); load v0.1 suite still works.
 
 ### 2.2 Config schema extension (`src/aimigrate/config/models.py`, extend)
-- [ ] Add `tools_path: str | None = None` to `PromptDefinition`. When set, the prompt is treated agent-style.
-- [ ] Add `ToolSelectionEvaluatorConfig` (mode: exact/set/first/expected, applies_to, severity_floor), `ToolArgumentsEvaluatorConfig` (strategies dict, numeric_tolerance, use_llm_judge_fallback), `ToolTraceStructureEvaluatorConfig` (check_call_count/parallelism/refusals/expected_count, call_count_tolerance).
-- [ ] Extend `EvaluatorsConfig` with optional `tool_selection`, `tool_arguments`, `tool_trace_structure` lists/objects.
-- [ ] **Tests**: existing v0.1 configs validate unchanged; new fields validate; `tools_path` present without any tool evaluator configured doesn't fail validation (handled via Phase 3 doctor warning instead).
+- [x] Add `tools_path: str | None = None` to `PromptDefinition`. When set, the prompt is treated agent-style.
+- [x] Add `ToolSelectionEvaluatorConfig` (mode: exact/set/first/expected, applies_to, severity_floor), `ToolArgumentsEvaluatorConfig` (strategies dict, numeric_tolerance, use_llm_judge_fallback), `ToolTraceStructureEvaluatorConfig` (check_call_count/parallelism/refusals/expected_count, call_count_tolerance).
+- [x] Extend `EvaluatorsConfig` with optional `tool_selection`, `tool_arguments`, `tool_trace_structure` lists/objects.
+- [x] **Tests**: existing v0.1 configs validate unchanged; new fields validate; `tools_path` present without any tool evaluator configured doesn't fail validation (handled via Phase 3 doctor warning instead).
 
 ### 2.3 Tools loader (`src/aimigrate/evaluators/tool_loader.py`, new)
-- [ ] `load_tools(path: Path) -> list[ToolSpec]` — accept yaml or json; resolve relative paths against the config dir.
-- [ ] Friendly errors: missing file, bad shape, empty list (mirrors `ConfigError` / `SuiteError` rendering — plain + rich).
-- [ ] **Tests**: yaml + json happy paths, missing file, malformed.
+- [x] `load_tools(path: Path) -> list[ToolSpec]` — accept yaml or json; resolve relative paths against the config dir.
+- [x] Friendly errors: missing file, bad shape, empty list (mirrors `ConfigError` / `SuiteError` rendering — plain + rich).
+- [x] **Tests**: yaml + json happy paths, missing file, malformed.
 
 ### 2.4 `Call` model + persistence extension (`src/aimigrate/runner/models.py`, extend)
-- [ ] Add `trace: ToolTrace | None = None` to `Call`.
-- [ ] Wire serialisation in `aimigrate.runner.checkpoint.append_call` and `iter_calls` — `ToolTrace` round-trips losslessly via pydantic so this is mostly free.
-- [ ] **Backward-compat test**: existing `raw.jsonl` (no `trace` field) loads cleanly; Calls with `trace=None` serialise without producing the key.
+- [x] Add `trace: ToolTrace | None = None` to `Call`.
+- [x] Wire serialisation in `aimigrate.runner.checkpoint.append_call` and `iter_calls` — `ToolTrace` round-trips losslessly via pydantic so this is mostly free.
+- [x] **Backward-compat test**: existing `raw.jsonl` (no `trace` field) loads cleanly; Calls with `trace=None` serialise without producing the key.
 
 ### 2.5 Orchestrator dispatch (`src/aimigrate/runner/orchestrator.py`, extend)
-- [ ] If a `PromptDefinition.tools_path` is set, load `ToolSpec`s and call `client.complete_with_tools(...)`; otherwise existing `client.complete(...)` path. Both produce a `Call` row, only one populates `.trace`.
-- [ ] Cost gate / progress bar / checkpointing all unchanged.
-- [ ] **Tests** (`tests/unit/test_orchestrator.py`, extend): mixed run (one agent prompt + one plain prompt) writes the right `trace` field on the right rows; a tool-call exception still records a `Call(error=...)` and doesn't crash.
+- [x] If a `PromptDefinition.tools_path` is set, load `ToolSpec`s and call `client.complete_with_tools(...)`; otherwise existing `client.complete(...)` path. Both produce a `Call` row, only one populates `.trace`.
+- [x] Cost gate / progress bar / checkpointing all unchanged.
+- [x] **Tests** (`tests/unit/test_orchestrator.py`, extend): mixed run (one agent prompt + one plain prompt) writes the right `trace` field on the right rows; a tool-call exception still records a `Call(error=...)` and doesn't crash.
 
 ### 2.6 `ToolSelectionEvaluator` (`src/aimigrate/evaluators/tool_selection.py`, new)
-- [ ] Implements the `Evaluator` Protocol. Four modes: `exact` (sequence equality), `set` (Jaccard), `first` (only first call), `expected` (default; matches against `example.expected_tools` order-preserving).
-- [ ] `expected_no_tools=True` short-circuits to 1.0 if target made 0 calls else 0.0.
-- [ ] If `mode="expected"` and example has no `expected_tools`, returns a neutral `EvalRecord` with `metadata={"skipped": "no expected_tools"}` — doesn't pollute the analysis.
-- [ ] Source-side score follows the same logic against the source's own trace (so a regression vs. expected is visible as a paired delta).
-- [ ] **Tests** (`tests/unit/test_tool_selection.py`, ~25 cases): every mode × every interesting suite shape from PRD §9.2.
+- [x] Implements the `Evaluator` Protocol. Four modes: `exact` (sequence equality), `set` (Jaccard), `first` (only first call), `expected` (default; matches against `example.expected_tools` order-preserving).
+- [x] `expected_no_tools=True` short-circuits to 1.0 if target made 0 calls else 0.0.
+- [x] If `mode="expected"` and example has no `expected_tools`, returns a neutral `EvalRecord` with `metadata={"skipped": "no expected_tools"}` — doesn't pollute the analysis.
+- [x] Source-side score follows the same logic against the source's own trace (so a regression vs. expected is visible as a paired delta).
+- [x] **Tests** (`tests/unit/test_tool_selection.py`, ~25 cases): every mode × every interesting suite shape from PRD §9.2.
 
 ### 2.7 Evaluator runner integration (`src/aimigrate/cli/commands/evaluate.py`, extend)
-- [ ] Build the tool evaluator(s) when `cfg.evaluators.tool_selection` is configured; skip per (prompt, example) when `call.trace is None`.
-- [ ] When source or target trace is missing (one side errored), record a neutral `EvalRecord` with `error="upstream call failed"` (existing pattern).
-- [ ] **Tests** (`tests/unit/test_evaluate_command.py`, extend): mixed text + agent prompts; agent-only prompts with no tool evaluator config skip cleanly.
+- [x] Build the tool evaluator(s) when `cfg.evaluators.tool_selection` is configured; skip per (prompt, example) when `call.trace is None`.
+- [x] When source or target trace is missing (one side errored), record a neutral `EvalRecord` with `error="upstream call failed"` (existing pattern).
+- [x] **Tests** (`tests/unit/test_evaluate_command.py`, extend): mixed text + agent prompts; agent-only prompts with no tool evaluator config skip cleanly.
 
 ### 2.8 Fixture agent project (`examples/agent/`, new)
-- [ ] `aimigrate.yaml` (1 agent prompt, 3 tools, length structural + tool_selection; Gemini defaults like the v0.1 init).
-- [ ] `prompts.py` with a single `AGENT_SYSTEM_PROMPT` literal.
-- [ ] `tools.yaml` defining 3 tools (`search_orders`, `send_email`, `notify_security_team`).
-- [ ] `golden.jsonl` with ~20 examples mixing positive (`expected_tools`), negative (`expected_no_tools`), and tag-tagged for slicing.
-- [ ] `README.md` walkthrough.
+- [x] `aimigrate.yaml` (1 agent prompt, 3 tools, length structural + tool_selection; Gemini defaults like the v0.1 init).
+- [x] `prompts.py` with a single `AGENT_SYSTEM_PROMPT` literal.
+- [x] `tools.yaml` defining 3 tools (`search_orders`, `send_email`, `notify_security_team`).
+- [x] `golden.jsonl` with ~20 examples mixing positive (`expected_tools`), negative (`expected_no_tools`), and tag-tagged for slicing.
+- [x] `README.md` walkthrough.
 
 ### Phase 2 verification
-- [ ] `aimigrate run --from gemini-2.5-flash --to gemini-2.5-pro` against `examples/agent/` (mocked LLM in tests, real Gemini for manual smoke) writes `Call` rows with `.trace` populated; `aimigrate evaluate` produces `tool_selection` records; existing report still renders without crashing on the new evaluator name.
+- [x] `aimigrate run --from gemini-2.5-flash --to gemini-2.5-pro` against `examples/agent/` (mocked LLM in tests, real Gemini for manual smoke) writes `Call` rows with `.trace` populated; `aimigrate evaluate` produces `tool_selection` records; existing report still renders without crashing on the new evaluator name.
 
 ---
 

@@ -1,0 +1,37 @@
+# Tool specifications for the customer-routing agent.
+# AIMigrate accepts either Anthropic-shape (this file) or OpenAI-shape.
+- name: search_orders
+  description: |
+    Look up a customer's recent orders. Use this for any inbound request
+    that mentions order status, refunds, or shipping questions.
+  input_schema:
+    type: object
+    properties:
+      customer_id: {type: string, description: "Customer ID to search."}
+    required: [customer_id]
+
+- name: notify_security_team
+  description: |
+    Page the security team about suspicious or sensitive activity.
+    Always use this for messages mentioning failed logins, account
+    takeover attempts, or unauthorized data access.
+  input_schema:
+    type: object
+    properties:
+      severity:
+        type: string
+        enum: [low, medium, high, critical]
+      summary:
+        type: string
+        description: "One-sentence description of the incident."
+    required: [severity, summary]
+
+- name: send_email
+  description: Send a confirmation or follow-up email to a customer.
+  input_schema:
+    type: object
+    properties:
+      to: {type: string, description: "Recipient email address."}
+      subject: {type: string}
+      body: {type: string}
+    required: [to, subject, body]

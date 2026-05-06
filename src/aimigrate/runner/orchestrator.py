@@ -41,6 +41,8 @@ from rich.progress import (
 
 from aimigrate.cache.store import CacheStore, cache_key
 from aimigrate.config.models import AIMigrateConfig
+from aimigrate.evaluators.tool_loader import load_tools
+from aimigrate.evaluators.tool_models import ToolSpec
 from aimigrate.models.client import ModelClient, ModelClientError
 from aimigrate.models.registry import resolve_model
 from aimigrate.parsers.base import PromptParseError, PromptTemplate
@@ -77,12 +79,19 @@ COST_CONFIRM_THRESHOLD_USD: float = 10.0
 
 @dataclass(frozen=True, slots=True)
 class WorkItem:
-    """One unit of work: a single LLM call to make."""
+    """One unit of work: a single LLM call to make.
+
+    When ``tools`` is non-empty, the orchestrator dispatches to
+    ``ModelClient.complete_with_tools`` and the resulting :class:`Call`
+    carries a populated ``trace``. Otherwise the standard text-only
+    ``ModelClient.complete`` path runs.
+    """
 
     prompt: PromptTemplate
     example: SuiteExample
     role: CallRole
     model_id: str  # canonical id, post-alias resolution
+    tools: tuple[ToolSpec, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +161,10 @@ async def run_orchestrator(
     # template variable. This raises the friendly Phase 2 error.
     validate_suite_against_prompts(suite, templates)
 
+    # v0.2 — load any per-prompt tool specs so agent prompts dispatch
+    # to ``complete_with_tools``. Plain prompts get an empty tuple.
+    tools_by_prompt = _load_tools_per_prompt(config, project_root)
+
     canonical_source = resolve_model(source_model).id
     canonical_target = resolve_model(target_model).id
 
@@ -176,6 +189,7 @@ async def run_orchestrator(
         suite=suite,
         canonical_source=canonical_source,
         canonical_target=canonical_target,
+        tools_by_prompt=tools_by_prompt,
     )
     pending = [w for w in work if (w.prompt.id, w.example.id, w.role) not in completed_keys]
 
@@ -237,6 +251,27 @@ def _parse_prompts(config: AIMigrateConfig, project_root: Path) -> list[PromptTe
     return out
 
 
+def _load_tools_per_prompt(
+    config: AIMigrateConfig,
+    project_root: Path,
+) -> dict[str, tuple[ToolSpec, ...]]:
+    """Return ``{prompt_id: tuple[ToolSpec, ...]}`` for every agent-style prompt.
+
+    Prompts without ``tools_path`` map to an empty tuple. Errors raised
+    by the loader are surfaced unchanged so the CLI can render them.
+    """
+    out: dict[str, tuple[ToolSpec, ...]] = {}
+    for prompt in config.prompts:
+        if not prompt.tools_path:
+            out[prompt.id] = ()
+            continue
+        path = Path(prompt.tools_path)
+        if not path.is_absolute():
+            path = project_root / path
+        out[prompt.id] = tuple(load_tools(path))
+    return out
+
+
 def _setup_run(
     *,
     config: AIMigrateConfig,
@@ -281,9 +316,12 @@ def _build_work_list(
     suite: Suite,
     canonical_source: str,
     canonical_target: str,
+    tools_by_prompt: dict[str, tuple[ToolSpec, ...]] | None = None,
 ) -> list[WorkItem]:
+    tools_by_prompt = tools_by_prompt or {}
     work: list[WorkItem] = []
     for tmpl in templates:
+        tools = tools_by_prompt.get(tmpl.id, ())
         for example in suite.examples:
             work.append(
                 WorkItem(
@@ -291,6 +329,7 @@ def _build_work_list(
                     example=example,
                     role="source",
                     model_id=canonical_source,
+                    tools=tools,
                 ),
             )
             work.append(
@@ -299,6 +338,7 @@ def _build_work_list(
                     example=example,
                     role="target",
                     model_id=canonical_target,
+                    tools=tools,
                 ),
             )
     return work
@@ -445,8 +485,25 @@ async def _execute(
     prompt_text: str,
     cache_enabled: bool,
 ) -> Call:
-    """Cache-check → live call → record. Returns the constructed Call."""
+    """Cache-check → live call → record. Returns the constructed Call.
+
+    For agent-style work items (``item.tools`` non-empty), dispatches to
+    :meth:`ModelClient.complete_with_tools` and stores the parsed
+    :class:`ToolTrace` on the resulting :class:`Call`. The local SQLite
+    cache is intentionally bypassed for tool calls in v0.2 — caching
+    serialised traces is a v0.3 polish.
+    """
     meta = resolve_model(item.model_id)
+
+    if item.tools:
+        return await _execute_with_tools(
+            client=client,
+            run_id=run_id,
+            item=item,
+            prompt_text=prompt_text,
+            canonical_id=meta.id,
+        )
+
     key = cache_key(
         model_id=meta.id,
         prompt_text=prompt_text,
@@ -511,6 +568,45 @@ async def _execute(
         )
 
     return call
+
+
+async def _execute_with_tools(
+    *,
+    client: ModelClient,
+    run_id: str,
+    item: WorkItem,
+    prompt_text: str,
+    canonical_id: str,
+) -> Call:
+    """Tool-aware call path: dispatch + record the trace on the Call."""
+    try:
+        result = await client.complete_with_tools(
+            model=canonical_id,
+            prompt=prompt_text,
+            tools=list(item.tools),
+        )
+    except ModelClientError as exc:
+        return Call(
+            run_id=run_id,
+            prompt_id=item.prompt.id,
+            example_id=item.example.id,
+            model_id=canonical_id,
+            role=item.role,
+            error=str(exc),
+        )
+    return Call(
+        run_id=run_id,
+        prompt_id=item.prompt.id,
+        example_id=item.example.id,
+        model_id=canonical_id,
+        role=item.role,
+        text=result.trace.final_text or "",
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        cost_usd=result.cost_usd,
+        latency_ms=result.latency_ms,
+        trace=result.trace,
+    )
 
 
 # Re-exported so the CLI can catch them with one import.
