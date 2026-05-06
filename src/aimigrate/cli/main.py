@@ -14,6 +14,7 @@ import typer
 from aimigrate import __version__
 from aimigrate.cli.commands.doctor import doctor as _doctor
 from aimigrate.cli.commands.init import init as _init
+from aimigrate.cli.commands.validate import validate as _validate
 
 app = typer.Typer(
     name="aimigrate",
@@ -47,6 +48,9 @@ def main_callback(
 
 app.command(name="doctor")(_doctor)
 app.command(name="init")(_init)
+# `validate` is a Phase 2 dev/debug command; hidden from the top-level help.
+# It will be removed (or relocated under a hidden --debug group) in Phase 8.4.
+app.command(name="validate", hidden=True)(_validate)
 
 
 @app.command()

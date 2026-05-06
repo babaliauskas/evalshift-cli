@@ -1,0 +1,6 @@
+version: 1
+prompts:
+  - id: greet
+    detection: manual
+    content: "Greet {name} in a {tone} tone."
+    variables: [name, tone]

@@ -1,0 +1,7 @@
+version: 1
+prompts:
+  - id: greet
+    detection: python_string
+    path: prompts.py
+    variable: GREET_PROMPT
+    variables: [name, tone]

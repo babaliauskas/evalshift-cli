@@ -82,31 +82,36 @@ Goal: installable CLI; `aimigrate --version`, `aimigrate doctor`, `aimigrate ini
 
 ---
 
-## Phase 2 — Prompt + suite loading
+## Phase 2 — Prompt + suite loading ✅ COMPLETE
+
+178 tests, 96% line coverage, mypy strict + ruff + format all clean. End-to-end verified: `aimigrate init && aimigrate validate` prints `✓ Loaded 1 prompt, 3 examples; …`; adding a row that's missing a template variable produces a structured error pointing at `(greet, ex_broken, missing={tone})` and exits 1.
 
 ### 2.1 Suite models (`src/aimigrate/suite/models.py`)
-- [ ] `SuiteExample` (id, inputs, tags, optional expected).
-- [ ] `Suite` with `by_tag`, `validate_inputs_for_template`.
-- [ ] **Tests**.
+- [x] `SuiteExample` (id, inputs, tags, optional expected); `extra='forbid'`, non-empty id.
+- [x] `Suite` with `by_tag`, `ids`, `__len__`; duplicate-id detection via model validator.
+- [x] **Tests** (`tests/unit/test_suite_models.py`, 15 cases): construction, equality, `by_tag` (multi-tag, suite order, unknown tag), duplicate-id rejection, dump round-trip, `extra='forbid'`.
 
 ### 2.2 Suite loader (`src/aimigrate/suite/loader.py`)
-- [ ] `load_jsonl(path) -> Suite` with line-by-line errors; reject duplicate ids.
-- [ ] **Tests**: well-formed, malformed line, empty, duplicates.
+- [x] `SuiteError` (kind = missing/not_a_file/empty/json_parse/schema/duplicate_ids) with `format_plain` + `format_rich`.
+- [x] `load_jsonl(path) -> Suite`: blank-line tolerant, line-numbered errors, collect-all-errors approach.
+- [x] **Tests** (`tests/unit/test_suite_loader.py`, 22 cases): happy path, missing/dir/empty file, malformed JSON line, schema errors with row-id locations, multiple parse errors, duplicate ids.
 
 ### 2.3 Prompt parsers (`src/aimigrate/parsers/`)
-- [ ] `base.py` Protocol returning `PromptTemplate`.
-- [ ] `manual.py` reads inline `content` from config.
-- [ ] `python_string.py` AST-walks `.py` for module-level Assign matching `variable`; rejects non-literal strings (no eval).
-- [ ] **Tests** for each parser, including AST safety.
+- [x] `base.py` — `PromptTemplate` dataclass + `PromptParser` Protocol + `PromptParseError`.
+- [x] `manual.py` — `ManualParser` (returns inline content verbatim).
+- [x] `python_string.py` — `PythonStringParser` AST-walks for module-level `Assign(Name=variable, Constant(str))`; rejects f-strings, BinOp concatenation, `.format()` calls, function calls, attribute access, name references, non-string constants. `variable_not_found` error lists every available module-level name. Relative paths resolve against `project_root`; absolute paths used as-is.
+- [x] **Tests** (`tests/unit/test_parsers.py`, 23 cases): Protocol conformance, ManualParser, happy paths (single/triple-quoted/multiple-assignments-takes-last), every non-literal rejection, file-system errors, syntax errors.
 
 ### 2.4 Template substitution (`src/aimigrate/utils/templating.py`)
-- [ ] `string.Formatter` to extract template vars; `render(template, inputs)` raises on missing.
-- [ ] `validate_suite_against_prompts(suite, prompts)` aborts with full missing-var list.
-- [ ] **Tests**: happy path, missing/extra vars, escaped braces.
+- [x] `extract_variables(template) -> set[str]` via `string.Formatter`; handles escaped braces, attribute/index access roots, format specs, conversion flags, ignores positional placeholders.
+- [x] `render(template, inputs) -> str`: strict `format_map` proxy collects every missing variable; raises `MissingTemplateVariableError(missing: set)` (subclass of `KeyError`).
+- [x] `validate_suite_against_prompts(suite, templates)`: cross-checks every (template, example) pair, raises `SuiteCompatibilityError` carrying the full list of `CompatibilityIssue` records.
+- [x] **Tests** (`tests/unit/test_templating.py`, 25 cases): all of the above.
 
 ### 2.5 Temporary `validate` command
-- [ ] Hidden dev command confirming prompts + suite compatible (removed in Phase 8).
-- [ ] **Tests** with `tests/integration/fixtures/`.
+- [x] `aimigrate validate [--config path] [--suite path]` registered with `hidden=True`. Loads config → suite → parsers → bulk compatibility check; prints `✓ Loaded N prompts, M examples; every example is compatible with every prompt.` on success or a Rich-rendered structured error on failure. Exit codes: 0 / 1.
+- [x] **Tests** (`tests/integration/test_validate_command.py`, 6 cases) with three fixture projects under `tests/integration/fixtures/`: happy path; missing template variable; non-literal `python_string`; missing config; missing suite; hidden-from-help check.
+- [ ] _(Cleanup deferred to Phase 8.4: remove or relocate under hidden `--debug`.)_
 
 ---
 
