@@ -27,7 +27,8 @@ def test_help_lists_all_commands() -> None:
         assert cmd in result.stdout
 
 
-def test_unimplemented_report_exits_nonzero() -> None:
-    # report is still stubbed (Phase 7); confirm it fails loudly.
-    result = runner.invoke(app, ["report"])
-    assert result.exit_code == 2
+def test_top_level_help_lists_main_commands() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    for cmd in ("doctor", "init", "run", "evaluate", "analyze", "report", "cache"):
+        assert cmd in result.stdout
