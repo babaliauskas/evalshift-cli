@@ -12,6 +12,8 @@ from typing import Annotated
 import typer
 
 from aimigrate import __version__
+from aimigrate.cli.commands.doctor import doctor as _doctor
+from aimigrate.cli.commands.init import init as _init
 
 app = typer.Typer(
     name="aimigrate",
@@ -43,16 +45,8 @@ def main_callback(
     """AIMigrate: safer LLM model migrations via paired evaluation."""
 
 
-@app.command()
-def doctor() -> None:
-    """Check environment and configuration. (Phase 1.4 — not yet implemented.)"""
-    raise typer.Exit(code=2)
-
-
-@app.command()
-def init() -> None:
-    """Scaffold an aimigrate.yaml + example suite. (Phase 1.5 — not yet implemented.)"""
-    raise typer.Exit(code=2)
+app.command(name="doctor")(_doctor)
+app.command(name="init")(_init)
 
 
 @app.command()

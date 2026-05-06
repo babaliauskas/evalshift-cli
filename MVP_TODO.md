@@ -64,20 +64,21 @@ Goal: installable CLI; `aimigrate --version`, `aimigrate doctor`, `aimigrate ini
 - [x] **Tests**: `CliRunner` for `--version`, `--help`, stub exit codes.
 
 ### 1.4 `aimigrate doctor` (`src/aimigrate/cli/commands/doctor.py`)
-- [ ] Check Python version, env keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`), `aimigrate.yaml` presence + validity.
-- [ ] Rich table with ✓/✗ glyphs.
-- [ ] Exit 0 if config valid (or absent), 1 if invalid.
-- [ ] **Tests**: monkeypatch env + cwd; assert glyphs and exit codes.
+- [x] Pure `run_checks(cwd, env) -> list[CheckResult]` core (Python version, three provider env keys, `aimigrate.yaml` presence + validity).
+- [x] Rich table with ✓/✗ glyphs (green ✓ for ok, yellow ✗ for warnings, red ✗ for hard failures).
+- [x] Exit 0 unless a hard failure exists (currently: invalid config); missing keys / no config = warn but exit 0.
+- [x] **Tests** (`tests/unit/test_doctor.py`, 13 cases): pure-function tests for every status × every check, plus CLI-level tests via `CliRunner` covering exit codes 0 and 1. 95% coverage.
 
 ### 1.5 `aimigrate init` (`src/aimigrate/cli/commands/init.py`)
-- [ ] Write commented starter `aimigrate.yaml`.
-- [ ] Write example `prompts.py` and `golden.jsonl`.
-- [ ] Refuse to overwrite without `--force`.
-- [ ] **Tests**: tmp_path; files created and parse cleanly via `load_config`.
+- [x] Heavily commented starter `aimigrate.yaml` covering every common section (prompts, defaults, evaluators, slices).
+- [x] Example `prompts.py` (with `GREET_PROMPT` referenced by the yaml) and a 3-row `golden.jsonl`.
+- [x] `--force` / `-f` to overwrite; default refuses and lists every conflicting file.
+- [x] `--directory` / `-d` to scaffold into a target dir; auto-creates missing parents.
+- [x] **Tests** (`tests/unit/test_init.py`, 11 cases): files written + parse via `load_config`; `prompts.py` is valid Python and defines every variable the yaml references; suite is valid JSONL; conflict detection + `--force` overwrite + `--directory` flag.
 
 ### 1.6 Phase docs
-- [ ] `docs/getting-started.md` covers install + `init` + `doctor`.
-- [ ] README "Hello world" snippet validated.
+- [x] `docs/getting-started.md` covers install + API keys + `init` + `doctor`.
+- [x] README quick-start updated to reflect what's actually shipped vs. in-progress.
 
 ---
 

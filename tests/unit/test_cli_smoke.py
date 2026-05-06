@@ -27,6 +27,7 @@ def test_help_lists_all_commands() -> None:
         assert cmd in result.stdout
 
 
-def test_unimplemented_doctor_exits_nonzero() -> None:
-    result = runner.invoke(app, ["doctor"])
+def test_unimplemented_run_exits_nonzero() -> None:
+    # run is still stubbed (Phase 4); confirm it fails loudly.
+    result = runner.invoke(app, ["run"])
     assert result.exit_code == 2

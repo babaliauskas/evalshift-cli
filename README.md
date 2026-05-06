@@ -26,17 +26,22 @@ for what's next.
 uv pip install aimigrate     # or: pip install aimigrate
 ```
 
-## Quick start (target API — not all commands implemented yet)
+## Quick start
+
+The commands marked **(implemented)** work today; the rest are landing
+incrementally — track progress in [`MVP_TODO.md`](MVP_TODO.md).
 
 ```bash
-aimigrate init               # scaffold aimigrate.yaml + example suite
-aimigrate doctor             # verify environment + config
-aimigrate run \
+aimigrate init               # (implemented) scaffold aimigrate.yaml + example suite
+aimigrate doctor             # (implemented) verify environment + config
+aimigrate run \              # (in progress, Phase 4)
   --from claude-4.5-sonnet \
   --to   claude-5-sonnet \
   --suite golden.jsonl
-aimigrate report <run-id>    # write a single-file HTML report
+aimigrate report <run-id>    # (planned, Phase 7) write a single-file HTML report
 ```
+
+See [`docs/getting-started.md`](docs/getting-started.md) for the full walkthrough.
 
 ## Why local-first?
 
