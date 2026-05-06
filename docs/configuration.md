@@ -95,6 +95,46 @@ The semantic evaluator scores the **target's similarity to the source**:
 target_score = cosine(source, target), source_score = 1.0. A
 negative `delta` means the target drifted from the source's meaning.
 
+### `evaluators.tool_selection` (v0.2)
+
+A list. Each entry has:
+
+| Field             | Type   | Default       | Description |
+| ----------------- | ------ | ------------- | ----------- |
+| `name`            | string | (required)    | Identifier surfaced in reports.  |
+| `mode`            | enum   | `expected`    | `exact` / `set` / `first` / `expected`. |
+| `applies_to`      | list   | `["*"]`       | Glob list of prompt ids. |
+| `severity_floor`  | enum   | `null`        | If set, surfaces in metadata so the analysis layer can floor severity. |
+
+### `evaluators.tool_arguments` (v0.2)
+
+| Field                   | Type   | Default | Description |
+| ----------------------- | ------ | ------- | ----------- |
+| `name`                  | string | (required) | Identifier. |
+| `applies_to`            | list   | `["*"]` | Glob list. |
+| `strategies`            | dict   | `{}`    | Per-field strategy overrides (`exact`/`subset`/`numeric`/`semantic`). |
+| `numeric_tolerance`     | float  | `0.05`  | Relative-error tolerance for `numeric`. |
+| `use_llm_judge_fallback`| bool   | `false` | Reserved; ignored in v0.2. |
+
+### `evaluators.tool_trace_structure` (v0.2)
+
+| Field                 | Type   | Default | Description |
+| --------------------- | ------ | ------- | ----------- |
+| `name`                | string | (required) | Identifier. |
+| `applies_to`          | list   | `["*"]` | Glob list. |
+| `check_call_count`    | bool   | `true`  | Score the number of tool calls. |
+| `check_parallelism`   | bool   | `true`  | Score parallel-vs-sequential alignment. |
+| `check_refusals`      | bool   | `true`  | Score refusal alignment; mismatches force `severity_floor: high`. |
+| `call_count_tolerance`| int    | `1`     | `+/- N` calls considered equivalent. |
+
+### `prompts[].tools_path` (v0.2)
+
+When set on a prompt, AIMigrate treats it as an agent prompt: loads
+the tool specs from the file, dispatches via
+`ModelClient.complete_with_tools`, populates `Call.trace`, and runs
+the configured tool evaluators. v0.1 prompts (`tools_path` unset)
+flow unchanged through the text-only path.
+
 ### `evaluators.llm_judge`
 
 A list of pairwise judges. Each entry has:

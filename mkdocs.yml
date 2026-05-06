@@ -32,6 +32,7 @@ nav:
   - Getting started: getting-started.md
   - Configuration: configuration.md
   - Evaluators: evaluators.md
+  - Agent migrations (v0.2): agents.md
   - Methodology: methodology.md
   - FAQ: faq.md
   - Changelog: changelog.md

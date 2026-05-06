@@ -125,3 +125,54 @@ footer {
   font-size: 13px;
 }
 footer a { color: var(--accent); }
+
+/* v0.2 — tool trace diff styling. */
+.trace-list {
+  list-style: decimal inside;
+  padding: 0;
+  margin: 0 0 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.trace-call {
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 3px solid var(--border);
+}
+.trace-call.trace-match {
+  border-left-color: var(--improved);
+}
+.trace-call.trace-extra {
+  border-left-color: var(--medium);
+  background: rgba(245, 159, 0, 0.08);
+}
+.trace-call.trace-missing {
+  border-left-color: var(--high);
+}
+.trace-args {
+  color: var(--muted);
+  margin-left: 6px;
+}
+.trace-empty {
+  font-style: italic;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.trace-empty.trace-missing {
+  color: var(--high);
+  font-weight: 600;
+}
+.trace-final {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.trace-final em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 600;
+  margin-right: 4px;
+}

@@ -57,6 +57,24 @@ Every artefact lives under `.aimigrate/runs/<run-id>/` — `state.json`,
 `raw.jsonl`, `scores.jsonl`, `analysis.json`, `report.json`,
 `report.html`. None of it leaves your machine.
 
+## Agent migrations (v0.2)
+
+Migrating an agent (a prompt that uses tools)? AIMigrate v0.2 detects
+regressions in *which* tools the new model calls, *what* arguments it
+passes, and *how* it sequences them. The killer scenario: a routing
+agent that silently stops calling `notify_security_team` after the
+migration — text-only eval reports green, v0.2 marks it CRITICAL.
+
+```bash
+cd examples/agent
+aimigrate run --yes --from gemini-2.5-flash --to gemini-2.5-pro
+# evaluate / analyze / report just like the regular flow
+```
+
+See [`docs/agents.md`](docs/agents.md) for the full walkthrough and
+the [`examples/agent/`](examples/agent/) directory for a runnable
+customer-routing example.
+
 ## What the report looks like
 
 The HTML report (single file, no external assets, works offline) has:

@@ -22,6 +22,7 @@ from typing import Any
 from aimigrate.cli.commands.analyze import ANALYSIS_FILENAME
 from aimigrate.cli.commands.evaluate import SCORES_FILENAME
 from aimigrate.evaluators.base import EvalRecord
+from aimigrate.evaluators.tool_models import ToolTrace
 from aimigrate.runner.checkpoint import iter_calls, read_state
 from aimigrate.runner.models import Call, RunState
 
@@ -38,6 +39,11 @@ class TopRegression:
     delta: float
     source_text: str
     target_text: str
+    # v0.2 — populated when the regression is on a tool evaluator. The
+    # HTML report renders these as a side-by-side trace diff in place
+    # of the source/target text panes.
+    source_trace: ToolTrace | None = None
+    target_trace: ToolTrace | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +54,9 @@ class PromptSection:
     aggregate_rows: list[dict[str, Any]]  # serialised SliceAggregate per evaluator
     slice_rows: list[dict[str, Any]]  # serialised ComparisonResult rows
     top_regressions: list[TopRegression]
+    # v0.2 — when at least one Call has a populated trace, render a
+    # "Tool Trace Comparison" section with example-level diffs.
+    has_tool_traces: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,14 +213,25 @@ def _build_prompt_sections(
                     delta=r.delta,
                     source_text=src.text if src else "",
                     target_text=tgt.text if tgt else "",
+                    source_trace=src.trace if src else None,
+                    target_trace=tgt.trace if tgt else None,
                 ),
             )
+        # v0.2 — does this prompt have any traces at all? Drives the
+        # "Tool Trace Comparison" subsection in the HTML template.
+        has_traces = any(
+            (sides.get("source") and sides["source"].trace is not None)
+            or (sides.get("target") and sides["target"].trace is not None)
+            for (pid, _ex_id), sides in by_prompt_calls.items()
+            if pid == prompt_id
+        )
         sections.append(
             PromptSection(
                 prompt_id=prompt_id,
                 aggregate_rows=aggregates_all,
                 slice_rows=slice_rows,
                 top_regressions=top,
+                has_tool_traces=has_traces,
             ),
         )
     return sections
@@ -249,6 +269,7 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
                 "prompt_id": ps.prompt_id,
                 "aggregate_rows": ps.aggregate_rows,
                 "slice_rows": ps.slice_rows,
+                "has_tool_traces": ps.has_tool_traces,
                 "top_regressions": [
                     {
                         "prompt_id": tr.prompt_id,
@@ -257,6 +278,8 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
                         "delta": tr.delta,
                         "source_text": tr.source_text,
                         "target_text": tr.target_text,
+                        "source_trace": (tr.source_trace.model_dump() if tr.source_trace else None),
+                        "target_trace": (tr.target_trace.model_dump() if tr.target_trace else None),
                     }
                     for tr in ps.top_regressions
                 ],

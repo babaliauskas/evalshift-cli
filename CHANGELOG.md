@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — Tool-call evaluation
+
+Adds agent-migration support: detects regressions in *which* tools the
+new model calls, *what* arguments it passes, and *how* it sequences
+them. v0.1 backward compatible — every existing example keeps working
+without changes.
+
+### Added
+
+- `aimigrate.evaluators.tool_models`: provider-agnostic `ToolSpec`,
+  `ToolCall`, `ToolTrace`. `ToolSpec.to_anthropic` / `to_openai` /
+  `from_dict` adapters keep wire-format details out of user code.
+- `aimigrate.evaluators.tool_parser`: `parse_response_to_trace`
+  dispatcher with three provider parsers. Handles the LiteLLM
+  Anthropic-normalised-to-OpenAI shape transparently. Malformed
+  argument JSON marked `_parse_error` instead of crashing.
+- `aimigrate.evaluators.tool_loader`: `load_tools(yaml or json)` with
+  the same plain/rich error rendering pattern as `ConfigError`.
+- `aimigrate.models.client.complete_with_tools` and
+  `ToolCompletionResult` — tool-aware call path that doesn't replace
+  the existing `complete` / `CompletionResult`.
+- `aimigrate test-call --tools <path>` smoke command extension.
+- `scripts/smoke_live_tools.py` for fixture capture (manual; not in CI).
+- Three new evaluators wired into `aimigrate evaluate`:
+  - `ToolSelectionEvaluator` (modes: exact / set / first / expected)
+  - `ToolArgumentsEvaluator` (per-field strategies: exact / subset /
+    numeric / semantic; greedy nearest-index call matching)
+  - `ToolTraceStructureEvaluator` (call_count / parallelism /
+    refusal_alignment / expected_count_alignment; refusal mismatches
+    force severity_floor: high)
+- Suite extension: optional `expected_tools` (with per-call
+  `match_strategy`), `expected_tool_count`, `expected_no_tools`,
+  `expected_parallel`. Mutual-exclusion checks where appropriate.
+- Config extension: `prompts[].tools_path` makes a prompt agent-style;
+  `evaluators.{tool_selection, tool_arguments, tool_trace_structure}`
+  blocks added.
+- Orchestrator dispatch: agent prompts route through
+  `complete_with_tools`; the resulting `Call.trace` round-trips via
+  pydantic so `raw.jsonl` Just Works.
+- HTML report extension: per-prompt "Top regressions" section now
+  renders side-by-side trace diffs for tool-evaluator regressions
+  with green / yellow / red colour coding for matching / different-
+  args / missing-extra calls. CSS stays inlined.
+- `aimigrate doctor` warns about common agent-config mistakes:
+  prompts with `tools_path` but no tool evaluators, and suite
+  examples with `expected_tools` but no agent prompts.
+- Docs: `docs/agents.md` walkthrough, plus configuration / evaluators
+  / faq updates.
+- `examples/agent/` runnable customer-routing example with 12 golden
+  rows across security / routine / text-only slices.
+
+### Quality
+
+- 512+ tests, including end-to-end integration tests covering the
+  PRD §9.3 failure-mode grid. ruff + format + mypy --strict clean.
+- v0.1 backward compatibility verified: existing 462 tests still
+  green; `examples/simple/` unchanged.
+
 ## [0.1.0]
 
 First alpha release. Every command in the planned MVP pipeline is shipped.

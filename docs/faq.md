@@ -67,6 +67,22 @@ Two common causes:
 If you expected a real signal, double-check your evaluator output
 range — many "all the same" cases are evaluators returning a constant.
 
+## Does AIMigrate work with LangChain agents?
+
+You don't need LangChain to use AIMigrate. v0.2 reads tool definitions
+from a yaml/json file (Anthropic-shape or OpenAI-shape — either
+works). If your tools are defined as LangChain `Tool` objects, export
+them to JSON Schema once and point `tools_path` at the result.
+
+LangChain `AgentExecutor` *auto-detection* (read tools straight from
+the agent code) is deferred to v0.3.
+
+## Does AIMigrate evaluate multi-turn conversations?
+
+Not in v0.2. The pipeline scores one assistant turn against another
+for the same user input. Multi-turn evaluation (where each turn might
+produce its own tool calls) is on the v0.3 roadmap.
+
 ## Where is `aimigrate validate` / `aimigrate test-call` in `--help`?
 
 They're hidden — they're development aids that we plan to relocate

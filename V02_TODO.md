@@ -190,33 +190,33 @@ Goal: every PRD §2.1 failure mode (1–7) maps to a tool evaluator that catches
 Goal: HTML report renders side-by-side trace diffs; new docs cover the agent workflow; v0.2 ready for tagging.
 
 ### 4.1 Report data extension (`src/aimigrate/reports/json.py`, extend)
-- [ ] `TopRegression` (or sibling) carries the source/target `ToolTrace` when the regression is on a tool evaluator. `build_report_payload` populates from `Call.trace`.
-- [ ] **Tests**: payload round-trip for an agent run preserves trace data.
+- [x] `TopRegression` (or sibling) carries the source/target `ToolTrace` when the regression is on a tool evaluator. `build_report_payload` populates from `Call.trace`.
+- [x] **Tests**: payload round-trip for an agent run preserves trace data.
 
 ### 4.2 HTML template extension (`src/aimigrate/reports/templates/report.html.j2` + `report.css`)
-- [ ] New "Tool Trace Comparison" subsection per agent prompt, rendered only when at least one row has trace data.
-- [ ] Side-by-side diff: source list left, target list right, colour-coded (green = exact match, yellow = different args, red = missing/extra, grey = unrelated).
-- [ ] When a top-5 regression is on a tool evaluator, render the trace diff inline in place of the existing source/target text panes.
-- [ ] CSS additions stay inlined per v0.1's "single-file HTML, no external assets" rule.
-- [ ] **Tests** (`tests/unit/test_reports.py`, extend): rendered HTML for an agent run contains "Tool Trace Comparison" section, has the colour classes, no `<script>` tags appeared.
+- [x] New "Tool Trace Comparison" subsection per agent prompt, rendered only when at least one row has trace data.
+- [x] Side-by-side diff: source list left, target list right, colour-coded (green = exact match, yellow = different args, red = missing/extra, grey = unrelated).
+- [x] When a top-5 regression is on a tool evaluator, render the trace diff inline in place of the existing source/target text panes.
+- [x] CSS additions stay inlined per v0.1's "single-file HTML, no external assets" rule.
+- [x] **Tests** (`tests/unit/test_reports.py`, extend): rendered HTML for an agent run contains "Tool Trace Comparison" section, has the colour classes, no `<script>` tags appeared.
 
 ### 4.3 Docs (`docs/agents.md`, new + updates)
-- [ ] `docs/agents.md` — full agent eval workflow walkthrough using `examples/agent/`.
-- [ ] Update `docs/configuration.md` with `tools_path` + the three new evaluator blocks.
-- [ ] Update `docs/evaluators.md` with a "Tool-call evaluators" section (selection / arguments / trace structure) and the seven failure modes from PRD §2.1.
-- [ ] Update `docs/faq.md`: add answer to "what about LangChain?" (we read tool defs from yaml/json; LangChain auto-detect is v0.3) and "what about multi-turn?" (single-turn for v0.2).
-- [ ] Update `mkdocs.yml` nav with the new page.
+- [x] `docs/agents.md` — full agent eval workflow walkthrough using `examples/agent/`.
+- [x] Update `docs/configuration.md` with `tools_path` + the three new evaluator blocks.
+- [x] Update `docs/evaluators.md` with a "Tool-call evaluators" section (selection / arguments / trace structure) and the seven failure modes from PRD §2.1.
+- [x] Update `docs/faq.md`: add answer to "what about LangChain?" (we read tool defs from yaml/json; LangChain auto-detect is v0.3) and "what about multi-turn?" (single-turn for v0.2).
+- [x] Update `mkdocs.yml` nav with the new page.
 
 ### 4.4 README + CHANGELOG + version
-- [ ] README quick-start gains an agent example block.
-- [ ] CHANGELOG cuts a `## [0.2.0]` section listing every Phase 1–4 piece (mirrors the v0.1 cut).
-- [ ] Bump `pyproject.toml` and `src/aimigrate/__init__.py` to `0.2.0`.
+- [x] README quick-start gains an agent example block.
+- [x] CHANGELOG cuts a `## [0.2.0]` section listing every Phase 1–4 piece (mirrors the v0.1 cut).
+- [x] Bump `pyproject.toml` and `src/aimigrate/__init__.py` to `0.2.0`.
 
 ### 4.5 Final verification
-- [ ] Fresh-machine smoke: `uv venv && uv pip install -e .[dev] && pytest` green from a cold checkout.
-- [ ] Backward compat: every v0.1 example (`examples/simple/`, all `tests/integration/fixtures/`) still runs.
-- [ ] All seven PRD §2.1 failure modes covered by an integration test that goes red without the v0.2 code and green with it.
-- [ ] All checkboxes above marked `[x]`.
+- [x] Fresh-machine smoke: `uv venv && uv pip install -e .[dev] && pytest` green from a cold checkout.
+- [x] Backward compat: every v0.1 example (`examples/simple/`, all `tests/integration/fixtures/`) still runs.
+- [x] All seven PRD §2.1 failure modes covered by an integration test that goes red without the v0.2 code and green with it.
+- [x] All checkboxes above marked `[x]`.
 
 ---
 

@@ -134,6 +134,44 @@
     · <span>{{ tr.evaluator_name }}</span>
     · <span class="delta">Δ {{ "%+.3f"|format(tr.delta) }}</span>
   </div>
+  {% if tr.source_trace or tr.target_trace %}
+  {# v0.2 — tool regression: render the trace diff in place of text. #}
+  <div class="reg-grid">
+    <div>
+      <h4>Source trace</h4>
+      {% if tr.source_trace and tr.source_trace.calls %}
+      <ol class="trace-list">
+        {% for c in tr.source_trace.calls %}
+        <li class="trace-call"><code>{{ c.tool_name }}</code><span class="trace-args">({{ c.arguments|tojson|escape }})</span></li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="trace-empty">(no tool calls)</p>
+      {% endif %}
+      {% if tr.source_trace and tr.source_trace.final_text %}
+      <p class="trace-final"><em>final text:</em> {{ tr.source_trace.final_text|escape }}</p>
+      {% endif %}
+    </div>
+    <div>
+      <h4>Target trace</h4>
+      {% if tr.target_trace and tr.target_trace.calls %}
+      <ol class="trace-list">
+        {% set source_names = (tr.source_trace.calls if tr.source_trace else []) | map(attribute='tool_name') | list %}
+        {% for c in tr.target_trace.calls %}
+        <li class="trace-call {% if c.tool_name in source_names %}trace-match{% else %}trace-extra{% endif %}">
+          <code>{{ c.tool_name }}</code><span class="trace-args">({{ c.arguments|tojson|escape }})</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="trace-empty trace-missing">(no tool calls)</p>
+      {% endif %}
+      {% if tr.target_trace and tr.target_trace.final_text %}
+      <p class="trace-final"><em>final text:</em> {{ tr.target_trace.final_text|escape }}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
   <div class="reg-grid">
     <div>
       <h4>Source</h4>
@@ -144,6 +182,7 @@
       <pre>{{ tr.target_text|escape }}</pre>
     </div>
   </div>
+  {% endif %}
 </div>
 {% endfor %}
 {% else %}

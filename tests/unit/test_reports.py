@@ -252,3 +252,89 @@ class TestReportCommand:
         assert result.exit_code == 1
         assert "evaluate" in result.stdout
         assert "analyze" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# v0.2 — trace rendering
+# ---------------------------------------------------------------------------
+
+
+from aimigrate.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+
+
+class TestTraceRendering:
+    def _scaffold_agent_run(self, tmp_path: Path) -> tuple[Path, str]:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        run_dir = cwd / ".aimigrate" / "runs" / run_id
+        # Replace the calls in raw.jsonl with tool-bearing ones so the
+        # trace plumbing shows up end-to-end.
+        from aimigrate.runner.checkpoint import append_call
+        from aimigrate.runner.models import Call
+
+        (run_dir / "raw.jsonl").unlink()
+        for ex_id in ("ex1", "ex2"):
+            append_call(
+                run_dir,
+                Call(
+                    run_id=run_id,
+                    prompt_id="greet",
+                    example_id=ex_id,
+                    model_id="gemini/gemini-2.5-flash",
+                    role="source",
+                    text="",
+                    cost_usd=0.0,
+                    latency_ms=1,
+                    trace=ToolTrace(
+                        calls=[
+                            ToolCall(
+                                tool_name="search_db",
+                                arguments={"q": "ACME"},
+                                sequence_index=0,
+                            ),
+                        ],
+                    ),
+                ),
+            )
+            append_call(
+                run_dir,
+                Call(
+                    run_id=run_id,
+                    prompt_id="greet",
+                    example_id=ex_id,
+                    model_id="gemini/gemini-2.5-pro",
+                    role="target",
+                    text="",
+                    cost_usd=0.0,
+                    latency_ms=1,
+                    trace=ToolTrace(calls=[]),  # target dropped the call
+                ),
+            )
+        return cwd, run_id
+
+    def test_payload_attaches_traces_to_top_regressions(self, tmp_path: Path) -> None:
+        cwd, run_id = self._scaffold_agent_run(tmp_path)
+        payload = build_report_payload(cwd / ".aimigrate" / "runs" / run_id)
+        section = payload.prompt_sections[0]
+        # The fixture has negative-delta scores → top regressions populated.
+        if section.top_regressions:
+            tr = section.top_regressions[0]
+            assert tr.source_trace is not None
+            assert tr.target_trace is not None
+            assert tr.source_trace.tool_names == ["search_db"]
+            assert tr.target_trace.tool_names == []
+        # Section flag set.
+        assert section.has_tool_traces is True
+
+    def test_html_renders_trace_diff(self, tmp_path: Path) -> None:
+        cwd, run_id = self._scaffold_agent_run(tmp_path)
+        payload = build_report_payload(cwd / ".aimigrate" / "runs" / run_id)
+        html = render_html(payload)
+        # Trace structure markers in the rendered HTML.
+        if any(s.has_tool_traces for s in payload.prompt_sections) and any(
+            tr.source_trace for s in payload.prompt_sections for tr in s.top_regressions
+        ):
+            assert "Source trace" in html
+            assert "Target trace" in html
+            assert "search_db" in html
+        # No JS still — even with the new trace section.
+        assert "<script" not in html.lower()

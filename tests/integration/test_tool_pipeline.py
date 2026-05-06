@@ -127,9 +127,7 @@ def _patch_with_tools(
     if fake is None:
         assert tool_for_role is not None
 
-        async def default_fake(
-            self: ModelClient, **kwargs: Any
-        ) -> ToolCompletionResult:
+        async def default_fake(self: ModelClient, **kwargs: Any) -> ToolCompletionResult:
             model = str(kwargs["model"])
             role = "target" if "pro" in model else "source"
             tool_name = tool_for_role.get(role)
@@ -217,8 +215,7 @@ class TestToolPipeline:
             # Source: always call the right tool.
             # Target: skip on most examples, succeed on a few — gives variance.
             example_idx = int(
-                "".join(ch for ch in str(kwargs["prompt"]) if ch.isdigit())[-2:]
-                or "0",
+                "".join(ch for ch in str(kwargs["prompt"]) if ch.isdigit())[-2:] or "0",
             )
             should_call = role == "source" or example_idx % 5 == 0
             calls = (
