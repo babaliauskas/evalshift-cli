@@ -115,38 +115,49 @@ Goal: installable CLI; `aimigrate --version`, `aimigrate doctor`, `aimigrate ini
 
 ---
 
-## Phase 3 — Model client, registry, cache
+## Phase 3 — Model client, registry, cache ✅ COMPLETE
+
+237 tests, 96% line coverage, mypy strict + ruff + format all clean. New live commands: `aimigrate cache clear` (sub-app) and `aimigrate test-call` (hidden) — the latter is the first real LLM call AIMigrate can make.
 
 ### 3.1 Model registry (`src/aimigrate/models/registry.py`)
-- [ ] Hard-coded metadata for MVP set: `claude-4.5-sonnet`, `claude-5-sonnet`, `claude-5-opus`, `gpt-5`, `gpt-5-mini`, `gemini-2.5-pro`, `gemini-2.5-flash`.
-- [ ] `get_model(id)` / `list_supported()`; unknown raises `UnknownModelError`.
-- [ ] **Tests**.
+- [x] Hard-coded `ModelMetadata` for the seven PDF models (Claude Sonnet 4.5, Claude Opus 4.5, GPT-4o, GPT-4o-mini, Gemini 2.5 Pro, Gemini 2.5 Flash) using LiteLLM's canonical IDs as the primary key.
+- [x] Friendly aliases (`gemini-2.5-flash` → `gemini/gemini-2.5-flash`, `claude-4.5-sonnet` → `anthropic/claude-sonnet-4-5`, etc.) so `aimigrate.yaml` can use the PDF spec's bare names.
+- [x] `get_model(id_or_alias)`; `list_supported()`; `UnknownModelError` with suggestion list.
+- [x] Import-time integrity check rejects duplicate ids and ambiguous aliases.
+- [x] **Tests** (`tests/unit/test_model_registry.py`, 11 cases).
 
 ### 3.2 Cache schema (`src/aimigrate/cache/schema.py`)
-- [ ] SQLAlchemy 2.0 `Base` + `CachedCall` per PDF §5.3.
-- [ ] Async engine factory at `~/.aimigrate/cache.db`.
-- [ ] **Tests** with in-memory sqlite.
+- [x] SQLAlchemy 2.0 `Base` + `CachedCall` per PDF §5.3, with `mapped_column` typed annotations.
+- [x] `default_database_url(path)` and `create_engine(url)` factories; `~/.aimigrate/cache.db` is created on demand.
+- [x] **Tests** via in-memory sqlite (covered alongside 3.3).
 
 ### 3.3 Cache store (`src/aimigrate/cache/store.py`)
-- [ ] `cache_key(...)` sha256 over canonical JSON.
-- [ ] async `get/put`, default 7-day TTL.
-- [ ] `aimigrate cache clear` CLI.
-- [ ] **Tests**: hit/miss/expiry/key stability.
+- [x] `cache_key(...)` SHA-256 over canonicalised JSON of `(model, prompt, inputs, temperature, max_tokens)`; dict-order independent.
+- [x] Async `CacheStore.open() / get / put / clear / count / close` with 7-day default TTL.
+- [x] `aimigrate cache clear` CLI command via a `cache` sub-app (extensible for future `cache info`, `cache prune`).
+- [x] Added `greenlet>=3.0` runtime dep (required by SQLAlchemy async).
+- [x] **Tests** (`tests/unit/test_cache.py`, 13 cases): pure-function key stability + dict-order, async round-trip, TTL expiry, replace-on-put, clear-returns-count, CLI command.
 
 ### 3.4 Model client (`src/aimigrate/models/client.py`)
-- [ ] Thin async `litellm.acompletion` wrapper.
-- [ ] Map errors to `RateLimitError`, `AuthError`, `ModelError`.
-- [ ] Exponential-backoff retry (3 attempts, jitter).
-- [ ] Per-call cost via `litellm.completion_cost`; tokens via tiktoken / native.
-- [ ] **Tests** with `respx` / monkeypatch.
+- [x] Async `ModelClient.complete(model, prompt, temperature, max_tokens, extra)` thin wrapper over `litellm.acompletion`.
+- [x] Returns `CompletionResult(text, model_id, input_tokens, output_tokens, cost_usd, latency_ms)`.
+- [x] Maps provider exceptions to `RateLimitError`, `AuthError`, `ModelError` (via `ModelClientError` base).
+- [x] Bounded retry with full-jitter exponential backoff (`RetryPolicy(max_attempts, base_seconds, cap_seconds)`); `AuthError` short-circuits retries.
+- [x] Per-call cost via `litellm.completion_cost`; unknown pricing degrades to `$0` rather than failing.
+- [x] Alias resolution happens inside `complete()`, so `model_id` in the result is always the canonical id.
+- [x] **Tests** (`tests/unit/test_model_client.py`, 14 cases): policy math, happy path with token + cost extraction, alias resolution, default + override of temperature/max_tokens, `extra` passthrough, cost-failure tolerance, error mapping for rate-limit/auth/unknown, retry exhaustion, dict-message responses, malformed responses.
 
 ### 3.5 Cost estimator (`src/aimigrate/utils/cost.py`)
-- [ ] Sample-based: first 5 examples → avg tokens × N×M×2.
-- [ ] **Tests**.
+- [x] `estimate_run_cost(template, examples, n_prompts, models, sample_size, completion_tokens)` returning `CostEstimate(total_calls, avg_prompt_tokens, assumed_completion_tokens, estimated_usd)`.
+- [x] Best-effort prompt rendering tolerates missing template variables (estimator runs *before* validation).
+- [x] Defensive fallbacks: `litellm.token_counter` failure → 4-chars-per-token heuristic; `litellm.cost_per_token` failure → `$0`.
+- [x] **Tests** (`tests/unit/test_cost.py`, 12 cases) with stubbed LiteLLM helpers.
 
 ### 3.6 `aimigrate test-call` smoke command
-- [ ] `--model X --prompt "say hello"` proves connectivity.
-- [ ] **Tests** with mocked client.
+- [x] `aimigrate test-call --model X [--prompt P] [--temperature T] [--max-tokens N]` runs one real call via `ModelClient` and renders a Rich panel with response text + tokens + cost + latency.
+- [x] Resolves aliases up-front; surfaces `UnknownModelError` with exit 1 before doing any network work.
+- [x] Friendly rendering for `AuthError` (panel) and `RateLimitError` (warning); registered with `hidden=True`.
+- [x] **Tests** (`tests/unit/test_test_call_command.py`, 9 cases): happy path with response/tokens/cost/latency in output, alias-to-canonical reveal, default prompt, temperature + max-tokens passthrough, every error path, hidden-from-help.
 
 ---
 
