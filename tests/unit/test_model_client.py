@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 
+from aimigrate.evaluators.tool_models import ToolSpec
 from aimigrate.models import client as client_module
 from aimigrate.models.client import (
     AuthError,
@@ -31,6 +32,7 @@ from aimigrate.models.client import (
     ModelError,
     RateLimitError,
     RetryPolicy,
+    ToolCompletionResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -87,6 +89,63 @@ def _patch_acompletion(
 
 async def _noop_sleep(_seconds: float) -> None:
     return None
+
+
+# ---------------------------------------------------------------------------
+# Tool-aware fakes
+# ---------------------------------------------------------------------------
+
+
+def _patch_tools_acompletion(
+    monkeypatch: pytest.MonkeyPatch,
+    response_dict: dict[str, Any] | Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
+    """Replace ``litellm.acompletion`` so it returns a dict-shaped response.
+
+    The tool-aware code path coerces SDK objects to dicts via
+    ``response.model_dump()``; for the test we just hand back a dict
+    directly. Returns the captured kwargs so tests can assert what was
+    sent to LiteLLM.
+    """
+    captured: dict[str, Any] = {}
+
+    async def fake_acompletion(**kwargs: Any) -> Any:
+        captured["kwargs"] = kwargs
+        if callable(response_dict):
+            return response_dict(**kwargs)
+        return response_dict
+
+    monkeypatch.setattr(client_module.litellm, "acompletion", fake_acompletion)
+    monkeypatch.setattr(
+        client_module.litellm,
+        "completion_cost",
+        lambda completion_response=None, **_: 0.0,
+    )
+    monkeypatch.setattr(client_module.asyncio, "sleep", _noop_sleep)
+    return captured
+
+
+_OPENAI_SINGLE_RESPONSE: dict[str, Any] = {
+    "choices": [
+        {
+            "message": {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_test",
+                        "type": "function",
+                        "function": {
+                            "name": "search_db",
+                            "arguments": '{"query": "ACME"}',
+                        },
+                    },
+                ],
+            },
+        },
+    ],
+    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -289,3 +348,176 @@ class TestResponseExtraction:
         client = ModelClient(retry_policy=RetryPolicy(max_attempts=1))
         with pytest.raises(ModelError, match="could not extract text"):
             await client.complete(model="gemini/gemini-2.5-flash", prompt="Hi")
+
+
+# ---------------------------------------------------------------------------
+# complete_with_tools
+# ---------------------------------------------------------------------------
+
+
+_DEMO_TOOL = ToolSpec(
+    name="search_db",
+    description="Search the customer DB",
+    input_schema={
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    },
+)
+
+
+class TestCompleteWithTools:
+    async def test_returns_tool_completion_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        result = await ModelClient().complete_with_tools(
+            model="gpt-4o",
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+        )
+        assert isinstance(result, ToolCompletionResult)
+        assert result.model_id == "openai/gpt-4o"
+        assert result.trace.call_count == 1
+        assert result.trace.calls[0].tool_name == "search_db"
+        assert result.trace.calls[0].arguments == {"query": "ACME"}
+        assert result.input_tokens == 10
+        assert result.output_tokens == 5
+        # Captured kwargs include the tool payload in OpenAI shape.
+        kwargs = captured["kwargs"]
+        assert "tools" in kwargs
+        assert kwargs["tools"][0]["type"] == "function"
+        assert kwargs["tools"][0]["function"]["name"] == "search_db"
+
+    async def test_anthropic_serialises_tool_in_anthropic_shape(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Anthropic-shape response (content list with tool_use block).
+        anthropic_response = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_x",
+                                "name": "search_db",
+                                "input": {"query": "ACME"},
+                            },
+                        ],
+                    },
+                },
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        captured = _patch_tools_acompletion(monkeypatch, anthropic_response)
+        result = await ModelClient().complete_with_tools(
+            model="claude-4.5-sonnet",
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+        )
+        assert result.trace.call_count == 1
+        # Tool payload should be the Anthropic shape (no `function` wrapper).
+        sent_tool = captured["kwargs"]["tools"][0]
+        assert "function" not in sent_tool
+        assert sent_tool["name"] == "search_db"
+        assert "input_schema" in sent_tool
+
+    async def test_alias_resolves_to_canonical(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Use a Gemini-shape response (delegates to OpenAI parser).
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        result = await ModelClient().complete_with_tools(
+            model="gemini-2.5-flash",  # alias
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+        )
+        assert result.model_id == "gemini/gemini-2.5-flash"
+        assert captured["kwargs"]["model"] == "gemini/gemini-2.5-flash"
+
+    async def test_explicit_temperature_and_max_tokens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_with_tools(
+            model="gpt-4o",
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+            temperature=0.7,
+            max_tokens=64,
+        )
+        assert captured["kwargs"]["temperature"] == 0.7
+        assert captured["kwargs"]["max_tokens"] == 64
+
+    async def test_extra_kwargs_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_with_tools(
+            model="gpt-4o",
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+            extra={"tool_choice": "auto"},
+        )
+        assert captured["kwargs"]["tool_choice"] == "auto"
+
+    async def test_text_only_response_yields_empty_trace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        text_response = {
+            "choices": [
+                {"message": {"role": "assistant", "content": "Sure thing!"}},
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        _patch_tools_acompletion(monkeypatch, text_response)
+        result = await ModelClient().complete_with_tools(
+            model="gpt-4o",
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+        )
+        assert result.trace.call_count == 0
+        assert result.trace.final_text == "Sure thing!"
+
+    async def test_parse_failure_wrapped_as_model_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Bad shape that won't pass the parser.
+        _patch_tools_acompletion(monkeypatch, {"unexpected": "shape"})
+        client = ModelClient(retry_policy=RetryPolicy(max_attempts=1))
+        with pytest.raises(ModelError, match="failed to parse tool response"):
+            await client.complete_with_tools(model="gpt-4o", prompt="hi", tools=[_DEMO_TOOL])
+
+    async def test_rate_limit_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        attempts = {"n": 0}
+
+        def handler(**_kwargs: Any) -> Any:
+            attempts["n"] += 1
+            if attempts["n"] < 2:
+
+                class _RLError(Exception):
+                    pass
+
+                _RLError.__name__ = "RateLimitError"
+                raise _RLError("slow down")
+            return _OPENAI_SINGLE_RESPONSE
+
+        _patch_tools_acompletion(monkeypatch, handler)
+        result = await ModelClient().complete_with_tools(
+            model="gpt-4o", prompt="hi", tools=[_DEMO_TOOL]
+        )
+        assert result.trace.call_count == 1
+        assert attempts["n"] == 2
+
+    async def test_auth_error_short_circuits_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        attempts = {"n": 0}
+
+        def handler(**_kwargs: Any) -> Any:
+            attempts["n"] += 1
+
+            class _AuthenticationError(Exception):
+                pass
+
+            _AuthenticationError.__name__ = "AuthenticationError"
+            raise _AuthenticationError("bad key")
+
+        _patch_tools_acompletion(monkeypatch, handler)
+        with pytest.raises(AuthError):
+            await ModelClient().complete_with_tools(model="gpt-4o", prompt="hi", tools=[_DEMO_TOOL])
+        assert attempts["n"] == 1

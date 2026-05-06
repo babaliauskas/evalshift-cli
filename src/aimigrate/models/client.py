@@ -31,6 +31,12 @@ from typing import Any, cast
 
 import litellm
 
+from aimigrate.evaluators.tool_models import ToolSpec, ToolTrace
+from aimigrate.evaluators.tool_parser import (
+    ToolParseError,
+    detect_provider,
+    parse_response_to_trace,
+)
 from aimigrate.models.registry import resolve_model
 
 log = logging.getLogger(__name__)
@@ -60,6 +66,34 @@ class ModelError(ModelClientError):
 # ---------------------------------------------------------------------------
 # Result type
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCompletionResult:
+    """Outcome of a successful tool-aware LLM call.
+
+    Mirrors :class:`CompletionResult` for cost/token/latency bookkeeping
+    but carries a normalised :class:`ToolTrace` instead of raw text. The
+    final assistant text (when the model produced any) is available on
+    ``trace.final_text``.
+
+    Attributes:
+        trace: Provider-agnostic tool trace.
+        model_id: The canonical model id used.
+        input_tokens / output_tokens: From the provider response.
+        cost_usd: Dollar cost reported by ``litellm.completion_cost``.
+        latency_ms: Wall-clock time of the call.
+        raw_provider_response: The raw response dict, for fixture
+            capture and debugging. Not persisted by the orchestrator.
+    """
+
+    trace: ToolTrace
+    model_id: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    latency_ms: int
+    raw_provider_response: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +237,100 @@ class ModelClient:
         # Loop exits cleanly only via return; if we ever reach here, raise.
         raise ModelError(f"exhausted retries for model {canonical}") from last_exc
 
+    async def complete_with_tools(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        tools: list[ToolSpec],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> ToolCompletionResult:
+        """Call ``model`` with ``tools`` attached and parse the response.
+
+        The same retry / error-mapping policy as :meth:`complete`
+        applies; on success the response is funnelled through
+        :func:`parse_response_to_trace` for provider-agnostic
+        normalisation.
+
+        Args:
+            model: Canonical id or alias from
+                :mod:`aimigrate.models.registry`.
+            prompt: User-side prompt text.
+            tools: Tool specs to expose to the model. Serialised
+                per-provider (``to_anthropic`` for Anthropic models,
+                ``to_openai`` for everything else — Gemini accepts the
+                OpenAI shape via LiteLLM).
+            temperature: Sampling temperature. ``None`` uses the model's
+                registered default.
+            max_tokens: Completion length cap. ``None`` uses the
+                registered default.
+            extra: Provider-specific kwargs forwarded to
+                ``litellm.acompletion``.
+
+        Returns:
+            A :class:`ToolCompletionResult` with the parsed
+            :class:`ToolTrace` and full cost/token/latency bookkeeping.
+
+        Raises:
+            RateLimitError / AuthError / ModelError: Same semantics as
+                :meth:`complete`.
+            ModelError: If the response can't be parsed into a
+                :class:`ToolTrace` (wraps :class:`ToolParseError`).
+        """
+        meta = resolve_model(model)
+        canonical = meta.id
+        temp = meta.default_temperature if temperature is None else temperature
+        mt = meta.default_max_tokens if max_tokens is None else max_tokens
+
+        provider = detect_provider(canonical)
+        tools_payload = [
+            t.to_anthropic() if provider == "anthropic" else t.to_openai() for t in tools
+        ]
+
+        kwargs: dict[str, Any] = {
+            "model": canonical,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temp,
+            "max_tokens": mt,
+            "tools": tools_payload,
+        }
+        if extra:
+            kwargs.update(extra)
+
+        last_exc: Exception | None = None
+        for attempt in range(1, self._retry.max_attempts + 1):
+            start = time.perf_counter()
+            try:
+                response = await litellm.acompletion(**kwargs)
+            except Exception as exc:
+                mapped = _map_exception(exc)
+                if isinstance(mapped, AuthError):
+                    raise mapped from exc
+                last_exc = mapped
+                if attempt >= self._retry.max_attempts:
+                    raise mapped from exc
+                delay = self._retry.delay(attempt)
+                log.warning(
+                    "model %s (tools) attempt %d failed (%s); retrying in %.2fs",
+                    canonical,
+                    attempt,
+                    mapped.__class__.__name__,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            return _build_tool_result(
+                canonical=canonical,
+                response=response,
+                latency_ms=latency_ms,
+                provider=provider,
+            )
+
+        raise ModelError(f"exhausted retries for model {canonical}") from last_exc
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -227,6 +355,53 @@ def _build_result(
         cost_usd=cost_usd,
         latency_ms=latency_ms,
     )
+
+
+def _build_tool_result(
+    *,
+    canonical: str,
+    response: Any,
+    latency_ms: int,
+    provider: str,
+) -> ToolCompletionResult:
+    """Parse a tools-aware response into a :class:`ToolCompletionResult`.
+
+    LiteLLM responses can be SDK objects or dicts depending on version.
+    We coerce to a dict view (``model_dump`` if available, otherwise
+    ``dict()`` / direct cast) before handing to the parser, so the
+    parser can stay strictly dict-shaped.
+    """
+    raw = _response_as_dict(response)
+    try:
+        trace = parse_response_to_trace(raw, provider=provider, model_id=canonical)
+    except ToolParseError as exc:
+        raise ModelError(f"failed to parse tool response: {exc}") from exc
+
+    usage = raw.get("usage") or {}
+    return ToolCompletionResult(
+        trace=trace,
+        model_id=canonical,
+        input_tokens=int(usage.get("prompt_tokens", 0) or 0),
+        output_tokens=int(usage.get("completion_tokens", 0) or 0),
+        cost_usd=_safe_cost(response),
+        latency_ms=latency_ms,
+        raw_provider_response=raw,
+    )
+
+
+def _response_as_dict(response: Any) -> dict[str, Any]:
+    """Coerce a LiteLLM response object or dict into a dict view."""
+    if isinstance(response, dict):
+        return response
+    if hasattr(response, "model_dump"):
+        return cast(dict[str, Any], response.model_dump())
+    if hasattr(response, "dict"):
+        return cast(dict[str, Any], response.dict())
+    # Last-resort: build a minimal dict from the choices/usage attrs.
+    return {
+        "choices": getattr(response, "choices", []),
+        "usage": getattr(response, "usage", {}),
+    }
 
 
 def _extract_text(response: Any) -> str:
@@ -277,4 +452,5 @@ __all__ = [
     "ModelError",
     "RateLimitError",
     "RetryPolicy",
+    "ToolCompletionResult",
 ]

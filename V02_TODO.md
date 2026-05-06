@@ -44,7 +44,7 @@ Goal: a clean v0.2 work branch with the living checklist in place.
 - [x] Create branch `feature/v0.2-tool-eval` off `main`.
 - [x] Add `V02_TODO.md` (this file).
 - [x] No new prod deps required — LiteLLM, pydantic, scipy, jinja2 already cover everything.
-- [ ] Verify v0.1 baseline on the new branch: `pytest`, `ruff check`, `ruff format --check`, `mypy --strict src/aimigrate` all green.
+- [x] Verify v0.1 baseline on the new branch: `pytest`, `ruff check`, `ruff format --check`, `mypy --strict src/aimigrate` all green.
 
 ---
 
@@ -53,37 +53,37 @@ Goal: a clean v0.2 work branch with the living checklist in place.
 Goal: `aimigrate test-call --model X --tools tools.yaml --prompt "..."` returns a normalised `ToolTrace` for any of the three providers.
 
 ### 1.1 Tool data models (`src/aimigrate/evaluators/tool_models.py`, new)
-- [ ] `ToolSpec` (name, description, input_schema), `ToolCall` (tool_name, arguments, call_id, parent_call_id, sequence_index), `ToolTrace` (calls, final_text, raised_refusal, refusal_text + computed `call_count` / `tool_names` / `tool_name_set` / `has_parallel_calls()` / `calls_by_tool()`).
-- [ ] All models inherit from the `_StrictModel` pattern already used in `config/models.py:27` and `runner/models.py:32` (`extra='forbid'`, `validate_assignment=True`).
-- [ ] `ToolSpec.to_anthropic()` / `.to_openai()` adapters and `ToolSpec.from_dict()` accepting either shape.
-- [ ] **Tests** (`tests/unit/test_tool_models.py`): `extra='forbid'` round-trips, computed-field correctness, `has_parallel_calls()` truth table, adapter round-trip Anthropic→`from_dict`→`to_anthropic`.
+- [x] `ToolSpec` (name, description, input_schema), `ToolCall` (tool_name, arguments, call_id, parent_call_id, sequence_index), `ToolTrace` (calls, final_text, raised_refusal, refusal_text + computed `call_count` / `tool_names` / `tool_name_set` / `has_parallel_calls()` / `calls_by_tool()`).
+- [x] All models inherit from the `_StrictModel` pattern already used in `config/models.py:27` and `runner/models.py:32` (`extra='forbid'`, `validate_assignment=True`).
+- [x] `ToolSpec.to_anthropic()` / `.to_openai()` adapters and `ToolSpec.from_dict()` accepting either shape.
+- [x] **Tests** (`tests/unit/test_tool_models.py`): `extra='forbid'` round-trips, computed-field correctness, `has_parallel_calls()` truth table, adapter round-trip Anthropic→`from_dict`→`to_anthropic`.
 
 ### 1.2 Provider response parser (`src/aimigrate/evaluators/tool_parser.py`, new)
-- [ ] `ToolParseError(provider, reason, raw)` exception (mirrors existing `ConfigError` shape).
-- [ ] `detect_provider(model_id) -> str` mapping LiteLLM canonical ids to `anthropic` / `openai` / `gemini`. Reuse the prefix logic from `aimigrate.models.registry._infer_provider_and_canonical`.
-- [ ] `parse_response_to_trace(response, provider, model_id) -> ToolTrace` dispatcher.
-- [ ] `_parse_anthropic` (handles native + LiteLLM-normalised-to-OpenAI shape); `_parse_openai` + shared `_parse_openai_shape` (json-decodes string arguments defensively, marks `_parse_error` on malformed); `_parse_gemini` (delegates to `_parse_openai` since LiteLLM normalises).
-- [ ] **Fixtures** (`tests/unit/fixtures/tool_responses/{anthropic,openai,gemini}/*.json`): start with synthetic hand-crafted JSON. Real responses populate later via `scripts/smoke_live_tools.py`.
-- [ ] **Tests** (`tests/unit/test_tool_parser.py`, ≥30 cases): per-provider single-call, parallel-calls, text-only, mixed text+tool, refusal, malformed-arguments-JSON marks parse_error, unexpected shape raises clear `ToolParseError`, `detect_provider` covers every branch including unknown.
+- [x] `ToolParseError(provider, reason, raw)` exception (mirrors existing `ConfigError` shape).
+- [x] `detect_provider(model_id) -> str` mapping LiteLLM canonical ids to `anthropic` / `openai` / `gemini`. Reuse the prefix logic from `aimigrate.models.registry._infer_provider_and_canonical`.
+- [x] `parse_response_to_trace(response, provider, model_id) -> ToolTrace` dispatcher.
+- [x] `_parse_anthropic` (handles native + LiteLLM-normalised-to-OpenAI shape); `_parse_openai` + shared `_parse_openai_shape` (json-decodes string arguments defensively, marks `_parse_error` on malformed); `_parse_gemini` (delegates to `_parse_openai` since LiteLLM normalises).
+- [x] **Fixtures** (`tests/unit/fixtures/tool_responses/{anthropic,openai,gemini}/*.json`): start with synthetic hand-crafted JSON. Real responses populate later via `scripts/smoke_live_tools.py`.
+- [x] **Tests** (`tests/unit/test_tool_parser.py`, ≥30 cases): per-provider single-call, parallel-calls, text-only, mixed text+tool, refusal, malformed-arguments-JSON marks parse_error, unexpected shape raises clear `ToolParseError`, `detect_provider` covers every branch including unknown.
 
 ### 1.3 Tool-aware model client (`src/aimigrate/models/client.py`, extend)
-- [ ] `ToolCompletionResult` pydantic model: `trace: ToolTrace`, plus the same `model_id` / `input_tokens` / `output_tokens` / `cost_usd` / `latency_ms` fields as `CompletionResult`, plus `raw_provider_response: dict[str, Any]` (debugging only).
-- [ ] New async `complete_with_tools(model, prompt, tools: list[ToolSpec], *, temperature, max_tokens, extra)` — does NOT replace existing `complete()`. Reuses existing retry policy, cost calc, error-mapping helpers.
-- [ ] Tools serialised per-provider: `to_anthropic()` for Anthropic models, `to_openai()` for everything else (Gemini accepts the OpenAI shape via LiteLLM's normaliser).
-- [ ] **Tests** (`tests/unit/test_model_client.py`, extend): mocked `litellm.acompletion` returning the Phase 1.2 fixtures; `ToolCompletionResult` has the right `trace`; existing retry/error-mapping tests parameterised to also cover the tools path.
+- [x] `ToolCompletionResult` pydantic model: `trace: ToolTrace`, plus the same `model_id` / `input_tokens` / `output_tokens` / `cost_usd` / `latency_ms` fields as `CompletionResult`, plus `raw_provider_response: dict[str, Any]` (debugging only).
+- [x] New async `complete_with_tools(model, prompt, tools: list[ToolSpec], *, temperature, max_tokens, extra)` — does NOT replace existing `complete()`. Reuses existing retry policy, cost calc, error-mapping helpers.
+- [x] Tools serialised per-provider: `to_anthropic()` for Anthropic models, `to_openai()` for everything else (Gemini accepts the OpenAI shape via LiteLLM's normaliser).
+- [x] **Tests** (`tests/unit/test_model_client.py`, extend): mocked `litellm.acompletion` returning the Phase 1.2 fixtures; `ToolCompletionResult` has the right `trace`; existing retry/error-mapping tests parameterised to also cover the tools path.
 
 ### 1.4 `aimigrate test-call --tools` extension (`src/aimigrate/cli/commands/test_call.py`, extend)
-- [ ] Add `--tools <path>` Typer option. When set, load `ToolSpec` list from yaml/json and call `complete_with_tools` instead of `complete`.
-- [ ] Render the `ToolTrace` as a small Rich panel: tool names list, parallel/sequential indicator, final-text snippet, refusal flag.
-- [ ] **Tests**: `CliRunner` invocation with a tools fixture confirms `complete_with_tools` is the dispatch target and the panel renders the tool names.
+- [x] Add `--tools <path>` Typer option. When set, load `ToolSpec` list from yaml/json and call `complete_with_tools` instead of `complete`.
+- [x] Render the `ToolTrace` as a small Rich panel: tool names list, parallel/sequential indicator, final-text snippet, refusal flag.
+- [x] **Tests**: `CliRunner` invocation with a tools fixture confirms `complete_with_tools` is the dispatch target and the panel renders the tool names.
 
 ### 1.5 Live fixture-recording script (`scripts/smoke_live_tools.py`, new — manual only)
-- [ ] Records real responses for `(model, prompt_name)` combos to `tests/unit/fixtures/tool_responses/`. Run by hand with API keys; **not** part of CI.
-- [ ] Diffs against existing fixtures and prints "drifted" for any that changed shape — early-warning for LiteLLM upstream changes.
+- [x] Records real responses for `(model, prompt_name)` combos to `tests/unit/fixtures/tool_responses/`. Run by hand with API keys; **not** part of CI.
+- [x] Diffs against existing fixtures and prints "drifted" for any that changed shape — early-warning for LiteLLM upstream changes.
 
 ### Phase 1 verification
-- [ ] `aimigrate test-call --model gemini-2.5-flash --tools examples/agent/tools.yaml --prompt "find ACME's recent orders"` returns a Rich panel with the tool names list, no traceback.
-- [ ] All Phase 1 tests pass; coverage stays ≥ 94%.
+- [x] `aimigrate test-call --model gemini-2.5-flash --tools examples/agent/tools.yaml --prompt "find ACME's recent orders"` returns a Rich panel with the tool names list, no traceback.
+- [x] All Phase 1 tests pass; coverage stays ≥ 94%.
 
 ---
 

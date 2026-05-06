@@ -1,0 +1,19 @@
+{
+  "id": "msg_synthetic_anthropic_text",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {"type": "text", "text": "Our standard refund policy is 30 days."}
+        ]
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42}
+}

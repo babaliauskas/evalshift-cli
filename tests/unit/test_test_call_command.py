@@ -7,6 +7,7 @@ error rendering), not LiteLLM behaviour.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -165,3 +166,130 @@ class TestHidden:
     def test_test_call_is_hidden_from_help(self) -> None:
         result = runner.invoke(app, ["--help"])
         assert "test-call" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# --tools mode
+# ---------------------------------------------------------------------------
+
+
+from aimigrate.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+from aimigrate.models.client import ToolCompletionResult  # noqa: E402
+
+
+def _patch_tool_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    raises: Exception | None = None,
+    result: ToolCompletionResult | None = None,
+) -> dict[str, Any]:
+    captured: dict[str, Any] = {}
+
+    async def fake(self: ModelClient, **kwargs: Any) -> ToolCompletionResult:
+        captured.update(kwargs)
+        if raises is not None:
+            raise raises
+        return result or ToolCompletionResult(
+            trace=ToolTrace(
+                calls=[
+                    ToolCall(
+                        tool_name="search_db",
+                        arguments={"query": "ACME"},
+                        sequence_index=0,
+                    ),
+                ],
+                final_text=None,
+            ),
+            model_id=str(kwargs["model"]),
+            input_tokens=10,
+            output_tokens=4,
+            cost_usd=0.0001,
+            latency_ms=42,
+            raw_provider_response={},
+        )
+
+    monkeypatch.setattr(cmd.ModelClient, "complete_with_tools", fake)
+    return captured
+
+
+class TestTestCallTools:
+    def test_tools_mode_prints_tool_names(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        tools_path = tmp_path / "tools.yaml"
+        tools_path.write_text(
+            "- name: search_db\n"
+            "  description: Search the customer DB.\n"
+            "  input_schema: {type: object}\n",
+            encoding="utf-8",
+        )
+        captured = _patch_tool_complete(monkeypatch)
+        result = runner.invoke(
+            app,
+            [
+                "test-call",
+                "--model",
+                "gemini-2.5-flash",
+                "--tools",
+                str(tools_path),
+                "--prompt",
+                "find ACME",
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        # Tool name appears in the rendered panel.
+        assert "search_db" in result.stdout
+        # The wired call passed the tools list through.
+        assert "tools" in captured
+        assert captured["tools"][0].name == "search_db"
+
+    def test_tools_mode_with_missing_file_exits_one(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "test-call",
+                "--model",
+                "gemini-2.5-flash",
+                "--tools",
+                str(tmp_path / "nope.yaml"),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Invalid tools file" in result.stdout
+
+    def test_tools_mode_renders_refusal(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        tools_path = tmp_path / "tools.yaml"
+        tools_path.write_text(
+            "- name: x\n  description: y\n  input_schema: {}\n",
+            encoding="utf-8",
+        )
+        result_obj = ToolCompletionResult(
+            trace=ToolTrace(
+                calls=[],
+                raised_refusal=True,
+                refusal_text="Cannot help with that.",
+            ),
+            model_id="gemini/gemini-2.5-flash",
+            input_tokens=1,
+            output_tokens=1,
+            cost_usd=0.0,
+            latency_ms=10,
+            raw_provider_response={},
+        )
+        _patch_tool_complete(monkeypatch, result=result_obj)
+        result = runner.invoke(
+            app,
+            [
+                "test-call",
+                "--model",
+                "gemini-2.5-flash",
+                "--tools",
+                str(tools_path),
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        assert "refusal" in result.stdout.lower()
