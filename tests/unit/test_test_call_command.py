@@ -132,10 +132,21 @@ class TestTestCallHappy:
 
 
 class TestTestCallErrors:
-    def test_unknown_model_exits_one(self) -> None:
-        result = runner.invoke(app, ["test-call", "--model", "no-such-model-9000"])
-        assert result.exit_code == 1
-        assert "unknown model" in result.stdout.lower()
+    def test_unknown_model_passes_through_with_warning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Per the resolver contract: registry-unknown ids are passed
+        # through to LiteLLM with a soft warning. The call still
+        # happens; we just signal the user is outside the curated set.
+        _patch_complete(monkeypatch)
+        result = runner.invoke(
+            app,
+            ["test-call", "--model", "gemini-3.1-flash-lite-preview"],
+        )
+        assert result.exit_code == 0, result.stdout
+        assert "not in AIMigrate registry" in result.stdout
+        # The synthesised id should pick up the gemini/ prefix.
+        assert "gemini/gemini-3.1-flash-lite-preview" in result.stdout
 
     def test_auth_error_renders_helpfully(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_complete(monkeypatch, raises=AuthError("bad key"))

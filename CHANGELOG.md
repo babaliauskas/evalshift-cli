@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The model registry is now **advisory, not gating**: `aimigrate.models.registry.resolve_model()` accepts any user-supplied id, falls back to provider-prefix inference for ids not in the registry, and lets LiteLLM be the source of truth at call time. Users can now pass model ids directly from a vendor playground (e.g. `gemini-3.1-flash-lite-preview` from Google AI Studio) without waiting for an AIMigrate release. The strict `get_model()` is still available for internal/test use.
+- `Provider` literal widened to include `"other"` for fully-unknown ids.
+
+### Fixed
+- `aimigrate run` no longer crashes with an `UnknownModelError` traceback when the user supplies a model id that isn't in the curated registry. The id is passed through to LiteLLM, which produces a clean error if it's truly invalid.
+
 ### Added
 - Initial repository scaffolding: `pyproject.toml`, lint/type/test config, CI, MIT license.
 - Empty `src/aimigrate` package skeleton matching the planned module layout.

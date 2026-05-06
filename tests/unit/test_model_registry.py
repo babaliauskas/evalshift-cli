@@ -9,6 +9,7 @@ from aimigrate.models.registry import (
     UnknownModelError,
     get_model,
     list_supported,
+    resolve_model,
 )
 
 
@@ -62,6 +63,51 @@ class TestListSupported:
         first.clear()
         second = list_supported()
         assert second  # not empty
+
+
+class TestResolveModel:
+    def test_known_alias_uses_registry(self) -> None:
+        meta = resolve_model("gemini-2.5-flash")
+        assert meta.id == "gemini/gemini-2.5-flash"
+        assert meta.provider == "google"
+        # Registered models don't carry the passthrough marker.
+        assert "(passthrough)" not in meta.display_name
+
+    def test_unknown_gemini_prefix_inferred(self) -> None:
+        meta = resolve_model("gemini-3.1-flash-lite-preview")
+        assert meta.id == "gemini/gemini-3.1-flash-lite-preview"
+        assert meta.provider == "google"
+        assert meta.display_name.endswith("(passthrough)")
+
+    def test_unknown_claude_prefix_inferred(self) -> None:
+        meta = resolve_model("claude-99-sonnet")
+        assert meta.id == "anthropic/claude-99-sonnet"
+        assert meta.provider == "anthropic"
+
+    def test_unknown_gpt_prefix_inferred(self) -> None:
+        meta = resolve_model("gpt-9-mini")
+        assert meta.id == "openai/gpt-9-mini"
+        assert meta.provider == "openai"
+
+    def test_o1_prefix_inferred_as_openai(self) -> None:
+        meta = resolve_model("o1-mini")
+        assert meta.id == "openai/o1-mini"
+        assert meta.provider == "openai"
+
+    def test_already_prefixed_id_passes_through_unchanged(self) -> None:
+        meta = resolve_model("gemini/gemini-3.1-flash-lite-preview")
+        assert meta.id == "gemini/gemini-3.1-flash-lite-preview"
+        assert meta.provider == "google"
+
+    def test_truly_unknown_id_falls_back_to_other(self) -> None:
+        meta = resolve_model("totally-novel-model")
+        assert meta.id == "totally-novel-model"
+        assert meta.provider == "other"
+
+    def test_resolve_never_raises(self) -> None:
+        # The whole point: no input value short of `None` should raise.
+        for input_id in ("", "x", "/", "vendor/", "weird-vendor/model"):
+            assert isinstance(resolve_model(input_id), ModelMetadata)
 
 
 class TestRegistryIntegrity:

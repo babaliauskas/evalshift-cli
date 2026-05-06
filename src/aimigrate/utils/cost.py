@@ -23,7 +23,7 @@ from typing import Any
 
 import litellm
 
-from aimigrate.models.registry import get_model
+from aimigrate.models.registry import resolve_model
 
 DEFAULT_SAMPLE_SIZE: int = 5
 
@@ -158,7 +158,7 @@ def estimate_run_cost(
     n_examples = len(examples)
     total_calls = n_prompts * n_examples * len(models)
 
-    primary_meta = get_model(models[0])
+    primary_meta = resolve_model(models[0])
     assumed_completion = (
         completion_tokens if completion_tokens is not None else primary_meta.default_max_tokens
     )
@@ -172,7 +172,7 @@ def estimate_run_cost(
 
     per_call_cost_per_model = [
         _safe_cost_per_call(
-            canonical_model=get_model(m).id,
+            canonical_model=resolve_model(m).id,
             prompt_tokens=avg_prompt,
             completion_tokens=assumed_completion,
         )

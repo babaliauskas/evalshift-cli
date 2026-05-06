@@ -31,7 +31,7 @@ from typing import Any, cast
 
 import litellm
 
-from aimigrate.models.registry import get_model
+from aimigrate.models.registry import resolve_model
 
 log = logging.getLogger(__name__)
 
@@ -161,7 +161,7 @@ class ModelClient:
             AuthError: bad/missing credentials.
             ModelError: any other failure.
         """
-        meta = get_model(model)
+        meta = resolve_model(model)
         canonical = meta.id
         temp = meta.default_temperature if temperature is None else temperature
         mt = meta.default_max_tokens if max_tokens is None else max_tokens

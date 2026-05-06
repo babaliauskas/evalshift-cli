@@ -1,21 +1,31 @@
-"""Hard-coded registry of LLM models AIMigrate knows about.
+"""Registry of LLM models AIMigrate knows about, plus a permissive resolver.
 
-This module is the single source of truth for the model identifiers users
-can put into ``aimigrate.yaml`` or pass on the CLI. We accept two forms:
+The registry is **advisory**, not gating. It provides:
 
-1. **Canonical LiteLLM IDs** — e.g. ``gemini/gemini-2.5-flash``,
-   ``anthropic/claude-sonnet-4-5``, ``openai/gpt-4o``. These are the
-   identifiers AIMigrate dispatches to LiteLLM with no rewriting.
-2. **Friendly aliases** — shorter names that map to a canonical ID.
-   These let users write ``claude-4.5-sonnet`` instead of the longer
-   provider-prefixed form, and they're the names that show up in
-   reports.
+* Friendly aliases so users can write ``claude-4.5-sonnet`` instead of
+  ``anthropic/claude-sonnet-4-5``.
+* Sensible default temperature / max_tokens for known models.
+* Provider info for ``aimigrate doctor`` and report rendering.
 
-The list below is intentionally small (the seven models from the PDF spec
-plus a few currently-available ones used as their resolution targets).
-We don't store $/Mtoken pricing here because LiteLLM already maintains
-that data per model and its own ``litellm.completion_cost`` helper is the
-authoritative source — duplicating it here would just go stale.
+But the *authority* on whether a model is callable is **LiteLLM**, not us.
+A user pulling a fresh preview id out of Google AI Studio (e.g.
+``gemini-2.5-flash-lite-preview``) shouldn't have to wait for an
+AIMigrate release to use it. So we expose two functions:
+
+* :func:`get_model` — strict registry lookup (raises
+  :class:`UnknownModelError`). Used in tests and places that genuinely
+  want to enforce the curated list.
+* :func:`resolve_model` — never raises. Tries the registry, then falls
+  back to inferring the provider from the id's prefix (``gemini-…`` →
+  google, ``claude-…`` → anthropic, ``gpt-…`` / ``o1-…`` / ``o3-…`` →
+  openai). Used by everything in the call path so LiteLLM gets the
+  final say.
+
+When a synthesised model is returned, :attr:`ModelMetadata.provider`
+will be one of the standard providers (best-effort prefix inference)
+or ``"other"`` if we can't tell. The id is rewritten to include a
+provider prefix when we can confidently infer one, so LiteLLM's
+routing works without further plumbing.
 """
 
 from __future__ import annotations
@@ -23,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Final, Literal
 
-Provider = Literal["anthropic", "openai", "google"]
+Provider = Literal["anthropic", "openai", "google", "other"]
 
 
 class UnknownModelError(KeyError):
@@ -177,10 +187,77 @@ def list_supported() -> list[ModelMetadata]:
     return out
 
 
+def resolve_model(id_or_alias: str) -> ModelMetadata:
+    """Resolve any user-supplied model id to :class:`ModelMetadata`.
+
+    Unlike :func:`get_model`, this never raises. The registry is checked
+    first; on miss, we synthesise metadata by inferring the provider
+    from the id's prefix (or shape) and rewriting the canonical id to
+    include the LiteLLM provider prefix when we can.
+
+    Use this in the call path (orchestrator, model client, cost
+    estimator) so users can pass model ids straight from a vendor
+    playground or AI Studio without waiting for an AIMigrate release
+    to add them to the registry. LiteLLM is the source of truth at
+    call time and will produce a clean error if the id genuinely
+    doesn't resolve.
+
+    Args:
+        id_or_alias: Any user-supplied model identifier. May or may
+            not be in the registry.
+
+    Returns:
+        Either the registered :class:`ModelMetadata` (when the id is
+        known) or a synthesised one with sensible defaults. The
+        returned object's ``id`` is always the form to send to LiteLLM.
+    """
+    if id_or_alias in _LOOKUP:
+        return _LOOKUP[id_or_alias]
+    canonical, provider = _infer_provider_and_canonical(id_or_alias)
+    return ModelMetadata(
+        id=canonical,
+        provider=provider,
+        display_name=f"{id_or_alias} (passthrough)",
+    )
+
+
+def _infer_provider_and_canonical(id_or_alias: str) -> tuple[str, Provider]:
+    """Best-effort guess of provider + LiteLLM-style canonical id.
+
+    Decision tree (in order):
+
+    * If the id already has a ``<provider>/`` prefix, trust it.
+    * If it starts with ``gemini-`` → google, prefix ``gemini/``.
+    * If it starts with ``claude-`` → anthropic, prefix ``anthropic/``.
+    * If it starts with ``gpt-``, ``o1-``, or ``o3-`` → openai, prefix
+      ``openai/``.
+    * Otherwise → provider ``"other"``, id passed through unchanged.
+    """
+    if "/" in id_or_alias:
+        prefix = id_or_alias.split("/", 1)[0]
+        # LiteLLM uses ``gemini/...`` (the SDK name), but our Provider
+        # taxonomy uses the company name ``google``. Map at the boundary.
+        prefix_to_provider: dict[str, Provider] = {
+            "anthropic": "anthropic",
+            "openai": "openai",
+            "google": "google",
+            "gemini": "google",
+        }
+        return id_or_alias, prefix_to_provider.get(prefix, "other")
+    if id_or_alias.startswith("gemini-"):
+        return f"gemini/{id_or_alias}", "google"
+    if id_or_alias.startswith("claude-"):
+        return f"anthropic/{id_or_alias}", "anthropic"
+    if id_or_alias.startswith(("gpt-", "o1-", "o3-")):
+        return f"openai/{id_or_alias}", "openai"
+    return id_or_alias, "other"
+
+
 __all__ = [
     "ModelMetadata",
     "Provider",
     "UnknownModelError",
     "get_model",
     "list_supported",
+    "resolve_model",
 ]

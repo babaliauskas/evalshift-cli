@@ -30,7 +30,7 @@ from aimigrate.models.client import (
     ModelClientError,
     RateLimitError,
 )
-from aimigrate.models.registry import UnknownModelError, get_model
+from aimigrate.models.registry import resolve_model
 
 
 def test_call(
@@ -73,16 +73,20 @@ def test_call(
     """Send a single prompt to one model. Prints the response or a clear error."""
     console = Console()
 
-    # Resolve early so an unknown alias fails before we do anything noisy.
-    try:
-        meta = get_model(model)
-    except UnknownModelError as exc:
-        console.print(f"[red]✗[/red] {exc}")
-        raise typer.Exit(code=1) from exc
-
-    console.print(
-        f"[dim]→ {meta.id}[/dim]" + (f"  [dim](alias: {model})[/dim]" if model != meta.id else "")
-    )
+    # Permissive resolution: registry first, then prefix-inferred fallback.
+    # LiteLLM is the source of truth at call time and will reject genuinely
+    # unknown ids with a clear error.
+    meta = resolve_model(model)
+    if meta.display_name.endswith("(passthrough)"):
+        console.print(
+            f"[dim]→ {meta.id}[/dim]  "
+            "[yellow](not in AIMigrate registry; passing through to LiteLLM)[/yellow]",
+        )
+    else:
+        console.print(
+            f"[dim]→ {meta.id}[/dim]"
+            + (f"  [dim](alias: {model})[/dim]" if model != meta.id else ""),
+        )
 
     try:
         result = asyncio.run(

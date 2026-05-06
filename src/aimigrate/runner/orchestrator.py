@@ -42,7 +42,7 @@ from rich.progress import (
 from aimigrate.cache.store import CacheStore, cache_key
 from aimigrate.config.models import AIMigrateConfig
 from aimigrate.models.client import ModelClient, ModelClientError
-from aimigrate.models.registry import get_model
+from aimigrate.models.registry import resolve_model
 from aimigrate.parsers.base import PromptParseError, PromptTemplate
 from aimigrate.parsers.manual import ManualParser
 from aimigrate.parsers.python_string import PythonStringParser
@@ -152,8 +152,8 @@ async def run_orchestrator(
     # template variable. This raises the friendly Phase 2 error.
     validate_suite_against_prompts(suite, templates)
 
-    canonical_source = get_model(source_model).id
-    canonical_target = get_model(target_model).id
+    canonical_source = resolve_model(source_model).id
+    canonical_target = resolve_model(target_model).id
 
     # Run setup: either fresh or resume.
     config_hash = compute_config_hash(config, str(suite_path))
@@ -446,7 +446,7 @@ async def _execute(
     cache_enabled: bool,
 ) -> Call:
     """Cache-check → live call → record. Returns the constructed Call."""
-    meta = get_model(item.model_id)
+    meta = resolve_model(item.model_id)
     key = cache_key(
         model_id=meta.id,
         prompt_text=prompt_text,

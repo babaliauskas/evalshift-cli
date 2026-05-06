@@ -18,6 +18,7 @@ from rich.panel import Panel
 from aimigrate.cli.commands.doctor import CONFIG_FILENAME
 from aimigrate.cli.commands.init import SUITE_FILENAME
 from aimigrate.config.loader import ConfigError, load_config
+from aimigrate.models.registry import UnknownModelError
 from aimigrate.parsers.base import PromptParseError
 from aimigrate.runner.orchestrator import (
     RunAborted,
@@ -128,6 +129,12 @@ def run(
         raise typer.Exit(code=1) from exc
     except RunAborted as exc:
         console.print(f"[yellow]⚠[/yellow] aborted: {exc}")
+        raise typer.Exit(code=1) from exc
+    except UnknownModelError as exc:
+        # Should be unreachable now that resolve_model is permissive, but
+        # keep this as a defensive net so any future strict-path leak
+        # surfaces as a friendly error instead of a traceback.
+        console.print(f"[red]✗[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
     _print_summary(console, result)
