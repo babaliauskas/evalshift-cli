@@ -15,6 +15,7 @@ from aimigrate import __version__
 from aimigrate.cli.commands.cache import cache_app
 from aimigrate.cli.commands.doctor import doctor as _doctor
 from aimigrate.cli.commands.init import init as _init
+from aimigrate.cli.commands.run import run as _run
 from aimigrate.cli.commands.test_call import test_call as _test_call
 from aimigrate.cli.commands.validate import validate as _validate
 
@@ -50,18 +51,13 @@ def main_callback(
 
 app.command(name="doctor")(_doctor)
 app.command(name="init")(_init)
+app.command(name="run")(_run)
 app.add_typer(cache_app, name="cache")
 # `validate` and `test-call` are dev/debug commands hidden from the
 # top-level help. They'll be removed (or relocated under a hidden
 # --debug group) in Phase 8.4.
 app.command(name="validate", hidden=True)(_validate)
 app.command(name="test-call", hidden=True)(_test_call)
-
-
-@app.command()
-def run() -> None:
-    """Run paired evaluation on two models. (Phase 4 — not yet implemented.)"""
-    raise typer.Exit(code=2)
 
 
 @app.command()

@@ -161,33 +161,43 @@ Goal: installable CLI; `aimigrate --version`, `aimigrate doctor`, `aimigrate ini
 
 ---
 
-## Phase 4 — Run orchestrator
+## Phase 4 — Run orchestrator ✅ COMPLETE
 
-### 4.1 Run/Evaluation models (`src/aimigrate/runner/models.py`)
-- [ ] `Run` and `Evaluation` pydantic models.
-- [ ] **Tests** (model_dump_json round-trip).
+288 tests, 96% line coverage, mypy strict + ruff + format all clean. `aimigrate run` is now a real command end-to-end. Dogfood verified: 1 prompt × 50 examples × 2 models → exactly 100 lines in `raw.jsonl`, `state.json.status == "completed"`.
+
+### 4.1 Run/Call pydantic models (`src/aimigrate/runner/models.py`)
+- [x] `RunState` matching PDF §5.4 schema (run_id, status, config_hash, started_at, last_checkpoint_at, models, prompt_ids, suite_path, total_evaluations, completed_evaluations).
+- [x] `Call` row for `raw.jsonl` (run_id, prompt_id, example_id, model_id, role, text, tokens, cost, latency, cached, error).
+- [x] `RunModels` (source/target pair) and `RunStatus` / `CallRole` literals.
+- [x] **Tests** (`tests/unit/test_runner_models.py`, 13 cases): minimum-valid construction, `extra='forbid'`, role/status validation, JSON round-trip.
 
 ### 4.2 Checkpoint persistence (`src/aimigrate/runner/checkpoint.py`)
-- [ ] Atomic `state.json` (write-temp + rename) per PDF §5.4.
-- [ ] Append-only `raw.jsonl`.
-- [ ] `resume_run(run_dir)`; abort on `config_hash` change.
-- [ ] **Tests**: simulated crash + resume.
+- [x] `generate_run_id(now)` → `r_YYYYMMDD_<6hex>`.
+- [x] `compute_config_hash(config, suite_path)` SHA-256 over canonical JSON.
+- [x] Atomic `write_state` (write-temp + `os.replace`); `read_state` raises `CheckpointError` on missing/corrupt files.
+- [x] `append_call` / `iter_calls` with skip-malformed-tail behaviour for crash safety.
+- [x] `completed_call_keys` returns `{(prompt_id, example_id, role)}` so the orchestrator can skip resumed work.
+- [x] `find_latest_in_progress` + `validate_resume` (aborts on hash drift or non-in-progress runs).
+- [x] **Tests** (`tests/unit/test_checkpoint.py`, 22 cases): atomic write under simulated rename failure, crash-safe parse of partial JSONL, hash drift detection, resume-not-found handling.
 
 ### 4.3 Orchestrator (`src/aimigrate/runner/orchestrator.py`)
-- [ ] Async loop with `asyncio.Semaphore(concurrency)`.
-- [ ] Cache → live call → record per `(prompt, example, model)`.
-- [ ] Rich progress bar with cost + ETA.
-- [ ] Pre-flight cost confirmation (auto-yes if `--yes` or under `defaults.max_cost_usd`).
-- [ ] Checkpoint every 50 calls.
-- [ ] **Tests** with mocked model client.
+- [x] Async loop with `asyncio.Semaphore(config.defaults.concurrency)`.
+- [x] Cache → live call → record per `(prompt, example, role)` with single shared cache + lock for raw.jsonl appends and state checkpointing.
+- [x] Rich progress bar with bar/M-of-N/cost/ETA columns.
+- [x] Pre-flight cost confirmation when estimate > `COST_CONFIRM_THRESHOLD_USD` ($10), auto-yes via `--yes`.
+- [x] `CHECKPOINT_EVERY = 50` calls; final checkpoint flips status to `completed`.
+- [x] Resume support: skips already-recorded `(prompt_id, example_id, role)` keys; aborts on config hash drift.
+- [x] Per-call errors recorded in `raw.jsonl` (with `error=...`) but don't fail the whole run.
+- [x] **Tests** (`tests/unit/test_orchestrator.py`, 9 cases): single run, alias resolution to canonical, cache-on-second-run, resume-after-partial-progress, hash-drift abort, no-in-progress abort, errored calls, `--yes` skips confirmation.
 
-### 4.4 `aimigrate run` command
-- [ ] CLI args `--from`, `--to`, `--prompt`, `--suite`, `--config`, `--resume`, `--yes`.
-- [ ] Output dir `.aimigrate/runs/<run_id>/`.
-- [ ] **Tests** end-to-end with fixture suite + mocked LLM.
+### 4.4 `aimigrate run` command (`src/aimigrate/cli/commands/run.py`)
+- [x] CLI args `--from/-f`, `--to/-t`, `--config/-c`, `--suite/-s`, `--resume`, `--yes/-y`.
+- [x] Output dir `.aimigrate/runs/<run_id>/`. Catches and renders `ConfigError`, `SuiteError`, `PromptParseError`, `SuiteCompatibilityError`, `RunAborted` with the right exit codes.
+- [x] Final summary panel with run id, cached/live/failed counts, total cost, output path, and a `Next: aimigrate evaluate <run-id>` hint.
+- [x] **Tests** (`tests/unit/test_run_command.py`, 7 cases): default models, `--from/--to` override, run-dir creation, missing-config/missing-suite/missing-models/incompatible-suite errors.
 
 ### 4.5 Validation milestone
-- [ ] Dogfood: 1 prompt × 50 examples × 2 models → `raw.jsonl` with 100 lines.
+- [x] Dogfood: 1 prompt × 50 examples × 2 models → `raw.jsonl` with 100 lines, `state.json.status == "completed"`. Verified manually under `/tmp/aimigrate-phase4-demo`.
 
 ---
 
