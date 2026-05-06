@@ -1,0 +1,71 @@
+"""Top-level Typer application.
+
+This module is intentionally thin: it constructs the ``app`` object used as the
+console-script entry point and registers each subcommand. Subcommand logic
+lives in :mod:`aimigrate.cli.commands`.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+import typer
+
+from aimigrate import __version__
+
+app = typer.Typer(
+    name="aimigrate",
+    help="Run your prompts on two LLMs and find out what regressed.",
+    no_args_is_help=True,
+    add_completion=False,
+)
+
+
+def _version_callback(value: bool) -> None:
+    """Print the package version and exit."""
+    if value:
+        typer.echo(f"aimigrate {__version__}")
+        raise typer.Exit(code=0)
+
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the AIMigrate version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
+    """AIMigrate: safer LLM model migrations via paired evaluation."""
+
+
+@app.command()
+def doctor() -> None:
+    """Check environment and configuration. (Phase 1.4 — not yet implemented.)"""
+    raise typer.Exit(code=2)
+
+
+@app.command()
+def init() -> None:
+    """Scaffold an aimigrate.yaml + example suite. (Phase 1.5 — not yet implemented.)"""
+    raise typer.Exit(code=2)
+
+
+@app.command()
+def run() -> None:
+    """Run paired evaluation on two models. (Phase 4 — not yet implemented.)"""
+    raise typer.Exit(code=2)
+
+
+@app.command()
+def report() -> None:
+    """Render an HTML report from a stored run. (Phase 7 — not yet implemented.)"""
+    raise typer.Exit(code=2)
+
+
+if __name__ == "__main__":
+    app()

@@ -1,0 +1,32 @@
+target-version = "py314"
+line-length = 100
+src = ["src", "tests"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["N802", "N803", "B011"]
+
+[lint.isort]
+known-first-party = ["aimigrate"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
