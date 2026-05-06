@@ -84,6 +84,7 @@ def run_checks(cwd: Path, env: Mapping[str, str]) -> list[CheckResult]:
     results = [_python_check()]
     results.extend(_api_key_check(env, key) for key in PROVIDER_KEYS)
     results.append(_config_check(cwd))
+    results.extend(_tool_consistency_checks(cwd))
     return results
 
 
@@ -128,6 +129,75 @@ def _config_check(cwd: Path) -> CheckResult:
         status="ok",
         detail=f"valid ({n} prompt{'s' if n != 1 else ''})",
     )
+
+
+def _tool_consistency_checks(cwd: Path) -> list[CheckResult]:
+    """v0.2 — warn on common agent-config inconsistencies.
+
+    Two checks (each optional, both ``warn``-level):
+
+    1. A prompt has ``tools_path`` set but no ``tool_*`` evaluator is
+       configured (likely a config mistake — agent prompt without
+       evaluators silently scores nothing).
+    2. A suite example carries ``expected_tools`` but no prompt is
+       configured with ``tools_path`` (the ground truth will never be
+       checked).
+
+    Both are skipped silently when the config or suite can't be loaded
+    — those errors already surface elsewhere in the doctor output.
+    """
+    cfg_path = cwd / CONFIG_FILENAME
+    if not cfg_path.exists():
+        return []
+    try:
+        cfg = load_config(cfg_path)
+    except ConfigError:
+        return []
+
+    out: list[CheckResult] = []
+
+    has_tool_evaluators = bool(
+        cfg.evaluators.tool_selection
+        or cfg.evaluators.tool_arguments
+        or cfg.evaluators.tool_trace_structure,
+    )
+    agent_prompts = [p for p in cfg.prompts if p.tools_path]
+    if agent_prompts and not has_tool_evaluators:
+        ids = ", ".join(p.id for p in agent_prompts)
+        out.append(
+            CheckResult(
+                name="tools without evaluators",
+                status="warn",
+                detail=f"prompt(s) {ids} have tools_path but no tool_* evaluators are configured",
+            ),
+        )
+
+    # Suite-side check: does any example carry expected_tools while no
+    # prompt is configured agent-style?
+    suite_path = cwd / "golden.jsonl"
+    if not agent_prompts and suite_path.exists():
+        try:
+            from aimigrate.suite.loader import load_jsonl
+
+            suite = load_jsonl(suite_path)
+        except Exception:
+            return out
+        with_expected = [ex for ex in suite.examples if ex.expected_tools]
+        if with_expected:
+            sample = ", ".join(ex.id for ex in with_expected[:3])
+            more = " ..." if len(with_expected) > 3 else ""
+            out.append(
+                CheckResult(
+                    name="expected_tools without tools_path",
+                    status="warn",
+                    detail=(
+                        f"{len(with_expected)} example(s) carry expected_tools "
+                        f"but no prompt sets tools_path (ids: {sample}{more})"
+                    ),
+                ),
+            )
+
+    return out
 
 
 def render_results(results: list[CheckResult], console: Console) -> None:

@@ -39,7 +39,9 @@ from aimigrate.evaluators.structural import (
     LengthEvaluator,
     RegexEvaluator,
 )
+from aimigrate.evaluators.tool_arguments import ToolArgumentsEvaluator
 from aimigrate.evaluators.tool_selection import ToolSelectionEvaluator
+from aimigrate.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
 from aimigrate.runner.checkpoint import (
     CheckpointError,
     iter_calls,
@@ -194,6 +196,10 @@ def _build_evaluators(cfg: AIMigrateConfig, project_root: Path) -> list[Evaluato
     # pair directly.
     for ts in cfg.evaluators.tool_selection:
         out.append(ToolSelectionEvaluator(ts))  # type: ignore[arg-type]
+    for ta in cfg.evaluators.tool_arguments:
+        out.append(ToolArgumentsEvaluator(ta))  # type: ignore[arg-type]
+    for tts in cfg.evaluators.tool_trace_structure:
+        out.append(ToolTraceStructureEvaluator(tts))  # type: ignore[arg-type]
 
     return out
 
@@ -226,7 +232,7 @@ def _load_examples_by_id(suite_path: str) -> dict[str, SuiteExample]:
     """Load the suite and index examples by id; tolerate failures."""
     try:
         suite: Suite = load_jsonl(suite_path)
-    except (SuiteError, FileNotFoundError, OSError):
+    except SuiteError, FileNotFoundError, OSError:
         return {}
     return {ex.id: ex for ex in suite.examples}
 

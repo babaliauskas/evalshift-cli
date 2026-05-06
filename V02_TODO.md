@@ -147,20 +147,20 @@ Goal: end-to-end pipeline runs an agent prompt through both models, scores with 
 Goal: every PRD §2.1 failure mode (1–7) maps to a tool evaluator that catches it, with statistical analysis already wired (no Phase 6 changes needed).
 
 ### 3.1 `ToolArgumentsEvaluator` (`src/aimigrate/evaluators/tool_arguments.py`, new)
-- [ ] Greedy match by `(tool_name, nearest sequence_index)`; `_match_calls` helper documented as a v0.2 simplification (Hungarian opt-in deferred to v0.3 per PRD risk #3).
-- [ ] Per-field strategies: `exact`, `subset` (recursive dict/list), `numeric` (relative-error decay, `numeric_tolerance` clamps), `semantic` (cosine similarity via injected `embeddings_fn` — reuse the embedding helper from `aimigrate.evaluators.semantic.CosineSimilarityEvaluator`).
-- [ ] Defensive: missing field on either side → 0.0 with metadata; malformed arguments dict (already flagged by parser as `_parse_error`) → 0.0 with `_parse_error` propagated to metadata.
-- [ ] Source-side score = 1.0 (source matched itself by definition); target-side score = per-call mean of per-field scores.
-- [ ] **Tests** (`tests/unit/test_tool_arguments.py`, ~30 cases): every strategy × edge case from PRD §9.2; nested dict / list subset; greedy match when same tool called twice; malformed args; embeddings-fn fallback when `None`.
+- [x] Greedy match by `(tool_name, nearest sequence_index)`; `_match_calls` helper documented as a v0.2 simplification (Hungarian opt-in deferred to v0.3 per PRD risk #3).
+- [x] Per-field strategies: `exact`, `subset` (recursive dict/list), `numeric` (relative-error decay, `numeric_tolerance` clamps), `semantic` (cosine similarity via injected `embeddings_fn` — reuse the embedding helper from `aimigrate.evaluators.semantic.CosineSimilarityEvaluator`).
+- [x] Defensive: missing field on either side → 0.0 with metadata; malformed arguments dict (already flagged by parser as `_parse_error`) → 0.0 with `_parse_error` propagated to metadata.
+- [x] Source-side score = 1.0 (source matched itself by definition); target-side score = per-call mean of per-field scores.
+- [x] **Tests** (`tests/unit/test_tool_arguments.py`, ~30 cases): every strategy × edge case from PRD §9.2; nested dict / list subset; greedy match when same tool called twice; malformed args; embeddings-fn fallback when `None`.
 
 ### 3.2 `ToolTraceStructureEvaluator` (`src/aimigrate/evaluators/tool_trace_structure.py`, new)
-- [ ] Sub-scores: `call_count` (linear decay past `call_count_tolerance`), `parallelism` (boolean match), `refusal_alignment` (boolean match — refusal regression severity-floored to "high" via metadata), `expected_count_alignment` (when `example.expected_tool_count` set).
-- [ ] Combined score = mean of enabled sub-scores. Sub-scores recorded in `metadata` for the report.
-- [ ] **Tests** (`tests/unit/test_tool_trace_structure.py`, ~20 cases): every sub-score branch, combined-score arithmetic, all-disabled returns 1.0.
+- [x] Sub-scores: `call_count` (linear decay past `call_count_tolerance`), `parallelism` (boolean match), `refusal_alignment` (boolean match — refusal regression severity-floored to "high" via metadata), `expected_count_alignment` (when `example.expected_tool_count` set).
+- [x] Combined score = mean of enabled sub-scores. Sub-scores recorded in `metadata` for the report.
+- [x] **Tests** (`tests/unit/test_tool_trace_structure.py`, ~20 cases): every sub-score branch, combined-score arithmetic, all-disabled returns 1.0.
 
 ### 3.3 Wire both new evaluators into `aimigrate evaluate` (`src/aimigrate/cli/commands/evaluate.py`, extend)
-- [ ] Build them from config in the same `_build_evaluators` function used in v0.1.
-- [ ] **Integration tests** (`tests/integration/test_tool_pipeline.py`, new) — at least the 8 scenarios from PRD §9.3:
+- [x] Build them from config in the same `_build_evaluators` function used in v0.1.
+- [x] **Integration tests** (`tests/integration/test_tool_pipeline.py`, new) — at least the 8 scenarios from PRD §9.3:
   - `test_full_pipeline_agent_project_no_regression`
   - `test_full_pipeline_detects_missing_tool_call` (tool_selection CRITICAL)
   - `test_full_pipeline_detects_argument_drift` (tool_arguments MEDIUM)
@@ -169,19 +169,19 @@ Goal: every PRD §2.1 failure mode (1–7) maps to a tool evaluator that catches
   - `test_full_pipeline_refusal_regression` (refusal_alignment forces high)
   - `test_full_pipeline_resume_with_tool_calls` (resume across crash)
   - `test_full_pipeline_cache_hits_for_tool_calls` (second run is free)
-- [ ] Each scenario uses the agent fixture project + mocked LiteLLM responses; no real API calls.
+- [x] Each scenario uses the agent fixture project + mocked LiteLLM responses; no real API calls.
 
 ### 3.4 `aimigrate doctor` warnings (`src/aimigrate/cli/commands/doctor.py`, extend)
-- [ ] Warn (yellow ✗) if any prompt has `tools_path` but no tool evaluator is configured.
-- [ ] Warn if any suite example has `expected_tools` but no prompt has `tools_path`.
-- [ ] **Tests**: monkey-patched config + suite triggers each warning; happy path stays green.
+- [x] Warn (yellow ✗) if any prompt has `tools_path` but no tool evaluator is configured.
+- [x] Warn if any suite example has `expected_tools` but no prompt has `tools_path`.
+- [x] **Tests**: monkey-patched config + suite triggers each warning; happy path stays green.
 
 ### 3.5 Statistical-pipeline check (no code changes expected)
-- [ ] One test that locks in: bimodal score data (typical of tool evaluators) routes through `aimigrate.analysis.statistics.analyze` → Wilcoxon kicks in (Shapiro-Wilk rejects normality), severity classification still works, BH correction still applies.
+- [x] One test that locks in: bimodal score data (typical of tool evaluators) routes through `aimigrate.analysis.statistics.analyze` → Wilcoxon kicks in (Shapiro-Wilk rejects normality), severity classification still works, BH correction still applies.
 
 ### Phase 3 verification
-- [ ] All 7 PRD §2.1 failure modes map to a passing integration test.
-- [ ] `pytest --cov=aimigrate.evaluators.tool_*` ≥ 90%; overall coverage ≥ 94%.
+- [x] All 7 PRD §2.1 failure modes map to a passing integration test.
+- [x] `pytest --cov=aimigrate.evaluators.tool_*` ≥ 90%; overall coverage ≥ 94%.
 
 ---
 

@@ -17,8 +17,7 @@ from aimigrate.suite.models import ExpectedToolCall, SuiteExample
 def _trace(*tool_names: str) -> ToolTrace:
     return ToolTrace(
         calls=[
-            ToolCall(tool_name=n, arguments={}, sequence_index=i)
-            for i, n in enumerate(tool_names)
+            ToolCall(tool_name=n, arguments={}, sequence_index=i) for i, n in enumerate(tool_names)
         ],
     )
 
@@ -33,14 +32,14 @@ def _example(
         id="ex1",
         inputs={},
         tags=tags or [],
-        expected_tools=(
-            [ExpectedToolCall(tool_name=n) for n in expected] if expected else None
-        ),
+        expected_tools=([ExpectedToolCall(tool_name=n) for n in expected] if expected else None),
         expected_no_tools=expected_no_tools,
     )
 
 
-def _evaluator(mode: str = "expected", *, severity_floor: str | None = None) -> ToolSelectionEvaluator:
+def _evaluator(
+    mode: str = "expected", *, severity_floor: str | None = None
+) -> ToolSelectionEvaluator:
     cfg = ToolSelectionEvaluatorConfig(
         name="tool_selection",
         mode=mode,  # type: ignore[arg-type]
