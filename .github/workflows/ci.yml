@@ -26,6 +26,10 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # We don't ship a uv.lock (this project installs via
+          # `uv pip install -e .[dev]`), so key the cache on pyproject.toml
+          # instead of the default `**/uv.lock` which fails the job.
+          cache-dependency-glob: 'pyproject.toml'
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
