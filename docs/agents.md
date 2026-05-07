@@ -6,10 +6,10 @@ sequenced them — across two model versions.
 
 The killer scenario it catches:
 
-> A team migrates a customer-routing agent from Claude 4.5 to Claude 5.
-> The new model silently stops calling `notify_security_team` on
-> sensitive requests. Text-only eval reports green; v0.2 marks it
-> CRITICAL and blocks the migration.
+> A team migrates a customer-support agent from Gemini 2.5 Flash to
+> 3.1 Flash-Lite. The new model silently stops calling
+> `notify_security_team` on sensitive requests. Text-only eval
+> reports green; v0.2 marks it CRITICAL and blocks the migration.
 
 ## What's new in v0.2
 
@@ -26,19 +26,29 @@ The killer scenario it catches:
 
 ## Walkthrough
 
-The repo ships a runnable example at `examples/agent/`. From a fresh
-checkout:
+`aimigrate init` ships a complete agent project as the default
+scaffold — six customer-support tools (`search_orders`,
+`lookup_customer`, `issue_refund`, `update_order_status`,
+`send_email`, `notify_security_team`) and a 40-row golden suite
+across five slices (`security`, `routine`, `refund`,
+`customer_lookup`, `text_only`):
 
 ```bash
-cd examples/agent
+mkdir my-agent-eval && cd my-agent-eval
 export GOOGLE_API_KEY=...                 # or OPENAI_API_KEY / ANTHROPIC_API_KEY
 
-aimigrate run --yes --from gemini-2.5-flash --to gemini-2.5-pro
+aimigrate init                            # writes aimigrate.yaml + prompts.py +
+                                          #        tools.yaml + golden.jsonl
+aimigrate doctor
+aimigrate run --yes                       # uses Gemini defaults from the yaml
 RUN_ID=$(ls .aimigrate/runs/ | head -1)
 aimigrate evaluate $RUN_ID
 aimigrate analyze $RUN_ID
 aimigrate report $RUN_ID --open
 ```
+
+The same files exist as a checked-in reference at `examples/agent/` if
+you want to read or copy them without scaffolding.
 
 `aimigrate run` notices `tools_path` on the prompt and dispatches via
 `ModelClient.complete_with_tools` — each `Call` row in `raw.jsonl`
@@ -58,11 +68,12 @@ prompts:
     path: prompts.py
     variable: AGENT_SYSTEM_PROMPT
     variables: [query]
-    tools_path: tools.yaml          # ← makes this an agent prompt
+    tools_path: tools.yaml          # makes this an agent prompt
 
 defaults:
   source_model: gemini-2.5-flash
-  target_model: gemini-2.5-pro
+  target_model: gemini-3.1-flash-lite-preview
+  judge_model: gemini-2.5-pro
 
 evaluators:
   tool_selection:
@@ -76,6 +87,12 @@ evaluators:
   # tool_trace_structure:
   #   - name: routing_structure
 ```
+
+> **Note:** `structural.length` is intentionally **not** in the
+> scaffolded config. Agent runs frequently produce empty `final_text`
+> (the model returned only tool calls), which makes the length
+> evaluator score 0/0 across every routine row — pure noise. Add it
+> back manually only for prompts that produce text.
 
 The tools file (`tools.yaml`) accepts either Anthropic-shape
 (`name` / `description` / `input_schema`) or OpenAI-shape

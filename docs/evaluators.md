@@ -5,7 +5,7 @@ example. Every evaluator returns a `PairedScore` with both halves and
 a `delta = target_score - source_score`. Negative deltas mean the
 target regressed; positive deltas mean it improved.
 
-The MVP ships three families:
+AIMigrate ships four families:
 
 ## Structural (deterministic, free)
 
@@ -49,6 +49,35 @@ Use when you can articulate the difference you care about as a
 sentence ("which output preserves more factual detail?"). Multiple
 `llm_judge` entries are allowed — each becomes its own evaluator.
 
+## Tool-call evaluators (v0.2, agent migrations)
+
+For prompts with `tools_path:` set, AIMigrate parses each model's
+response into a provider-agnostic `ToolTrace` and scores three
+orthogonal dimensions:
+
+* **`tool_selection`** — *which* tools fire? Modes: `exact`
+  (sequence equality), `set` (Jaccard), `first` (first call only),
+  `expected` (default; matches `example.expected_tools` order-preserving).
+  Use this for the canonical "did the new model still call the right
+  tools?" check. Configure `severity_floor: high` so a regression
+  here can never be downgraded.
+* **`tool_arguments`** — *what* did the model pass? Greedy match by
+  `(tool_name, sequence_index)`, then per-field strategies (`exact` /
+  `subset` / `numeric` / `semantic`). Use when arg drift matters
+  (e.g. the model still calls `issue_refund` but the amount is wrong).
+* **`tool_trace_structure`** — *how* did it sequence them? Sub-scores:
+  call count, parallelism, refusal alignment, expected count.
+  Refusal mismatches force `severity_floor: high`. Use to catch
+  call-count explosions or sudden parallel/serial flips.
+
+The seven failure modes from the v0.2 PRD §2.1 each map to one of
+these three: dropped tool / wrong tool → `tool_selection`; arg drift /
+sequence reorder → `tool_arguments`; parallel↔serial flip / loop
+divergence / refusal regression → `tool_trace_structure`.
+
+The `init` scaffold enables only `tool_selection` by default. Turn the
+others on once you've decided you care.
+
 ## Mixing evaluators
 
 You can configure several at once. They all run on every (prompt,
@@ -65,11 +94,14 @@ A typical migration uses:
 
 Per (prompt, example) pair, each evaluator means:
 
-| Evaluator     | Cost                                    |
-| ------------- | --------------------------------------- |
-| structural.*  | $0 (no calls)                           |
-| semantic      | 2 embedding calls                       |
-| llm_judge     | 1 judge model completion                |
+| Evaluator              | Cost                                    |
+| ---------------------- | --------------------------------------- |
+| structural.*           | $0 (no calls)                           |
+| semantic               | 2 embedding calls                       |
+| llm_judge              | 1 judge model completion                |
+| tool_selection         | $0 (compares parsed traces only)        |
+| tool_trace_structure   | $0 (compares parsed traces only)        |
+| tool_arguments         | $0 normally; embedding calls per `semantic`-strategy field if you opt in |
 
 A 100-example suite with 1 prompt and 4 evaluators (2 structural +
 1 semantic + 1 judge) is:
