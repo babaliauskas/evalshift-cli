@@ -75,11 +75,19 @@ th, td {
   text-align: left;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
 }
-th { background: rgba(255, 255, 255, 0.02); font-weight: 600; font-size: 13px; }
+th { background: rgba(255, 255, 255, 0.02); font-weight: 600; font-size: 13px; white-space: nowrap; }
 tbody tr:last-child td { border-bottom: none; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.glyph { width: 28px; text-align: center; }
+/* Numeric columns: right-align both the header and the value, and use
+   tabular figures so digits line up vertically. The `num` class must
+   appear on the matching <th> AND <td> for header/value alignment. */
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num { white-space: nowrap; }
+th.glyph, td.glyph { width: 28px; text-align: center; }
+/* Keep evaluator names and other identifier <code> values from
+   wrapping mid-token, which would push the value cell out of line. */
+td code { white-space: nowrap; }
 
 table.meta th { width: 140px; }
 table.summary tbody tr.sev-critical { background: rgba(224, 49, 49, 0.10); }

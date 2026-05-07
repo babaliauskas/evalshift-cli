@@ -27,14 +27,14 @@
 {% if executive_summary %}
 <table class="summary">
   <thead><tr>
-    <th></th>
+    <th class="glyph"></th>
     <th>Prompt</th>
     <th>Worst severity</th>
     <th>Slice</th>
-    <th>n</th>
-    <th>Δ mean</th>
-    <th>|d|</th>
-    <th>p<sub>corrected</sub></th>
+    <th class="num">n</th>
+    <th class="num">Δ mean</th>
+    <th class="num">|d|</th>
+    <th class="num">p<sub>corrected</sub></th>
   </tr></thead>
   <tbody>
   {% for row in executive_summary %}
@@ -66,12 +66,12 @@
   <thead><tr>
     <th>Evaluator</th>
     <th>Test</th>
-    <th>n</th>
-    <th>Δ mean</th>
-    <th>|d|</th>
-    <th>95% CI</th>
-    <th>p<sub>raw</sub></th>
-    <th>p<sub>corrected</sub></th>
+    <th class="num">n</th>
+    <th class="num">Δ mean</th>
+    <th class="num">|d|</th>
+    <th class="num">95% CI</th>
+    <th class="num">p<sub>raw</sub></th>
+    <th class="num">p<sub>corrected</sub></th>
     <th>Severity</th>
   </tr></thead>
   <tbody>
@@ -101,10 +101,10 @@
   <thead><tr>
     <th>Slice</th>
     <th>Evaluator</th>
-    <th>n</th>
-    <th>Δ mean</th>
-    <th>|d|</th>
-    <th>p<sub>corrected</sub></th>
+    <th class="num">n</th>
+    <th class="num">Δ mean</th>
+    <th class="num">|d|</th>
+    <th class="num">p<sub>corrected</sub></th>
     <th>Severity</th>
   </tr></thead>
   <tbody>
