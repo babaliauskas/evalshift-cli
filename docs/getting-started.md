@@ -44,13 +44,14 @@ cd my-eval
 aimigrate init
 ```
 
-This writes three files:
+This writes four files (a runnable customer-support agent project):
 
 | File              | Purpose                                               |
 | ----------------- | ----------------------------------------------------- |
 | `aimigrate.yaml`  | Run configuration (prompts, evaluators, slices).      |
-| `prompts.py`      | Example prompt strings discovered by AST-walking.     |
-| `golden.jsonl`    | Three example suite rows you can run immediately.     |
+| `prompts.py`      | Agent system prompt discovered by AST-walking.        |
+| `tools.yaml`      | Six tool specs the agent can call.                    |
+| `golden.jsonl`    | 40 example suite rows across 5 slices.                |
 
 If any of those files already exist, `init` refuses to clobber them. Pass
 `--force` to overwrite, or `--directory my-eval/` to scaffold into a

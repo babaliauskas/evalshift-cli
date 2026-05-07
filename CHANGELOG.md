@@ -7,19 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- `aimigrate init --agent` flag: scaffolds a v0.2 agent project
-  (`aimigrate.yaml` + `prompts.py` + `tools.yaml` + 30-row `golden.jsonl`)
-  in one command. Mirrors `examples/agent/`.
-
 ### Changed
 
-- `aimigrate init` (default flow) now ships 24 starter examples instead
-  of 3, so the analysis layer no longer reports "insufficient — small
-  sample" on a fresh project's first run. Each slice clears
-  `MIN_N_FOR_TEST=5` and the implicit "all" slice clears
-  `MIN_N_RELIABLE=20`.
+- `aimigrate init` now always scaffolds an agent project. The brief
+  `--agent` flag introduced in the previous unreleased entry has been
+  removed — there's only one starter, and it's the v0.2 agent flow.
+  Existing v0.1-style projects are unaffected (no breaking change to
+  the config schema or runner).
+- Agent scaffold ships 6 customer-support tools (`search_orders`,
+  `lookup_customer`, `issue_refund`, `update_order_status`,
+  `send_email`, `notify_security_team`) and 40 suite rows across 5
+  slices (security, routine, refund, customer_lookup, text_only) so
+  the analysis layer produces real severity badges on a first run
+  instead of "insufficient" / zero-variance warnings.
+- Dropped `structural.length` from the scaffolded `aimigrate.yaml`.
+  Agent runs frequently produce empty `final_text` (model returned
+  only tool calls) which made length scores 0/0 across every routine
+  + security row — pure noise. Users who want length checks can
+  add the block back manually for prompts that produce text.
 
 ## [0.2.0] — Tool-call evaluation
 

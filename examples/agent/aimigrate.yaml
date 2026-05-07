@@ -1,4 +1,4 @@
-# AIMigrate v0.2 agent example: a customer-routing agent with 3 tools.
+# AIMigrate v0.2 agent example: a customer-support routing agent with 6 tools.
 #
 # Run with mocked LLMs (CI / no API keys):
 #     pytest tests/integration/test_tool_pipeline.py
@@ -31,15 +31,8 @@ defaults:
   max_cost_usd: 50.0
 
 evaluators:
-  # Length is a cheap structural sanity check on the model's text response.
-  structural:
-    - type: length
-      min_chars: 1
-      max_chars: 2000
-
-  # v0.2 — tool-call evaluators. tool_selection is the most useful for
-  # migrations: it tells you whether the new model still picks the
-  # right tools for each example.
+  # tool_selection is the most useful evaluator for migrations: it tells
+  # you whether the new model picks the same tools as ground truth.
   tool_selection:
     - name: routing
       mode: expected
@@ -50,3 +43,9 @@ slices:
     filter: security
   - name: routine
     filter: routine
+  - name: refund
+    filter: refund
+  - name: customer_lookup
+    filter: customer_lookup
+  - name: text_only
+    filter: text_only

@@ -40,11 +40,12 @@ def in_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 class TestInitHappy:
-    def test_writes_three_starter_files(self, in_tmp: Path) -> None:
+    def test_writes_four_starter_files(self, in_tmp: Path) -> None:
         result = runner.invoke(app, ["init"])
         assert result.exit_code == 0, result.stdout
         assert (in_tmp / CONFIG_FILENAME).is_file()
         assert (in_tmp / PROMPTS_FILENAME).is_file()
+        assert (in_tmp / TOOLS_FILENAME).is_file()
         assert (in_tmp / SUITE_FILENAME).is_file()
 
     def test_written_config_parses_via_load_config(self, in_tmp: Path) -> None:
@@ -52,6 +53,20 @@ class TestInitHappy:
         assert result.exit_code == 0, result.stdout
         cfg = load_config(in_tmp / CONFIG_FILENAME)
         assert len(cfg.prompts) >= 1
+        # Single prompt should be wired up as an agent prompt.
+        agent_prompts = [p for p in cfg.prompts if p.tools_path]
+        assert agent_prompts, "expected at least one prompt with tools_path set"
+
+    def test_config_does_not_enable_structural_length(self, in_tmp: Path) -> None:
+        """structural.length scores 0/0 on agent runs (empty final_text).
+        Make sure the scaffold doesn't include it as default noise."""
+        runner.invoke(app, ["init"])
+        cfg_text = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
+        # The block header itself shouldn't appear in a non-comment line.
+        non_comment = "\n".join(
+            line for line in cfg_text.splitlines() if not line.lstrip().startswith("#")
+        )
+        assert "structural:" not in non_comment
 
     def test_written_prompts_module_is_valid_python(self, in_tmp: Path) -> None:
         result = runner.invoke(app, ["init"])
@@ -81,6 +96,23 @@ class TestInitHappy:
                     f"by aimigrate.yaml prompt {prompt.id!r}"
                 )
 
+    def test_tools_yaml_ships_six_tools(self, in_tmp: Path) -> None:
+        runner.invoke(app, ["init"])
+        tools_text = (in_tmp / TOOLS_FILENAME).read_text(encoding="utf-8")
+        # Each tool definition starts with `- name:` at column 0.
+        tool_count = sum(1 for line in tools_text.splitlines() if line.startswith("- name:"))
+        assert tool_count == 6, f"expected 6 tools, got {tool_count}"
+        # And specifically these names should all appear.
+        for name in (
+            "search_orders",
+            "lookup_customer",
+            "issue_refund",
+            "update_order_status",
+            "send_email",
+            "notify_security_team",
+        ):
+            assert f"- name: {name}" in tools_text
+
     def test_written_suite_is_valid_jsonl(self, in_tmp: Path) -> None:
         runner.invoke(app, ["init"])
         text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
@@ -94,6 +126,48 @@ class TestInitHappy:
         result = runner.invoke(app, ["init"])
         assert "aimigrate doctor" in result.stdout
         assert "aimigrate run" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Suite shape — locks in the post-Phase-6 fix
+# ---------------------------------------------------------------------------
+
+
+class TestInitSuiteShape:
+    """The default suite must be big enough that the analysis layer doesn't
+    skip with ``insufficient — small sample``.
+
+    ``MIN_N_FOR_TEST = 5`` and ``MIN_N_RELIABLE = 20`` in
+    ``src/aimigrate/analysis/statistics.py``. The default scaffold should
+    clear ``MIN_N_RELIABLE`` so brand-new users see real severity badges
+    on their first analyze run, not a warning row.
+    """
+
+    def test_suite_has_at_least_40_rows(self, in_tmp: Path) -> None:
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 0, result.stdout
+        text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
+        rows = [line for line in text.splitlines() if line.strip()]
+        assert len(rows) >= 40, (
+            f"default suite shipped {len(rows)} rows; need >= 40 for each "
+            f"slice to clear n>=5 and 'all' to clear n>=20"
+        )
+
+    def test_suite_covers_every_configured_slice(self, in_tmp: Path) -> None:
+        """Every slice tag declared in aimigrate.yaml should have rows."""
+        runner.invoke(app, ["init"])
+        text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
+        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+        tags = {tag for row in rows for tag in row.get("tags", [])}
+        for slice_tag in ("security", "routine", "refund", "customer_lookup", "text_only"):
+            assert slice_tag in tags, f"slice {slice_tag!r} has no rows"
+
+    def test_suite_mixes_expected_tools_and_expected_no_tools(self, in_tmp: Path) -> None:
+        runner.invoke(app, ["init"])
+        text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
+        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+        assert any("expected_tools" in r for r in rows), "no expected_tools rows"
+        assert any(r.get("expected_no_tools") is True for r in rows), "no expected_no_tools rows"
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +199,13 @@ class TestInitConflicts:
         assert CONFIG_FILENAME in result.stdout
         assert PROMPTS_FILENAME in result.stdout
 
+    def test_refuses_to_overwrite_existing_tools_yaml(self, in_tmp: Path) -> None:
+        (in_tmp / TOOLS_FILENAME).write_text("# user's tools\n", encoding="utf-8")
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 1
+        assert "Refusing to overwrite" in result.stdout
+        assert (in_tmp / TOOLS_FILENAME).read_text(encoding="utf-8") == "# user's tools\n"
+
 
 # ---------------------------------------------------------------------------
 # --directory
@@ -140,6 +221,7 @@ class TestInitDirectoryFlag:
         result = runner.invoke(app, ["init", "--directory", str(target)])
         assert result.exit_code == 0, result.stdout
         assert (target / CONFIG_FILENAME).is_file()
+        assert (target / TOOLS_FILENAME).is_file()
         # The cwd itself should be untouched.
         assert not (tmp_path / CONFIG_FILENAME).exists()
 
@@ -152,96 +234,3 @@ class TestInitDirectoryFlag:
         result = runner.invoke(app, ["init", "-d", str(target)])
         assert result.exit_code == 0, result.stdout
         assert (target / CONFIG_FILENAME).is_file()
-
-
-# ---------------------------------------------------------------------------
-# Default suite size — lock in the post-v0.2 fix
-# ---------------------------------------------------------------------------
-
-
-class TestInitDefaultSuiteSize:
-    """The default suite must be big enough that the analysis layer doesn't
-    skip with ``insufficient — small sample``.
-
-    ``MIN_N_FOR_TEST = 5`` and ``MIN_N_RELIABLE = 20`` in
-    ``src/aimigrate/analysis/statistics.py``. The default scaffold should
-    clear ``MIN_N_RELIABLE`` so brand-new users see real severity badges
-    on their first analyze run, not a warning row.
-    """
-
-    def test_default_golden_has_at_least_24_rows(self, in_tmp: Path) -> None:
-        result = runner.invoke(app, ["init"])
-        assert result.exit_code == 0, result.stdout
-        text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
-        rows = [line for line in text.splitlines() if line.strip()]
-        assert len(rows) >= 24, (
-            f"default suite shipped {len(rows)} rows; need >= 24 so each slice "
-            f"clears n>=5 and the implicit 'all' slice clears n>=20"
-        )
-
-    def test_default_golden_covers_both_slice_tags(self, in_tmp: Path) -> None:
-        runner.invoke(app, ["init"])
-        text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-        tags = {tag for row in rows for tag in row.get("tags", [])}
-        # Both slices defined in the default aimigrate.yaml must be
-        # populated, otherwise one slice will land at n=0.
-        assert "formal" in tags
-        assert "casual" in tags
-
-
-# ---------------------------------------------------------------------------
-# --agent flag
-# ---------------------------------------------------------------------------
-
-
-class TestInitAgentFlag:
-    def test_writes_four_files_including_tools_yaml(self, in_tmp: Path) -> None:
-        result = runner.invoke(app, ["init", "--agent"])
-        assert result.exit_code == 0, result.stdout
-        assert (in_tmp / CONFIG_FILENAME).is_file()
-        assert (in_tmp / PROMPTS_FILENAME).is_file()
-        assert (in_tmp / TOOLS_FILENAME).is_file()
-        assert (in_tmp / SUITE_FILENAME).is_file()
-
-    def test_default_flow_does_not_write_tools_yaml(self, in_tmp: Path) -> None:
-        result = runner.invoke(app, ["init"])
-        assert result.exit_code == 0, result.stdout
-        assert not (in_tmp / TOOLS_FILENAME).exists()
-
-    def test_agent_yaml_wires_tools_and_evaluator(self, in_tmp: Path) -> None:
-        runner.invoke(app, ["init", "--agent"])
-        cfg_text = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
-        assert "tools_path: tools.yaml" in cfg_text
-        assert "tool_selection:" in cfg_text
-
-    def test_agent_config_parses_via_load_config(self, in_tmp: Path) -> None:
-        runner.invoke(app, ["init", "--agent"])
-        cfg = load_config(in_tmp / CONFIG_FILENAME)
-        # The single agent prompt should carry the tools_path field.
-        agent_prompts = [p for p in cfg.prompts if p.tools_path]
-        assert agent_prompts, "expected at least one prompt with tools_path set"
-
-    def test_agent_suite_has_expected_tools_rows(self, in_tmp: Path) -> None:
-        runner.invoke(app, ["init", "--agent"])
-        text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-        # Mix of expected_tools (tool calls) and expected_no_tools rows.
-        assert any("expected_tools" in r for r in rows)
-        assert any(r.get("expected_no_tools") is True for r in rows)
-        # Big enough to clear MIN_N_RELIABLE for the implicit 'all' slice.
-        assert len(rows) >= 20
-
-    def test_agent_refuses_to_overwrite_existing_tools_yaml(self, in_tmp: Path) -> None:
-        (in_tmp / TOOLS_FILENAME).write_text("# user's tools\n", encoding="utf-8")
-        result = runner.invoke(app, ["init", "--agent"])
-        assert result.exit_code == 1
-        assert "Refusing to overwrite" in result.stdout
-        assert (in_tmp / TOOLS_FILENAME).read_text(encoding="utf-8") == "# user's tools\n"
-
-    def test_agent_force_overwrites(self, in_tmp: Path) -> None:
-        (in_tmp / TOOLS_FILENAME).write_text("# old\n", encoding="utf-8")
-        result = runner.invoke(app, ["init", "--agent", "--force"])
-        assert result.exit_code == 0, result.stdout
-        # tools.yaml should now contain real tool definitions.
-        assert "search_orders" in (in_tmp / TOOLS_FILENAME).read_text(encoding="utf-8")
