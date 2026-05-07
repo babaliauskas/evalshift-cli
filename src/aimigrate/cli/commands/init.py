@@ -64,7 +64,7 @@ prompts:
 # Defaults applied to every run; CLI flags override these.
 defaults:
   source_model: gemini-2.5-flash
-  target_model: gemini-2.5-pro
+  target_model: gemini-3.1-flash-lite-preview
   judge_model: gemini-2.5-pro
   concurrency: 4
   cache: true
