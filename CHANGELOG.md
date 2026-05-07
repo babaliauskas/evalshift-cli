@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `aimigrate init --agent` flag: scaffolds a v0.2 agent project
+  (`aimigrate.yaml` + `prompts.py` + `tools.yaml` + 30-row `golden.jsonl`)
+  in one command. Mirrors `examples/agent/`.
+
+### Changed
+
+- `aimigrate init` (default flow) now ships 24 starter examples instead
+  of 3, so the analysis layer no longer reports "insufficient — small
+  sample" on a fresh project's first run. Each slice clears
+  `MIN_N_FOR_TEST=5` and the implicit "all" slice clears
+  `MIN_N_RELIABLE=20`.
+
 ## [0.2.0] — Tool-call evaluation
 
 Adds agent-migration support: detects regressions in *which* tools the

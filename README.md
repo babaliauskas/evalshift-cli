@@ -35,8 +35,10 @@ uv pip install -e .
 
 ```bash
 # 1. Scaffold a starter project (writes aimigrate.yaml + prompts.py + golden.jsonl)
+#    Add --agent for a tool-using v0.2 project (also writes tools.yaml).
 mkdir my-eval && cd my-eval
-aimigrate init
+aimigrate init                  # text-prompt project
+# aimigrate init --agent        # agent project with tools
 
 # 2. Verify your environment
 export GOOGLE_API_KEY=...   # or ANTHROPIC_API_KEY / OPENAI_API_KEY
@@ -66,8 +68,10 @@ agent that silently stops calling `notify_security_team` after the
 migration — text-only eval reports green, v0.2 marks it CRITICAL.
 
 ```bash
-cd examples/agent
-aimigrate run --yes --from gemini-2.5-flash --to gemini-2.5-pro
+# One-command setup for a fresh agent project:
+mkdir my-agent-eval && cd my-agent-eval
+aimigrate init --agent
+aimigrate run --yes
 # evaluate / analyze / report just like the regular flow
 ```
 
