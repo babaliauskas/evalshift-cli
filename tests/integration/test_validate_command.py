@@ -1,4 +1,4 @@
-"""Integration tests for ``aimigrate validate``.
+"""Integration tests for ``evalshift validate``.
 
 Each test runs the command inside a fixture project directory under
 ``tests/integration/fixtures/`` and asserts the exit code + key fragments
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.main import app
+from evalshift.cli.main import app
 
 runner = CliRunner()
 
@@ -24,7 +24,7 @@ def _invoke_in_fixture(
     monkeypatch: pytest.MonkeyPatch,
     fixture_name: str,
 ) -> tuple[int, str]:
-    """Run ``aimigrate validate`` inside the named fixture directory."""
+    """Run ``evalshift validate`` inside the named fixture directory."""
     monkeypatch.chdir(FIXTURES_DIR / fixture_name)
     result = runner.invoke(app, ["validate"])
     return result.exit_code, result.stdout
@@ -75,7 +75,7 @@ class TestValidateFailures:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        monkeypatch.chdir(tmp_path)  # empty dir — no aimigrate.yaml
+        monkeypatch.chdir(tmp_path)  # empty dir — no evalshift.yaml
         result = runner.invoke(app, ["validate"])
         assert result.exit_code == 1
         assert "Invalid config" in result.stdout
@@ -86,7 +86,7 @@ class TestValidateFailures:
         tmp_path: Path,
     ) -> None:
         # Valid config but no suite file in the cwd.
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: a, detection: manual, content: hi}\n",
             encoding="utf-8",
         )

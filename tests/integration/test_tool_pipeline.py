@@ -5,7 +5,7 @@ Each scenario from PRD §9.3 has a corresponding test that:
 1. Sets up an agent project on disk (config + tools + suite + prompt).
 2. Monkeypatches ``ModelClient.complete_with_tools`` to return canned
    :class:`ToolCompletionResult` objects keyed on the work item.
-3. Runs the full ``aimigrate run → evaluate → analyze`` pipeline.
+3. Runs the full ``evalshift run → evaluate → analyze`` pipeline.
 4. Asserts the analysis layer produces the expected severity.
 
 These tests are the most valuable in the v0.2 suite — each one
@@ -22,11 +22,11 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands.evaluate import SCORES_FILENAME
-from aimigrate.cli.main import app
-from aimigrate.evaluators.tool_models import ToolCall, ToolTrace
-from aimigrate.models.client import ModelClient, ToolCompletionResult
-from aimigrate.runner import orchestrator as orch_module
+from evalshift.cli.commands.evaluate import SCORES_FILENAME
+from evalshift.cli.main import app
+from evalshift.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift.models.client import ModelClient, ToolCompletionResult
+from evalshift.runner import orchestrator as orch_module
 
 runner = CliRunner()
 
@@ -65,7 +65,7 @@ evaluators:
       mode: expected
 {extra_evaluators}
 """
-    (tmp_path / "aimigrate.yaml").write_text(cfg, encoding="utf-8")
+    (tmp_path / "evalshift.yaml").write_text(cfg, encoding="utf-8")
 
     (tmp_path / "tools.yaml").write_text(
         """
@@ -164,11 +164,11 @@ def _patch_with_tools(
 
 
 def _run_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
-    """Run aimigrate run → evaluate → analyze; return run_id."""
+    """Run evalshift run → evaluate → analyze; return run_id."""
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["run", "--yes"])
     assert result.exit_code == 0, result.stdout
-    runs = sorted((tmp_path / ".aimigrate" / "runs").iterdir())
+    runs = sorted((tmp_path / ".evalshift" / "runs").iterdir())
     assert len(runs) == 1
     run_id = runs[0].name
     result = runner.invoke(app, ["evaluate", run_id])
@@ -186,7 +186,7 @@ class TestToolPipeline:
         )
         run_id = _run_pipeline(monkeypatch, tmp_path)
 
-        scores_path = tmp_path / ".aimigrate" / "runs" / run_id / SCORES_FILENAME
+        scores_path = tmp_path / ".evalshift" / "runs" / run_id / SCORES_FILENAME
         rows = scores_path.read_text(encoding="utf-8").splitlines()
         assert rows  # something was written
         # Every row should be a perfect 1.0/1.0 (both sides match expectation).
@@ -248,7 +248,7 @@ class TestToolPipeline:
         import json
 
         analysis = json.loads(
-            (tmp_path / ".aimigrate" / "runs" / run_id / "analysis.json").read_text(),
+            (tmp_path / ".evalshift" / "runs" / run_id / "analysis.json").read_text(),
         )
         # The "all" slice for routing_selection should be a regression.
         regressions = [
@@ -267,8 +267,8 @@ class TestToolPipeline:
         """Plain text prompt + agent prompt mixed; tool evaluator only scores agent."""
         # Add a non-agent prompt to the config.
         cfg_root = _scaffold_agent_project(tmp_path)
-        (cfg_root / "aimigrate.yaml").write_text(
-            (cfg_root / "aimigrate.yaml")
+        (cfg_root / "evalshift.yaml").write_text(
+            (cfg_root / "evalshift.yaml")
             .read_text(encoding="utf-8")
             .replace(
                 "evaluators:",
@@ -282,7 +282,7 @@ class TestToolPipeline:
         )
 
         async def fake_text(self: ModelClient, **kwargs: Any) -> Any:
-            from aimigrate.models.client import CompletionResult
+            from evalshift.models.client import CompletionResult
 
             return CompletionResult(
                 text="ok",
@@ -300,7 +300,7 @@ class TestToolPipeline:
         )
 
         run_id = _run_pipeline(monkeypatch, tmp_path)
-        scores_path = tmp_path / ".aimigrate" / "runs" / run_id / SCORES_FILENAME
+        scores_path = tmp_path / ".evalshift" / "runs" / run_id / SCORES_FILENAME
         rows = scores_path.read_text(encoding="utf-8").splitlines()
         import json
 
@@ -329,7 +329,7 @@ class TestToolPipeline:
         import json
 
         analysis = json.loads(
-            (tmp_path / ".aimigrate" / "runs" / run_id / "analysis.json").read_text(),
+            (tmp_path / ".evalshift" / "runs" / run_id / "analysis.json").read_text(),
         )
         comparisons = analysis["comparisons"]
         # n=20 examples, all delta = -1.0 → variance 0 → "skipped" per

@@ -1,7 +1,7 @@
-"""Tests for ``aimigrate init`` (:mod:`aimigrate.cli.commands.init`).
+"""Tests for ``evalshift init`` (:mod:`evalshift.cli.commands.init`).
 
-The high-level invariant we care about: after ``aimigrate init`` runs in a
-directory, ``aimigrate.yaml`` parses cleanly via :func:`load_config` and the
+The high-level invariant we care about: after ``evalshift init`` runs in a
+directory, ``evalshift.yaml`` parses cleanly via :func:`load_config` and the
 referenced ``prompts.py`` is importable. If that breaks, every new user has
 a broken first experience.
 """
@@ -15,14 +15,14 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands.doctor import CONFIG_FILENAME
-from aimigrate.cli.commands.init import (
+from evalshift.cli.commands.doctor import CONFIG_FILENAME
+from evalshift.cli.commands.init import (
     PROMPTS_FILENAME,
     SUITE_FILENAME,
     TOOLS_FILENAME,
 )
-from aimigrate.cli.main import app
-from aimigrate.config.loader import load_config
+from evalshift.cli.main import app
+from evalshift.config.loader import load_config
 
 runner = CliRunner()
 
@@ -93,7 +93,7 @@ class TestInitHappy:
             if prompt.detection == "python_string" and prompt.variable:
                 assert prompt.variable in names, (
                     f"prompts.py is missing variable {prompt.variable!r} referenced "
-                    f"by aimigrate.yaml prompt {prompt.id!r}"
+                    f"by evalshift.yaml prompt {prompt.id!r}"
                 )
 
     def test_tools_yaml_ships_six_tools(self, in_tmp: Path) -> None:
@@ -124,8 +124,8 @@ class TestInitHappy:
 
     def test_prints_next_steps(self, in_tmp: Path) -> None:
         result = runner.invoke(app, ["init"])
-        assert "aimigrate doctor" in result.stdout
-        assert "aimigrate run" in result.stdout
+        assert "evalshift doctor" in result.stdout
+        assert "evalshift run" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ class TestInitSuiteShape:
     skip with ``insufficient — small sample``.
 
     ``MIN_N_FOR_TEST = 5`` and ``MIN_N_RELIABLE = 20`` in
-    ``src/aimigrate/analysis/statistics.py``. The default scaffold should
+    ``src/evalshift/analysis/statistics.py``. The default scaffold should
     clear ``MIN_N_RELIABLE`` so brand-new users see real severity badges
     on their first analyze run, not a warning row.
     """
@@ -154,7 +154,7 @@ class TestInitSuiteShape:
         )
 
     def test_suite_covers_every_configured_slice(self, in_tmp: Path) -> None:
-        """Every slice tag declared in aimigrate.yaml should have rows."""
+        """Every slice tag declared in evalshift.yaml should have rows."""
         runner.invoke(app, ["init"])
         text = (in_tmp / SUITE_FILENAME).read_text(encoding="utf-8")
         rows = [json.loads(line) for line in text.splitlines() if line.strip()]

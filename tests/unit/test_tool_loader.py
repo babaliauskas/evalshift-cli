@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.evaluators.tool_loader`."""
+"""Tests for :mod:`evalshift.evaluators.tool_loader`."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aimigrate.evaluators.tool_loader import ToolLoaderError, load_tools
+from evalshift.evaluators.tool_loader import ToolLoaderError, load_tools
 
 
 def _write(tmp_path: Path, body: str, name: str = "tools.yaml") -> Path:

@@ -5,22 +5,22 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aimigrate.analysis.slicing import (
+from evalshift.analysis.slicing import (
     ALL_SLICE,
     SliceAggregate,
     SlicedScore,
     aggregates,
     build_slices,
 )
-from aimigrate.analysis.statistics import (
+from evalshift.analysis.statistics import (
     ComparisonResult,
     _benjamini_hochberg,
     _classify_severity,
     _cohens_d_paired,
     analyze,
 )
-from aimigrate.evaluators.base import EvalRecord
-from aimigrate.suite.models import Suite, SuiteExample
+from evalshift.evaluators.base import EvalRecord
+from evalshift.suite.models import Suite, SuiteExample
 
 # ---------------------------------------------------------------------------
 # Slicing
@@ -255,7 +255,7 @@ class TestAnalyze:
     def test_bh_correction_changes_p_with_many_tests(self) -> None:
         # Use the helper directly with a spread of raw p-values; BH must
         # raise at least some of them for the multi-comparison case.
-        from aimigrate.analysis.statistics import _benjamini_hochberg
+        from evalshift.analysis.statistics import _benjamini_hochberg
 
         raw_ps = [
             0.001,

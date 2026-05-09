@@ -1,9 +1,9 @@
 # Configuration reference
 
-Every AIMigrate run is driven by a single `aimigrate.yaml` file. This
+Every EvalShift run is driven by a single `evalshift.yaml` file. This
 page documents every field — types, defaults, and what they do.
 
-`aimigrate init` writes a heavily-commented starter you can edit to
+`evalshift init` writes a heavily-commented starter you can edit to
 your needs. Below is the canonical reference.
 
 ## Top-level shape
@@ -28,7 +28,7 @@ A list of prompt definitions. Each entry has:
 | `id`          | string  | yes                               | Stable identifier surfaced in reports. Must be unique within the file. |
 | `detection`   | enum    | yes                               | `manual` or `python_string`. |
 | `content`     | string  | when `detection: manual`          | Inline prompt body. Forbidden when `detection: python_string`. |
-| `path`        | string  | when `detection: python_string`   | Relative or absolute path to a `.py` file. Resolved against the directory containing `aimigrate.yaml`. |
+| `path`        | string  | when `detection: python_string`   | Relative or absolute path to a `.py` file. Resolved against the directory containing `evalshift.yaml`. |
 | `variable`    | string  | when `detection: python_string`   | Module-level variable name holding the prompt string. |
 | `variables`   | list    | optional                          | Names of `{template}` placeholders the prompt expects. Used by the pre-flight compatibility check. |
 
@@ -50,7 +50,7 @@ A list of prompt definitions. Each entry has:
     variable: GREET_PROMPT
     variables: [name]
   ```
-  AIMigrate AST-walks the file and extracts the string literal. **It
+  EvalShift AST-walks the file and extracts the string literal. **It
   does not run user code.** F-strings, concatenations, `.format()`
   calls, and other dynamic forms are explicitly rejected.
 
@@ -61,14 +61,14 @@ A list of prompt definitions. Each entry has:
 | `source_model`  | string | (none)                        | Default `--from` model id (or alias). |
 | `target_model`  | string | (none)                        | Default `--to` model id (or alias). |
 | `judge_model`   | string | `claude-5-sonnet-20260101`    | Default LLM-as-judge model. |
-| `concurrency`   | int    | 10 (1 ≤ x ≤ 64)               | Max in-flight LLM calls during `aimigrate run`. |
-| `cache`         | bool   | `true`                        | Read/write the local SQLite cache at `~/.aimigrate/cache.db`. |
+| `concurrency`   | int    | 10 (1 ≤ x ≤ 64)               | Max in-flight LLM calls during `evalshift run`. |
+| `cache`         | bool   | `true`                        | Read/write the local SQLite cache at `~/.evalshift/cache.db`. |
 | `max_cost_usd`  | float  | 50.0                          | Soft ceiling reserved for future enforcement. The pre-flight cost prompt currently triggers above $10 (skip with `--yes`). |
 
 ## `evaluators`
 
 Three sub-keys, all optional. **At least one evaluator must be
-configured for `aimigrate evaluate` to do anything.**
+configured for `evalshift evaluate` to do anything.**
 
 ### `evaluators.structural`
 
@@ -129,7 +129,7 @@ A list. Each entry has:
 
 ### `prompts[].tools_path` (v0.2)
 
-When set on a prompt, AIMigrate treats it as an agent prompt: loads
+When set on a prompt, EvalShift treats it as an agent prompt: loads
 the tool specs from the file, dispatches via
 `ModelClient.complete_with_tools`, populates `Call.trace`, and runs
 the configured tool evaluators. v0.1 prompts (`tools_path` unset)

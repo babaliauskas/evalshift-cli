@@ -25,4 +25,4 @@ repos:
           - pydantic>=2.5
           - types-PyYAML
           - types-jsonschema
-        files: ^src/aimigrate/
+        files: ^src/evalshift/

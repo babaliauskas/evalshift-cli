@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aimigrate"
+name = "evalshift"
 version = "0.2.0"
 description = "Run your prompts on two LLMs and find out, with statistical confidence, what regressed."
 readme = "README.md"
@@ -56,21 +56,21 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/babaliauskas/AIMigrate"
-Documentation = "https://github.com/babaliauskas/AIMigrate#readme"
-Repository = "https://github.com/babaliauskas/AIMigrate"
-Issues = "https://github.com/babaliauskas/AIMigrate/issues"
-Changelog = "https://github.com/babaliauskas/AIMigrate/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/babaliauskas/EvalShift"
+Documentation = "https://github.com/babaliauskas/EvalShift#readme"
+Repository = "https://github.com/babaliauskas/EvalShift"
+Issues = "https://github.com/babaliauskas/EvalShift/issues"
+Changelog = "https://github.com/babaliauskas/EvalShift/blob/main/CHANGELOG.md"
 
 [project.scripts]
-aimigrate = "aimigrate.cli.main:app"
+evalshift = "evalshift.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aimigrate"]
+packages = ["src/evalshift"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/aimigrate",
+    "src/evalshift",
     "tests",
     "README.md",
     "LICENSE",
@@ -85,7 +85,7 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
-    "--cov=aimigrate",
+    "--cov=evalshift",
     "--cov-report=term-missing",
 ]
 markers = [
@@ -95,7 +95,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["aimigrate"]
+source = ["evalshift"]
 
 [tool.coverage.report]
 exclude_lines = [

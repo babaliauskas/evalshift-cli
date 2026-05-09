@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.utils.cost`."""
+"""Tests for :mod:`evalshift.utils.cost`."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from aimigrate.utils import cost as cost_module
-from aimigrate.utils.cost import CostEstimate, estimate_run_cost
+from evalshift.utils import cost as cost_module
+from evalshift.utils.cost import CostEstimate, estimate_run_cost
 
 
 @pytest.fixture(autouse=True)

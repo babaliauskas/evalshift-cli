@@ -1,4 +1,4 @@
-"""Example prompt module for the simple AIMigrate example."""
+"""Example prompt module for the simple EvalShift example."""
 
 GREET_PROMPT = """\
 You are a friendly assistant. Greet {name} in a {tone} tone.

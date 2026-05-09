@@ -24,7 +24,7 @@ ignore = [
 "tests/**/*.py" = ["N802", "N803", "B011"]
 
 [lint.isort]
-known-first-party = ["aimigrate"]
+known-first-party = ["evalshift"]
 
 [format]
 quote-style = "double"

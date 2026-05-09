@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.models.client`.
+"""Tests for :mod:`evalshift.models.client`.
 
 We test the client by monkeypatching ``litellm.acompletion`` and
 ``litellm.completion_cost``. There are no live API calls in this suite —
@@ -23,9 +23,9 @@ from typing import Any
 
 import pytest
 
-from aimigrate.evaluators.tool_models import ToolSpec
-from aimigrate.models import client as client_module
-from aimigrate.models.client import (
+from evalshift.evaluators.tool_models import ToolSpec
+from evalshift.models import client as client_module
+from evalshift.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
@@ -258,7 +258,7 @@ class _ProviderAuthError(Exception):
     pass
 
 
-# AIMigrate's error mapper looks at the *runtime* class name, so we
+# EvalShift's error mapper looks at the *runtime* class name, so we
 # rename these stand-ins to match what real providers raise without
 # importing each vendor SDK into the test suite.
 _ProviderRateLimitError.__name__ = "RateLimitError"

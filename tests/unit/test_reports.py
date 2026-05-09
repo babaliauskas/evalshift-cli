@@ -1,4 +1,4 @@
-"""Tests for the reports package + the ``aimigrate report`` command."""
+"""Tests for the reports package + the ``evalshift report`` command."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands.analyze import ANALYSIS_FILENAME
-from aimigrate.cli.commands.evaluate import SCORES_FILENAME
-from aimigrate.cli.main import app
-from aimigrate.evaluators.base import EvalRecord
-from aimigrate.reports.html import REPORT_HTML_FILENAME, render_html, write_html
-from aimigrate.reports.json import REPORT_JSON_FILENAME, build_report_payload
-from aimigrate.runner.checkpoint import append_call, write_state
-from aimigrate.runner.models import Call, RunModels, RunState
+from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift.cli.commands.evaluate import SCORES_FILENAME
+from evalshift.cli.main import app
+from evalshift.evaluators.base import EvalRecord
+from evalshift.reports.html import REPORT_HTML_FILENAME, render_html, write_html
+from evalshift.reports.json import REPORT_JSON_FILENAME, build_report_payload
+from evalshift.runner.checkpoint import append_call, write_state
+from evalshift.runner.models import Call, RunModels, RunState
 
 runner = CliRunner()
 
@@ -24,7 +24,7 @@ runner = CliRunner()
 def _scaffold_full_run(tmp_path: Path) -> tuple[Path, str]:
     """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json."""
     run_id = "r_20260601_aaaaaa"
-    run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+    run_dir = tmp_path / ".evalshift" / "runs" / run_id
 
     write_state(
         run_dir,
@@ -144,7 +144,7 @@ def _scaffold_full_run(tmp_path: Path) -> tuple[Path, str]:
 class TestReportPayload:
     def test_assembles_data(self, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)
-        payload = build_report_payload(cwd / ".aimigrate" / "runs" / run_id)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
         assert payload.run_id == run_id
         assert payload.source_model == "gemini/gemini-2.5-flash"
         assert payload.n_examples == 2
@@ -157,7 +157,7 @@ class TestReportPayload:
 
     def test_missing_analysis_raises(self, tmp_path: Path) -> None:
         run_id = "r_20260601_xxxxxx"
-        run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
         write_state(
             run_dir,
             RunState(
@@ -184,7 +184,7 @@ class TestReportPayload:
 class TestHtmlRender:
     def test_renders_with_inlined_css(self, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)
-        payload = build_report_payload(cwd / ".aimigrate" / "runs" / run_id)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
         html = render_html(payload)
         assert html.startswith("<!DOCTYPE html>")
         # CSS must be inlined (we ship no external assets).
@@ -197,7 +197,7 @@ class TestHtmlRender:
 
     def test_writes_file(self, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)
-        run_dir = cwd / ".aimigrate" / "runs" / run_id
+        run_dir = cwd / ".evalshift" / "runs" / run_id
         payload = build_report_payload(run_dir)
         out = write_html(payload, run_dir)
         assert out.name == REPORT_HTML_FILENAME
@@ -212,15 +212,15 @@ class TestHtmlRender:
 class TestReportCommand:
     def test_writes_html_and_json(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)
-        # The command needs an aimigrate.yaml in the cwd.
-        (cwd / "aimigrate.yaml").write_text(
+        # The command needs an evalshift.yaml in the cwd.
+        (cwd / "evalshift.yaml").write_text(
             "prompts:\n  - {id: greet, detection: manual, content: hi}\n",
             encoding="utf-8",
         )
         monkeypatch.chdir(cwd)
         result = runner.invoke(app, ["report", run_id])
         assert result.exit_code == 0, result.stdout
-        run_dir = cwd / ".aimigrate" / "runs" / run_id
+        run_dir = cwd / ".evalshift" / "runs" / run_id
         assert (run_dir / REPORT_HTML_FILENAME).exists()
         assert (run_dir / REPORT_JSON_FILENAME).exists()
 
@@ -228,7 +228,7 @@ class TestReportCommand:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         run_id = "r_20260601_yyyyyy"
-        run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
         write_state(
             run_dir,
             RunState(
@@ -243,7 +243,7 @@ class TestReportCommand:
                 completed_evaluations=0,
             ),
         )
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: a, detection: manual, content: hi}\n",
             encoding="utf-8",
         )
@@ -259,17 +259,17 @@ class TestReportCommand:
 # ---------------------------------------------------------------------------
 
 
-from aimigrate.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+from evalshift.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
 
 
 class TestTraceRendering:
     def _scaffold_agent_run(self, tmp_path: Path) -> tuple[Path, str]:
         cwd, run_id = _scaffold_full_run(tmp_path)
-        run_dir = cwd / ".aimigrate" / "runs" / run_id
+        run_dir = cwd / ".evalshift" / "runs" / run_id
         # Replace the calls in raw.jsonl with tool-bearing ones so the
         # trace plumbing shows up end-to-end.
-        from aimigrate.runner.checkpoint import append_call
-        from aimigrate.runner.models import Call
+        from evalshift.runner.checkpoint import append_call
+        from evalshift.runner.models import Call
 
         (run_dir / "raw.jsonl").unlink()
         for ex_id in ("ex1", "ex2"):
@@ -313,7 +313,7 @@ class TestTraceRendering:
 
     def test_payload_attaches_traces_to_top_regressions(self, tmp_path: Path) -> None:
         cwd, run_id = self._scaffold_agent_run(tmp_path)
-        payload = build_report_payload(cwd / ".aimigrate" / "runs" / run_id)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
         section = payload.prompt_sections[0]
         # The fixture has negative-delta scores → top regressions populated.
         if section.top_regressions:
@@ -327,7 +327,7 @@ class TestTraceRendering:
 
     def test_html_renders_trace_diff(self, tmp_path: Path) -> None:
         cwd, run_id = self._scaffold_agent_run(tmp_path)
-        payload = build_report_payload(cwd / ".aimigrate" / "runs" / run_id)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
         html = render_html(payload)
         # Trace structure markers in the rendered HTML.
         if any(s.has_tool_traces for s in payload.prompt_sections) and any(

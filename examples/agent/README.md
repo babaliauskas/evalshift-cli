@@ -1,13 +1,13 @@
 # Agent example (v0.2)
 
-A small customer-routing agent that AIMigrate's v0.2 tool-call evaluators
+A small customer-routing agent that EvalShift's v0.2 tool-call evaluators
 exercise end to end.
 
 ## What's here
 
 | File              | Purpose                                                                |
 | ----------------- | ---------------------------------------------------------------------- |
-| `aimigrate.yaml`  | Run config with a single agent prompt + the `tool_selection` evaluator.|
+| `evalshift.yaml`  | Run config with a single agent prompt + the `tool_selection` evaluator.|
 | `prompts.py`      | The agent's system prompt, referenced via `python_string`.             |
 | `tools.yaml`      | Three tools: `search_orders`, `notify_security_team`, `send_email`.    |
 | `golden.jsonl`    | 12 examples mixing security, routine, and text-only cases.             |
@@ -17,16 +17,16 @@ exercise end to end.
 ```bash
 cd examples/agent
 export GOOGLE_API_KEY=...           # or any provider you set up
-aimigrate run --yes --from gemini-2.5-flash --to gemini-2.5-pro
-RUN_ID=$(ls .aimigrate/runs/ | head -1)
-aimigrate evaluate $RUN_ID
-aimigrate analyze $RUN_ID
-aimigrate report $RUN_ID --open
+evalshift run --yes --from gemini-2.5-flash --to gemini-2.5-pro
+RUN_ID=$(ls .evalshift/runs/ | head -1)
+evalshift evaluate $RUN_ID
+evalshift analyze $RUN_ID
+evalshift report $RUN_ID --open
 ```
 
-`aimigrate run` notices `tools_path` on the prompt and dispatches via
+`evalshift run` notices `tools_path` on the prompt and dispatches via
 `ModelClient.complete_with_tools` — each `Call` row in `raw.jsonl` carries
-a parsed `ToolTrace`. `aimigrate evaluate` then runs `tool_selection`
+a parsed `ToolTrace`. `evalshift evaluate` then runs `tool_selection`
 against the per-example `expected_tools` ground truth.
 
 ## What the example demonstrates

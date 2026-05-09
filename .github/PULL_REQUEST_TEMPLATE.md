@@ -10,7 +10,7 @@ The motivating problem or use case.
 
 - [ ] `pytest` passes
 - [ ] `ruff check`, `ruff format --check` clean
-- [ ] `mypy --strict src/aimigrate` clean
+- [ ] `mypy --strict src/evalshift` clean
 - [ ] CHANGELOG.md updated under `## [Unreleased]`
 - [ ] (If user-visible) docs updated
 

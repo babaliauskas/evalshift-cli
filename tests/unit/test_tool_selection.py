@@ -1,17 +1,17 @@
-"""Tests for :class:`aimigrate.evaluators.tool_selection.ToolSelectionEvaluator`."""
+"""Tests for :class:`evalshift.evaluators.tool_selection.ToolSelectionEvaluator`."""
 
 from __future__ import annotations
 
 import pytest
 
-from aimigrate.config.models import ToolSelectionEvaluatorConfig
-from aimigrate.evaluators.tool_models import ToolCall, ToolTrace
-from aimigrate.evaluators.tool_selection import (
+from evalshift.config.models import ToolSelectionEvaluatorConfig
+from evalshift.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift.evaluators.tool_selection import (
     ToolSelectionEvaluator,
     _jaccard,
     _sequence_match,
 )
-from aimigrate.suite.models import ExpectedToolCall, SuiteExample
+from evalshift.suite.models import ExpectedToolCall, SuiteExample
 
 
 def _trace(*tool_names: str) -> ToolTrace:

@@ -1,6 +1,6 @@
-# Contributing to AIMigrate
+# Contributing to EvalShift
 
-Thanks for your interest! AIMigrate is open source under the MIT license.
+Thanks for your interest! EvalShift is open source under the MIT license.
 
 ## Development setup
 
@@ -8,8 +8,8 @@ We use [`uv`](https://docs.astral.sh/uv/) for environment and dependency managem
 
 ```bash
 # Clone and enter the repo
-git clone https://github.com/babaliauskas/AIMigrate.git
-cd aimigrate
+git clone https://github.com/babaliauskas/EvalShift.git
+cd evalshift
 
 # Create a virtualenv with Python 3.14 and install dev deps
 uv venv --python 3.14
@@ -27,7 +27,7 @@ pytest                                  # run the test suite
 pytest -m "not integration"             # unit tests only
 ruff check .                            # lint
 ruff format .                           # auto-format
-mypy --strict src/aimigrate             # type-check
+mypy --strict src/evalshift             # type-check
 pre-commit run --all-files              # everything pre-commit runs
 ```
 

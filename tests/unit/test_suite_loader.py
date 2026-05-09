@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.suite.loader`."""
+"""Tests for :mod:`evalshift.suite.loader`."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from aimigrate.suite.loader import (
+from evalshift.suite.loader import (
     SuiteError,
     SuiteErrorDetail,
     _format_loc_suffix,
     load_jsonl,
 )
-from aimigrate.suite.models import Suite
+from evalshift.suite.models import Suite
 
 
 def _write(tmp_path: Path, body: str, name: str = "golden.jsonl") -> Path:

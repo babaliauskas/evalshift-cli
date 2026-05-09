@@ -1,8 +1,8 @@
-site_name: AIMigrate
+site_name: EvalShift
 site_description: Run your prompts on two LLMs and find out what regressed.
-site_url: https://babaliauskas.github.io/AIMigrate/
-repo_url: https://github.com/babaliauskas/AIMigrate
-repo_name: babaliauskas/AIMigrate
+site_url: https://babaliauskas.github.io/EvalShift/
+repo_url: https://github.com/babaliauskas/EvalShift
+repo_name: babaliauskas/EvalShift
 
 theme:
   name: material

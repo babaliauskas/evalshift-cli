@@ -10,16 +10,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aimigrate.evaluators import semantic as semantic_module
-from aimigrate.evaluators.base import EvalRecord, Evaluator, EvaluatorError, PairedScore
-from aimigrate.evaluators.llm_judge import PairwiseJudgeEvaluator, _parse_verdict
-from aimigrate.evaluators.semantic import CosineSimilarityEvaluator, _cosine
-from aimigrate.evaluators.structural import (
+from evalshift.evaluators import semantic as semantic_module
+from evalshift.evaluators.base import EvalRecord, Evaluator, EvaluatorError, PairedScore
+from evalshift.evaluators.llm_judge import PairwiseJudgeEvaluator, _parse_verdict
+from evalshift.evaluators.semantic import CosineSimilarityEvaluator, _cosine
+from evalshift.evaluators.structural import (
     JsonSchemaEvaluator,
     LengthEvaluator,
     RegexEvaluator,
 )
-from aimigrate.models.client import CompletionResult, ModelClient
+from evalshift.models.client import CompletionResult, ModelClient
 
 # ---------------------------------------------------------------------------
 # Base

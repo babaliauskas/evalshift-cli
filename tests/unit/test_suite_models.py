@@ -1,11 +1,11 @@
-"""Unit tests for :mod:`aimigrate.suite.models`."""
+"""Unit tests for :mod:`evalshift.suite.models`."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from aimigrate.suite.models import Suite, SuiteExample
+from evalshift.suite.models import Suite, SuiteExample
 
 # ---------------------------------------------------------------------------
 # SuiteExample

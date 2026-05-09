@@ -1,12 +1,12 @@
-"""Tests for :mod:`aimigrate.utils.templating`."""
+"""Tests for :mod:`evalshift.utils.templating`."""
 
 from __future__ import annotations
 
 import pytest
 
-from aimigrate.parsers.base import PromptTemplate
-from aimigrate.suite.models import Suite, SuiteExample
-from aimigrate.utils.templating import (
+from evalshift.parsers.base import PromptTemplate
+from evalshift.suite.models import Suite, SuiteExample
+from evalshift.utils.templating import (
     CompatibilityIssue,
     MissingTemplateVariableError,
     SuiteCompatibilityError,
@@ -48,7 +48,7 @@ class TestExtractVariables:
         assert extract_variables("Repr: {x!r}") == {"x"}
 
     def test_empty_and_positional_placeholders_ignored(self) -> None:
-        # AIMigrate templates use named placeholders only; positional
+        # EvalShift templates use named placeholders only; positional
         # patterns shouldn't surface as variable names.
         assert extract_variables("{} and {0} and {1}") == set()
 

@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`aimigrate.runner.models`.
+"""Unit tests for :mod:`evalshift.runner.models`.
 
 The most important property: every model round-trips losslessly through
 ``model_dump_json`` / ``model_validate_json``. The orchestrator relies
@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aimigrate.runner.models import Call, RunModels, RunState
+from evalshift.runner.models import Call, RunModels, RunState
 
 # ---------------------------------------------------------------------------
 # Call

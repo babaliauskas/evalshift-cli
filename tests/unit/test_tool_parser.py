@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.evaluators.tool_parser`.
+"""Tests for :mod:`evalshift.evaluators.tool_parser`.
 
 Each provider has a small set of fixtures under
 ``tests/unit/fixtures/tool_responses/<provider>/`` covering the response
@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from aimigrate.evaluators.tool_parser import (
+from evalshift.evaluators.tool_parser import (
     ToolParseError,
     detect_provider,
     parse_response_to_trace,

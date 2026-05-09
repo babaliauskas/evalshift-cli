@@ -1,11 +1,11 @@
-"""Unit tests for :mod:`aimigrate.evaluators.tool_models`."""
+"""Unit tests for :mod:`evalshift.evaluators.tool_models`."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from aimigrate.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
+from evalshift.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
 
 # ---------------------------------------------------------------------------
 # ToolSpec

@@ -1,6 +1,6 @@
 """Smoke tests for the CLI entry point.
 
-Phase 0 / 1.3: verify that ``aimigrate --version`` and ``--help`` work and that
+Phase 0 / 1.3: verify that ``evalshift --version`` and ``--help`` work and that
 the unimplemented subcommands fail loudly rather than silently.
 """
 
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from aimigrate import __version__
-from aimigrate.cli.main import app
+from evalshift import __version__
+from evalshift.cli.main import app
 
 runner = CliRunner()
 

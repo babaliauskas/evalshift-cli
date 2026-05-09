@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from aimigrate.config.models import ToolTraceStructureEvaluatorConfig
-from aimigrate.evaluators.tool_models import ToolCall, ToolTrace
-from aimigrate.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
-from aimigrate.suite.models import SuiteExample
+from evalshift.config.models import ToolTraceStructureEvaluatorConfig
+from evalshift.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
+from evalshift.suite.models import SuiteExample
 
 
 def _trace(

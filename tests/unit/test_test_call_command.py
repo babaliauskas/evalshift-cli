@@ -1,4 +1,4 @@
-"""Tests for the ``aimigrate test-call`` command.
+"""Tests for the ``evalshift test-call`` command.
 
 We monkeypatch the model client so no real LLM calls happen; the goal
 is to verify CLI plumbing (arg parsing, alias resolution, exit codes,
@@ -13,9 +13,9 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands import test_call as cmd
-from aimigrate.cli.main import app
-from aimigrate.models.client import (
+from evalshift.cli.commands import test_call as cmd
+from evalshift.cli.main import app
+from evalshift.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
@@ -145,7 +145,7 @@ class TestTestCallErrors:
             ["test-call", "--model", "gemini-3.1-flash-lite-preview"],
         )
         assert result.exit_code == 0, result.stdout
-        assert "not in AIMigrate registry" in result.stdout
+        assert "not in EvalShift registry" in result.stdout
         # The synthesised id should pick up the gemini/ prefix.
         assert "gemini/gemini-3.1-flash-lite-preview" in result.stdout
 
@@ -173,8 +173,8 @@ class TestHidden:
 # ---------------------------------------------------------------------------
 
 
-from aimigrate.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
-from aimigrate.models.client import ToolCompletionResult  # noqa: E402
+from evalshift.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+from evalshift.models.client import ToolCompletionResult  # noqa: E402
 
 
 def _patch_tool_complete(

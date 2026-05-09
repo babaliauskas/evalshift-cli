@@ -1,10 +1,10 @@
-"""Tests for :mod:`aimigrate.models.registry`."""
+"""Tests for :mod:`evalshift.models.registry`."""
 
 from __future__ import annotations
 
 import pytest
 
-from aimigrate.models.registry import (
+from evalshift.models.registry import (
     ModelMetadata,
     UnknownModelError,
     get_model,
@@ -20,7 +20,7 @@ class TestGetModel:
         assert meta.provider == "google"
 
     def test_lookup_by_friendly_alias(self) -> None:
-        # The PDF spec uses bare names; AIMigrate must accept them.
+        # The PDF spec uses bare names; EvalShift must accept them.
         meta = get_model("gemini-2.5-flash")
         assert meta.id == "gemini/gemini-2.5-flash"
         assert meta.display_name == "Gemini 2.5 Flash"

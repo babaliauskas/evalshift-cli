@@ -1,4 +1,4 @@
-"""Tests for the ``aimigrate run`` CLI command.
+"""Tests for the ``evalshift run`` CLI command.
 
 Higher-level than ``test_orchestrator.py``: we drive the actual Typer
 command via :class:`CliRunner` and assert exit codes plus key bits of
@@ -14,15 +14,15 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.main import app
-from aimigrate.models.client import CompletionResult, ModelClient
+from evalshift.cli.main import app
+from evalshift.models.client import CompletionResult, ModelClient
 
 runner = CliRunner()
 
 
 def _scaffold(tmp_path: Path, n_examples: int = 2) -> Path:
     """Lay out a minimal valid project under ``tmp_path``."""
-    (tmp_path / "aimigrate.yaml").write_text(
+    (tmp_path / "evalshift.yaml").write_text(
         """
         version: 1
         prompts:
@@ -73,8 +73,8 @@ class TestRunHappy:
         result = runner.invoke(app, ["run", "--yes"])
         assert result.exit_code == 0, result.stdout
         assert "completed" in result.stdout.lower() or "calls:" in result.stdout
-        # The run dir should exist under .aimigrate/runs/.
-        runs = list((tmp_path / ".aimigrate" / "runs").iterdir())
+        # The run dir should exist under .evalshift/runs/.
+        runs = list((tmp_path / ".evalshift" / "runs").iterdir())
         assert len(runs) == 1
 
     def test_from_to_flags_override_config(
@@ -102,7 +102,7 @@ class TestRunHappy:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["run", "--yes"])
         assert "r_" in result.stdout
-        assert "aimigrate run" in result.stdout
+        assert "evalshift run" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ class TestRunErrors:
 
     def test_missing_suite_exits_one(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         # Valid config, but no golden.jsonl in the cwd.
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: a, detection: manual, content: hi}\n"
             "defaults:\n  source_model: gemini-2.5-flash\n"
             "  target_model: gemini-2.5-pro\n",
@@ -136,7 +136,7 @@ class TestRunErrors:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         # Valid config + suite, but no defaults.source_model and no --from.
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: a, detection: manual, content: hi}\n",
             encoding="utf-8",
         )
@@ -150,7 +150,7 @@ class TestRunErrors:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         # Prompt requires `name`; suite provides only `tone`.
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             """
             version: 1
             prompts:

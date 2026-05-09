@@ -1,4 +1,4 @@
-"""Tests for ``aimigrate doctor`` (:mod:`aimigrate.cli.commands.doctor`).
+"""Tests for ``evalshift doctor`` (:mod:`evalshift.cli.commands.doctor`).
 
 Two layers of testing:
 
@@ -16,13 +16,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands.doctor import (
+from evalshift.cli.commands.doctor import (
     CONFIG_FILENAME,
     PROVIDER_KEYS,
     CheckResult,
     run_checks,
 )
-from aimigrate.cli.main import app
+from evalshift.cli.main import app
 
 runner = CliRunner()
 
@@ -82,7 +82,7 @@ class TestRunChecksConfig:
         row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), CONFIG_FILENAME)
         assert row.status == "warn"
         assert "not found" in row.detail
-        assert "aimigrate init" in row.detail
+        assert "evalshift init" in row.detail
 
     def test_valid_config_ok(self, tmp_path: Path) -> None:
         (tmp_path / CONFIG_FILENAME).write_text(
@@ -162,7 +162,7 @@ class TestDoctorCLI:
         )
         result = runner.invoke(app, ["doctor"])
         assert result.exit_code == 0
-        assert "aimigrate.yaml" in result.stdout
+        assert "evalshift.yaml" in result.stdout
         assert "1 prompt" in result.stdout
 
     def test_doctor_with_invalid_config_exits_one(

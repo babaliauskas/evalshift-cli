@@ -1,32 +1,32 @@
 # Getting started
 
-This page walks you from a fresh shell to a working `aimigrate.yaml` in
+This page walks you from a fresh shell to a working `evalshift.yaml` in
 under a minute.
 
 ## 1. Install
 
-AIMigrate is a Python 3.14+ package. We recommend [`uv`][uv] for dependency
+EvalShift is a Python 3.14+ package. We recommend [`uv`][uv] for dependency
 management, but `pip` works too.
 
 ```bash
 # uv (recommended)
-uv pip install aimigrate
+uv pip install evalshift
 
 # or pip
-pip install aimigrate
+pip install evalshift
 ```
 
 Verify the install:
 
 ```bash
-aimigrate --version
+evalshift --version
 ```
 
 ## 2. Set provider API keys
 
-AIMigrate calls Anthropic, OpenAI, and Google directly using your own keys.
-Nothing is sent to any AIMigrate-operated server — every API call is
-client-side, and responses are cached locally in `~/.aimigrate/cache.db`.
+EvalShift calls Anthropic, OpenAI, and Google directly using your own keys.
+Nothing is sent to any EvalShift-operated server — every API call is
+client-side, and responses are cached locally in `~/.evalshift/cache.db`.
 
 Set whichever providers you intend to use:
 
@@ -41,14 +41,14 @@ export GOOGLE_API_KEY=...
 ```bash
 mkdir my-eval
 cd my-eval
-aimigrate init
+evalshift init
 ```
 
 This writes four files (a runnable customer-support agent project):
 
 | File              | Purpose                                               |
 | ----------------- | ----------------------------------------------------- |
-| `aimigrate.yaml`  | Run configuration (prompts, evaluators, slices).      |
+| `evalshift.yaml`  | Run configuration (prompts, evaluators, slices).      |
 | `prompts.py`      | Agent system prompt discovered by AST-walking.        |
 | `tools.yaml`      | Six tool specs the agent can call.                    |
 | `golden.jsonl`    | 40 example suite rows across 5 slices.                |
@@ -60,15 +60,15 @@ different folder.
 ## 4. Verify your environment
 
 ```bash
-aimigrate doctor
+evalshift doctor
 ```
 
 You'll see a short table:
 
 * Green ✓ — check passes.
 * Yellow ✗ — informational warning (e.g. an unset API key, or no
-  `aimigrate.yaml` here yet). Doctor still exits 0.
-* Red ✗ — hard failure (e.g. an `aimigrate.yaml` that doesn't validate).
+  `evalshift.yaml` here yet). Doctor still exits 0.
+* Red ✗ — hard failure (e.g. an `evalshift.yaml` that doesn't validate).
   Doctor exits 1.
 
 If everything is green or yellow, you're ready to run.
@@ -80,8 +80,8 @@ built — see `MVP_TODO.md` in the repo for the up-to-date status of the
 build. Once they land you'll be able to do:
 
 ```bash
-aimigrate run --from claude-4.5-sonnet --to claude-5-sonnet
-aimigrate report <run-id>
+evalshift run --from claude-4.5-sonnet --to claude-5-sonnet
+evalshift report <run-id>
 ```
 
 [uv]: https://docs.astral.sh/uv/

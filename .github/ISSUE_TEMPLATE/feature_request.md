@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest something AIMigrate should do
+about: Suggest something EvalShift should do
 title: ""
 labels: enhancement
 ---

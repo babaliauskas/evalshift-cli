@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.cache`.
+"""Tests for :mod:`evalshift.cache`.
 
 Two layers:
 
@@ -18,8 +18,8 @@ import pytest
 import pytest_asyncio
 from typer.testing import CliRunner
 
-from aimigrate.cache.store import CacheStore, cache_key
-from aimigrate.cli.main import app
+from evalshift.cache.store import CacheStore, cache_key
+from evalshift.cli.main import app
 
 # Use an in-memory database for every test to keep them fast and hermetic.
 IN_MEMORY_DB = "sqlite+aiosqlite:///:memory:"
@@ -199,7 +199,7 @@ class TestCacheStore:
 
 
 # ---------------------------------------------------------------------------
-# `aimigrate cache clear` CLI
+# `evalshift cache clear` CLI
 # ---------------------------------------------------------------------------
 
 
@@ -211,9 +211,9 @@ class TestCacheClearCommand:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         # Redirect the default cache path into tmp so we don't touch the
-        # user's real ~/.aimigrate/cache.db.
+        # user's real ~/.evalshift/cache.db.
         monkeypatch.setattr(
-            "aimigrate.cache.schema.DEFAULT_CACHE_PATH",
+            "evalshift.cache.schema.DEFAULT_CACHE_PATH",
             tmp_path / "cache.db",
         )
         result = runner.invoke(app, ["cache", "clear"])

@@ -1,6 +1,6 @@
 """Fixture for the non-literal-prompt rejection test.
 
-The prompt is a computed f-string, which the AIMigrate parser refuses to
+The prompt is a computed f-string, which the EvalShift parser refuses to
 evaluate at parse time for safety.
 """
 

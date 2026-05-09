@@ -31,9 +31,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from aimigrate.evaluators.tool_models import ToolSpec  # noqa: E402
-from aimigrate.evaluators.tool_parser import detect_provider  # noqa: E402
-from aimigrate.models.client import ModelClient  # noqa: E402
+from evalshift.evaluators.tool_models import ToolSpec  # noqa: E402
+from evalshift.evaluators.tool_parser import detect_provider  # noqa: E402
+from evalshift.models.client import ModelClient  # noqa: E402
 
 FIXTURE_ROOT = ROOT / "tests" / "unit" / "fixtures" / "tool_responses"
 

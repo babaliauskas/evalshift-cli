@@ -1,8 +1,8 @@
-"""Tests for :mod:`aimigrate.runner.orchestrator`.
+"""Tests for :mod:`evalshift.runner.orchestrator`.
 
 We exercise the orchestrator end-to-end with:
 
-* A real :class:`AIMigrateConfig` + :class:`Suite` constructed in-memory.
+* A real :class:`EvalShiftConfig` + :class:`Suite` constructed in-memory.
 * A real :class:`CacheStore` backed by ``sqlite+aiosqlite:///:memory:``.
 * A *fake* :class:`ModelClient` whose ``complete`` method returns
   deterministic responses without touching the network.
@@ -22,27 +22,27 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from aimigrate.cache.store import CacheStore
-from aimigrate.config.models import (
-    AIMigrateConfig,
+from evalshift.cache.store import CacheStore
+from evalshift.config.models import (
+    EvalShiftConfig,
     Defaults,
     PromptDefinition,
 )
-from aimigrate.models.client import (
+from evalshift.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
 )
-from aimigrate.runner.checkpoint import (
+from evalshift.runner.checkpoint import (
     iter_calls,
     read_state,
 )
-from aimigrate.runner.orchestrator import (
+from evalshift.runner.orchestrator import (
     CHECKPOINT_EVERY,
     RunAborted,
     run_orchestrator,
 )
-from aimigrate.suite.models import Suite, SuiteExample
+from evalshift.suite.models import Suite, SuiteExample
 
 IN_MEMORY_DB = "sqlite+aiosqlite:///:memory:"
 
@@ -61,8 +61,8 @@ async def cache() -> AsyncIterator[CacheStore]:
         await s.close()
 
 
-def _config(*, concurrency: int = 4, max_cost: float = 100.0) -> AIMigrateConfig:
-    return AIMigrateConfig(
+def _config(*, concurrency: int = 4, max_cost: float = 100.0) -> EvalShiftConfig:
+    return EvalShiftConfig(
         prompts=[
             PromptDefinition(
                 id="greet",
@@ -83,7 +83,7 @@ def _suite(n: int = 4) -> Suite:
 
 def _writeable_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
     """Return ``(config_path, suite_path, runs_base)`` rooted in ``tmp_path``."""
-    config_path = tmp_path / "aimigrate.yaml"
+    config_path = tmp_path / "evalshift.yaml"
     config_path.write_text("# placeholder; we pass the loaded config object\n")
     suite_path = tmp_path / "golden.jsonl"
     suite_path.write_text("# placeholder\n")
@@ -248,8 +248,8 @@ class TestOrchestratorResume:
         # manually, then ask the orchestrator to "resume".
         from datetime import datetime
 
-        from aimigrate.runner import checkpoint as cp_mod
-        from aimigrate.runner.models import Call, RunModels, RunState
+        from evalshift.runner import checkpoint as cp_mod
+        from evalshift.runner.models import Call, RunModels, RunState
 
         config = _config()
         suite = _suite(n=2)
@@ -319,8 +319,8 @@ class TestOrchestratorResume:
     ) -> None:
         from datetime import datetime
 
-        from aimigrate.runner import checkpoint as cp_mod
-        from aimigrate.runner.models import RunModels, RunState
+        from evalshift.runner import checkpoint as cp_mod
+        from evalshift.runner.models import RunModels, RunState
 
         config_path, suite_path, runs_base = _writeable_paths(tmp_path)
 
@@ -340,7 +340,7 @@ class TestOrchestratorResume:
             ),
         )
 
-        from aimigrate.runner.checkpoint import CheckpointError
+        from evalshift.runner.checkpoint import CheckpointError
 
         with pytest.raises(CheckpointError, match="config or suite has changed"):
             await run_orchestrator(

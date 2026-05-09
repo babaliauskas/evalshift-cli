@@ -1,4 +1,4 @@
-"""Tests for ``aimigrate analyze <run-id>``."""
+"""Tests for ``evalshift analyze <run-id>``."""
 
 from __future__ import annotations
 
@@ -9,19 +9,19 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands.analyze import ANALYSIS_FILENAME
-from aimigrate.cli.commands.evaluate import SCORES_FILENAME
-from aimigrate.cli.main import app
-from aimigrate.evaluators.base import EvalRecord
-from aimigrate.runner.checkpoint import write_state
-from aimigrate.runner.models import RunModels, RunState
+from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift.cli.commands.evaluate import SCORES_FILENAME
+from evalshift.cli.main import app
+from evalshift.evaluators.base import EvalRecord
+from evalshift.runner.checkpoint import write_state
+from evalshift.runner.models import RunModels, RunState
 
 runner = CliRunner()
 
 
 def _scaffold(tmp_path: Path) -> tuple[Path, str]:
     """Create config + completed run + scores.jsonl. Returns (cwd, run_id)."""
-    (tmp_path / "aimigrate.yaml").write_text(
+    (tmp_path / "evalshift.yaml").write_text(
         """
         version: 1
         prompts:
@@ -42,7 +42,7 @@ def _scaffold(tmp_path: Path) -> tuple[Path, str]:
     )
 
     run_id = "r_20260601_aaaaaa"
-    run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+    run_dir = tmp_path / ".evalshift" / "runs" / run_id
     write_state(
         run_dir,
         RunState(
@@ -86,7 +86,7 @@ class TestAnalyzeHappy:
         monkeypatch.chdir(cwd)
         result = runner.invoke(app, ["analyze", run_id])
         assert result.exit_code == 0, result.stdout
-        analysis_path = cwd / ".aimigrate" / "runs" / run_id / ANALYSIS_FILENAME
+        analysis_path = cwd / ".evalshift" / "runs" / run_id / ANALYSIS_FILENAME
         data = json.loads(analysis_path.read_text())
         assert data["run_id"] == run_id
         assert "comparisons" in data
@@ -104,7 +104,7 @@ class TestAnalyzeHappy:
 
 class TestAnalyzeErrors:
     def test_missing_run_exits_one(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: a, detection: manual, content: hi}\n",
             encoding="utf-8",
         )
@@ -115,12 +115,12 @@ class TestAnalyzeErrors:
     def test_missing_scores_exits_one(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: a, detection: manual, content: hi}\n",
             encoding="utf-8",
         )
         run_id = "r_20260601_yyyyyy"
-        run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
         write_state(
             run_dir,
             RunState(

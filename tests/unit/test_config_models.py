@@ -1,6 +1,6 @@
-"""Unit tests for the pydantic models in :mod:`aimigrate.config.models`.
+"""Unit tests for the pydantic models in :mod:`evalshift.config.models`.
 
-These tests are the primary contract test for ``aimigrate.yaml``: any
+These tests are the primary contract test for ``evalshift.yaml``: any
 change to validation behaviour should land here first.
 """
 
@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aimigrate.config.models import (
+from evalshift.config.models import (
     DEFAULT_JUDGE_MODEL,
-    AIMigrateConfig,
+    EvalShiftConfig,
     Defaults,
     EvaluatorsConfig,
     LLMJudgeConfig,
@@ -220,13 +220,13 @@ class TestDefaults:
 
 
 # ---------------------------------------------------------------------------
-# AIMigrateConfig — top level
+# EvalShiftConfig — top level
 # ---------------------------------------------------------------------------
 
 
-class TestAIMigrateConfig:
+class TestEvalShiftConfig:
     def test_minimal_valid(self) -> None:
-        cfg = AIMigrateConfig(
+        cfg = EvalShiftConfig(
             prompts=[
                 PromptDefinition(id="cs", detection="manual", content="hi {n}"),
             ],
@@ -237,7 +237,7 @@ class TestAIMigrateConfig:
         assert cfg.slices == []
 
     def test_round_trip_through_dump(self) -> None:
-        original = AIMigrateConfig(
+        original = EvalShiftConfig(
             prompts=[
                 PromptDefinition(
                     id="cs",
@@ -258,16 +258,16 @@ class TestAIMigrateConfig:
             ),
             slices=[SliceConfig(name="long", filter="len(conversation)>1000")],
         )
-        recreated = AIMigrateConfig.model_validate(original.model_dump())
+        recreated = EvalShiftConfig.model_validate(original.model_dump())
         assert recreated == original
 
     def test_empty_prompts_list_fails(self) -> None:
         with pytest.raises(ValidationError):
-            AIMigrateConfig(prompts=[])
+            EvalShiftConfig(prompts=[])
 
     def test_duplicate_prompt_ids_fail(self) -> None:
         with pytest.raises(ValidationError, match=r"duplicate prompt ids: \['cs'\]"):
-            AIMigrateConfig(
+            EvalShiftConfig(
                 prompts=[
                     PromptDefinition(id="cs", detection="manual", content="a"),
                     PromptDefinition(id="cs", detection="manual", content="b"),
@@ -276,7 +276,7 @@ class TestAIMigrateConfig:
 
     def test_wrong_version_fails(self) -> None:
         with pytest.raises(ValidationError):
-            AIMigrateConfig.model_validate(
+            EvalShiftConfig.model_validate(
                 {
                     "version": 2,
                     "prompts": [
@@ -287,7 +287,7 @@ class TestAIMigrateConfig:
 
     def test_extra_top_level_keys_forbidden(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            AIMigrateConfig.model_validate(
+            EvalShiftConfig.model_validate(
                 {
                     "prompts": [
                         {"id": "cs", "detection": "manual", "content": "hi"},
@@ -300,7 +300,7 @@ class TestAIMigrateConfig:
         # An invalid evaluator should fail the top-level validation, not
         # silently slip through.
         with pytest.raises(ValidationError, match="'schema_path' is required"):
-            AIMigrateConfig.model_validate(
+            EvalShiftConfig.model_validate(
                 {
                     "prompts": [
                         {"id": "cs", "detection": "manual", "content": "hi"},

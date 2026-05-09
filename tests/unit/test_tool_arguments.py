@@ -1,4 +1,4 @@
-"""Tests for :class:`aimigrate.evaluators.tool_arguments.ToolArgumentsEvaluator`."""
+"""Tests for :class:`evalshift.evaluators.tool_arguments.ToolArgumentsEvaluator`."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from typing import Any
 
 import pytest
 
-from aimigrate.config.models import ToolArgumentsEvaluatorConfig
-from aimigrate.evaluators.tool_arguments import (
+from evalshift.config.models import ToolArgumentsEvaluatorConfig
+from evalshift.evaluators.tool_arguments import (
     ToolArgumentsEvaluator,
     _is_subset,
     _match_calls,
 )
-from aimigrate.evaluators.tool_models import ToolCall, ToolTrace
-from aimigrate.suite.models import SuiteExample
+from evalshift.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift.suite.models import SuiteExample
 
 
 def _trace(*calls: tuple[str, dict[str, Any]]) -> ToolTrace:

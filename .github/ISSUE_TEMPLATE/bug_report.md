@@ -15,15 +15,15 @@ What you thought should have happened.
 
 ## Reproduction
 
-Smallest steps to reproduce. Include `aimigrate.yaml` snippets and
+Smallest steps to reproduce. Include `evalshift.yaml` snippets and
 the exact CLI invocation if relevant.
 
 ```yaml
-# aimigrate.yaml
+# evalshift.yaml
 ```
 
 ```bash
-$ aimigrate ...
+$ evalshift ...
 ```
 
 ## Output
@@ -34,7 +34,7 @@ $ aimigrate ...
 
 ## Environment
 
-* `aimigrate --version`:
+* `evalshift --version`:
 * Python version:
 * OS:
 * Provider(s) used:

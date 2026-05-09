@@ -1,4 +1,4 @@
-"""Tests for the ``aimigrate evaluate <run-id>`` command."""
+"""Tests for the ``evalshift evaluate <run-id>`` command."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from aimigrate.cli.commands.evaluate import SCORES_FILENAME
-from aimigrate.cli.main import app
-from aimigrate.runner.checkpoint import append_call, write_state
-from aimigrate.runner.models import Call, RunModels, RunState
+from evalshift.cli.commands.evaluate import SCORES_FILENAME
+from evalshift.cli.main import app
+from evalshift.runner.checkpoint import append_call, write_state
+from evalshift.runner.models import Call, RunModels, RunState
 
 runner = CliRunner()
 
@@ -44,14 +44,14 @@ def _write_config(tmp_path: Path, with_judge: bool = False) -> Path:
               pattern: ".+"
 {judge_block}
     """
-    path = tmp_path / "aimigrate.yaml"
+    path = tmp_path / "evalshift.yaml"
     path.write_text(cfg_yaml, encoding="utf-8")
     return path
 
 
 def _scaffold_run(tmp_path: Path, completed: bool = True) -> str:
     """Create a minimal completed run dir and return its run_id."""
-    runs_base = tmp_path / ".aimigrate" / "runs"
+    runs_base = tmp_path / ".evalshift" / "runs"
     run_id = "r_20260601_aaaaaa"
     run_dir = runs_base / run_id
     state = RunState(
@@ -101,7 +101,7 @@ class TestEvaluateHappy:
         result = runner.invoke(app, ["evaluate", run_id])
         assert result.exit_code == 0, result.stdout
 
-        scores_path = tmp_path / ".aimigrate" / "runs" / run_id / SCORES_FILENAME
+        scores_path = tmp_path / ".evalshift" / "runs" / run_id / SCORES_FILENAME
         rows = [
             json.loads(line)
             for line in scores_path.read_text(encoding="utf-8").splitlines()
@@ -120,7 +120,7 @@ class TestEvaluateHappy:
         _write_config(tmp_path)
         run_id = _scaffold_run(tmp_path)
         # Add an orphan source-only call — should be ignored.
-        run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
         append_call(
             run_dir,
             Call(
@@ -145,7 +145,7 @@ class TestEvaluateHappy:
     ) -> None:
         _write_config(tmp_path)
         run_id = "r_20260601_bbbbbb"
-        run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
         write_state(
             run_dir,
             RunState(
@@ -215,7 +215,7 @@ class TestEvaluateErrors:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         # Config without any evaluator entries.
-        (tmp_path / "aimigrate.yaml").write_text(
+        (tmp_path / "evalshift.yaml").write_text(
             "prompts:\n  - {id: greet, detection: manual, content: hi}\n",
             encoding="utf-8",
         )
@@ -229,7 +229,7 @@ class TestEvaluateErrors:
         _write_config(tmp_path)
         # Create a run with state but no pairs (only source calls).
         run_id = "r_20260601_cccccc"
-        run_dir = tmp_path / ".aimigrate" / "runs" / run_id
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
         write_state(
             run_dir,
             RunState(

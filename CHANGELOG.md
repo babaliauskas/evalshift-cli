@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `aimigrate init` now always scaffolds an agent project. The brief
+- `evalshift init` now always scaffolds an agent project. The brief
   `--agent` flag introduced in the previous unreleased entry has been
   removed — there's only one starter, and it's the v0.2 agent flow.
   Existing v0.1-style projects are unaffected (no breaking change to
@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   slices (security, routine, refund, customer_lookup, text_only) so
   the analysis layer produces real severity badges on a first run
   instead of "insufficient" / zero-variance warnings.
-- Dropped `structural.length` from the scaffolded `aimigrate.yaml`.
+- Dropped `structural.length` from the scaffolded `evalshift.yaml`.
   Agent runs frequently produce empty `final_text` (model returned
   only tool calls) which made length scores 0/0 across every routine
   + security row — pure noise. Users who want length checks can
@@ -35,21 +35,21 @@ without changes.
 
 ### Added
 
-- `aimigrate.evaluators.tool_models`: provider-agnostic `ToolSpec`,
+- `evalshift.evaluators.tool_models`: provider-agnostic `ToolSpec`,
   `ToolCall`, `ToolTrace`. `ToolSpec.to_anthropic` / `to_openai` /
   `from_dict` adapters keep wire-format details out of user code.
-- `aimigrate.evaluators.tool_parser`: `parse_response_to_trace`
+- `evalshift.evaluators.tool_parser`: `parse_response_to_trace`
   dispatcher with three provider parsers. Handles the LiteLLM
   Anthropic-normalised-to-OpenAI shape transparently. Malformed
   argument JSON marked `_parse_error` instead of crashing.
-- `aimigrate.evaluators.tool_loader`: `load_tools(yaml or json)` with
+- `evalshift.evaluators.tool_loader`: `load_tools(yaml or json)` with
   the same plain/rich error rendering pattern as `ConfigError`.
-- `aimigrate.models.client.complete_with_tools` and
+- `evalshift.models.client.complete_with_tools` and
   `ToolCompletionResult` — tool-aware call path that doesn't replace
   the existing `complete` / `CompletionResult`.
-- `aimigrate test-call --tools <path>` smoke command extension.
+- `evalshift test-call --tools <path>` smoke command extension.
 - `scripts/smoke_live_tools.py` for fixture capture (manual; not in CI).
-- Three new evaluators wired into `aimigrate evaluate`:
+- Three new evaluators wired into `evalshift evaluate`:
   - `ToolSelectionEvaluator` (modes: exact / set / first / expected)
   - `ToolArgumentsEvaluator` (per-field strategies: exact / subset /
     numeric / semantic; greedy nearest-index call matching)
@@ -69,7 +69,7 @@ without changes.
   renders side-by-side trace diffs for tool-evaluator regressions
   with green / yellow / red colour coding for matching / different-
   args / missing-extra calls. CSS stays inlined.
-- `aimigrate doctor` warns about common agent-config mistakes:
+- `evalshift doctor` warns about common agent-config mistakes:
   prompts with `tools_path` but no tool evaluators, and suite
   examples with `expected_tools` but no agent prompts.
 - Docs: `docs/agents.md` walkthrough, plus configuration / evaluators
@@ -92,66 +92,66 @@ First alpha release. Every command in the planned MVP pipeline is shipped.
 
 | Command                | What it does                                                            |
 | ---------------------- | ----------------------------------------------------------------------- |
-| `aimigrate doctor`     | Check Python version, provider API keys, and `aimigrate.yaml` validity. |
-| `aimigrate init`       | Scaffold a starter project (yaml + prompts.py + golden.jsonl).          |
-| `aimigrate run`        | Call source + target models on every (prompt, example) → `raw.jsonl`.   |
-| `aimigrate evaluate`   | Score every (source, target) pair → `scores.jsonl`.                     |
-| `aimigrate analyze`    | Paired tests + BH correction → `analysis.json`.                         |
-| `aimigrate report`     | Single-file HTML report → `report.html` + `report.json`.                |
-| `aimigrate cache clear`| Wipe the local SQLite response cache.                                   |
-| `aimigrate validate`   | (hidden dev) Verify config + suite + prompts are compatible.            |
-| `aimigrate test-call`  | (hidden dev) One-shot smoke call to confirm provider connectivity.      |
+| `evalshift doctor`     | Check Python version, provider API keys, and `evalshift.yaml` validity. |
+| `evalshift init`       | Scaffold a starter project (yaml + prompts.py + golden.jsonl).          |
+| `evalshift run`        | Call source + target models on every (prompt, example) → `raw.jsonl`.   |
+| `evalshift evaluate`   | Score every (source, target) pair → `scores.jsonl`.                     |
+| `evalshift analyze`    | Paired tests + BH correction → `analysis.json`.                         |
+| `evalshift report`     | Single-file HTML report → `report.html` + `report.json`.                |
+| `evalshift cache clear`| Wipe the local SQLite response cache.                                   |
+| `evalshift validate`   | (hidden dev) Verify config + suite + prompts are compatible.            |
+| `evalshift test-call`  | (hidden dev) One-shot smoke call to confirm provider connectivity.      |
 
 ### Added — Phase 0–1
 
 - `pyproject.toml` (Python ≥3.14, hatchling, MIT, pinned deps), `ruff.toml`, `mypy.ini`, pytest config, `.pre-commit-config.yaml`, GitHub Actions CI.
-- Full `src/aimigrate` package skeleton across cli/config/parsers/models/suite/runner/evaluators/analysis/reports/cache/utils with module docstrings and a `py.typed` marker.
-- `aimigrate.config.models`: pydantic v2 schema for `aimigrate.yaml` (prompts, evaluators, slices, defaults) with strict validation, `extra='forbid'`, and detection-mode field invariants.
-- `aimigrate.config.loader`: `load_config()` plus a structured `ConfigError` with both plain-text and Rich panel rendering.
-- `aimigrate doctor`: reports Python version, provider API keys, and `aimigrate.yaml` validity. Exits 1 only on hard failures.
-- `aimigrate init`: scaffolds `aimigrate.yaml` + `prompts.py` + `golden.jsonl`. `--force` overwrite, `--directory` target dir.
+- Full `src/evalshift` package skeleton across cli/config/parsers/models/suite/runner/evaluators/analysis/reports/cache/utils with module docstrings and a `py.typed` marker.
+- `evalshift.config.models`: pydantic v2 schema for `evalshift.yaml` (prompts, evaluators, slices, defaults) with strict validation, `extra='forbid'`, and detection-mode field invariants.
+- `evalshift.config.loader`: `load_config()` plus a structured `ConfigError` with both plain-text and Rich panel rendering.
+- `evalshift doctor`: reports Python version, provider API keys, and `evalshift.yaml` validity. Exits 1 only on hard failures.
+- `evalshift init`: scaffolds `evalshift.yaml` + `prompts.py` + `golden.jsonl`. `--force` overwrite, `--directory` target dir.
 
 ### Added — Phase 2 (suite + prompt loading)
 
-- `aimigrate.suite` package: pydantic `SuiteExample` + `Suite` models, JSONL loader with line-numbered errors, blank-line tolerance, multi-error collection.
-- `aimigrate.parsers` package: `ManualParser` (inline content) and `PythonStringParser` (AST-walks `.py` for module-level string literals; rejects f-strings, concatenation, function calls, attribute access, name references — never runs user code).
-- `aimigrate.utils.templating`: `extract_variables`, `render` with strict missing-var detection, and a bulk `validate_suite_against_prompts` pre-flight check.
-- `aimigrate validate` (hidden): end-to-end pre-flight that confirms config + suite + prompts are mutually compatible.
+- `evalshift.suite` package: pydantic `SuiteExample` + `Suite` models, JSONL loader with line-numbered errors, blank-line tolerance, multi-error collection.
+- `evalshift.parsers` package: `ManualParser` (inline content) and `PythonStringParser` (AST-walks `.py` for module-level string literals; rejects f-strings, concatenation, function calls, attribute access, name references — never runs user code).
+- `evalshift.utils.templating`: `extract_variables`, `render` with strict missing-var detection, and a bulk `validate_suite_against_prompts` pre-flight check.
+- `evalshift validate` (hidden): end-to-end pre-flight that confirms config + suite + prompts are mutually compatible.
 
 ### Added — Phase 3 (model client + cache)
 
-- `aimigrate.models.registry`: advisory, not gating. `resolve_model()` accepts any model id, falling back to prefix-inferred provider when not in the curated registry. `get_model()` strict variant kept for tests.
-- `aimigrate.cache`: SQLAlchemy 2.0 + async `CacheStore` (sha256 keys, 7-day TTL) at `~/.aimigrate/cache.db`. Added `greenlet` runtime dep.
-- `aimigrate cache clear` CLI command (under a `cache` sub-app).
-- `aimigrate.models.client`: async `ModelClient` wrapping `litellm.acompletion` with uniform error mapping (`RateLimitError` / `AuthError` / `ModelError`), full-jitter exponential backoff retries (auth short-circuits), and per-call cost + token bookkeeping.
-- `aimigrate.utils.cost`: `estimate_run_cost(...)` for pre-flight cost estimation with defensive fallbacks for missing LiteLLM pricing/token-counter data.
-- `aimigrate test-call` (hidden): one-shot smoke test renderer with response/tokens/cost/latency Rich panel.
+- `evalshift.models.registry`: advisory, not gating. `resolve_model()` accepts any model id, falling back to prefix-inferred provider when not in the curated registry. `get_model()` strict variant kept for tests.
+- `evalshift.cache`: SQLAlchemy 2.0 + async `CacheStore` (sha256 keys, 7-day TTL) at `~/.evalshift/cache.db`. Added `greenlet` runtime dep.
+- `evalshift cache clear` CLI command (under a `cache` sub-app).
+- `evalshift.models.client`: async `ModelClient` wrapping `litellm.acompletion` with uniform error mapping (`RateLimitError` / `AuthError` / `ModelError`), full-jitter exponential backoff retries (auth short-circuits), and per-call cost + token bookkeeping.
+- `evalshift.utils.cost`: `estimate_run_cost(...)` for pre-flight cost estimation with defensive fallbacks for missing LiteLLM pricing/token-counter data.
+- `evalshift test-call` (hidden): one-shot smoke test renderer with response/tokens/cost/latency Rich panel.
 
 ### Added — Phase 4 (run orchestrator)
 
-- `aimigrate.runner` package: pydantic `RunState` + `Call` models, atomic `state.json` checkpointing, append-only `raw.jsonl`, crash-safe iterator, `validate_resume` with hash-drift detection.
+- `evalshift.runner` package: pydantic `RunState` + `Call` models, atomic `state.json` checkpointing, append-only `raw.jsonl`, crash-safe iterator, `validate_resume` with hash-drift detection.
 - `run_orchestrator`: async loop with `asyncio.Semaphore(concurrency)`, cache-check → live-call → record per (prompt, example, role), Rich progress bar, $10 cost gate (skip with `--yes`), 50-call checkpoint cadence.
-- `aimigrate run` command: `--from`, `--to`, `--config`, `--suite`, `--resume`, `--yes`. Outputs go to `.aimigrate/runs/<run-id>/`. Per-call errors are recorded but don't fail the run.
+- `evalshift run` command: `--from`, `--to`, `--config`, `--suite`, `--resume`, `--yes`. Outputs go to `.evalshift/runs/<run-id>/`. Per-call errors are recorded but don't fail the run.
 
 ### Added — Phase 5 (evaluators)
 
-- `aimigrate.evaluators` package: `Evaluator` Protocol, `PairedScore`, `EvalRecord`.
+- `evalshift.evaluators` package: `Evaluator` Protocol, `PairedScore`, `EvalRecord`.
 - Structural: `JsonSchemaEvaluator`, `RegexEvaluator`, `LengthEvaluator` (1.0 inside bounds, distance-decayed outside).
 - Semantic: `CosineSimilarityEvaluator` (target preservation framing — source = 1.0, target = cosine to source).
 - LLM judge: `PairwiseJudgeEvaluator` with order-randomization and defensive JSON parsing.
-- `aimigrate evaluate <run-id>` command: pairs source/target calls, runs every configured evaluator, writes `scores.jsonl`.
+- `evalshift evaluate <run-id>` command: pairs source/target calls, runs every configured evaluator, writes `scores.jsonl`.
 
 ### Added — Phase 6 (statistics)
 
-- `aimigrate.analysis.slicing`: `build_slices` groups records by tag (with implicit `"all"` slice); `aggregates()` computes per-slice n/mean/std.
-- `aimigrate.analysis.statistics`: per-comparison Shapiro-Wilk → paired t-test or Wilcoxon signed-rank, Cohen's d, 95% CI (analytical for t-test, bootstrap for Wilcoxon), Benjamini-Hochberg correction across the whole run, severity classification (critical/high/medium/low/improved/none/insufficient).
-- `aimigrate analyze <run-id>` command: writes `analysis.json` and prints a Rich summary table.
+- `evalshift.analysis.slicing`: `build_slices` groups records by tag (with implicit `"all"` slice); `aggregates()` computes per-slice n/mean/std.
+- `evalshift.analysis.statistics`: per-comparison Shapiro-Wilk → paired t-test or Wilcoxon signed-rank, Cohen's d, 95% CI (analytical for t-test, bootstrap for Wilcoxon), Benjamini-Hochberg correction across the whole run, severity classification (critical/high/medium/low/improved/none/insufficient).
+- `evalshift analyze <run-id>` command: writes `analysis.json` and prints a Rich summary table.
 
 ### Added — Phase 7 (report)
 
-- `aimigrate.reports.json`: `build_report_payload` + `ReportData` stitching state + raw + scores + analysis into a single payload. Persists `report.json`.
-- `aimigrate.reports.templates/report.html.j2` + `report.css`: self-contained HTML (CSS inlined, zero external assets, no JS) with executive summary, per-prompt aggregate + slice tables, top-5 regressions side-by-side, methodology appendix.
-- `aimigrate report <run-id>` command, with optional `--open` to launch in the user's default browser.
+- `evalshift.reports.json`: `build_report_payload` + `ReportData` stitching state + raw + scores + analysis into a single payload. Persists `report.json`.
+- `evalshift.reports.templates/report.html.j2` + `report.css`: self-contained HTML (CSS inlined, zero external assets, no JS) with executive summary, per-prompt aggregate + slice tables, top-5 regressions side-by-side, methodology appendix.
+- `evalshift report <run-id>` command, with optional `--open` to launch in the user's default browser.
 
 ### Added — Phase 8 (polish + OSS)
 

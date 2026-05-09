@@ -5,7 +5,7 @@ example. Every evaluator returns a `PairedScore` with both halves and
 a `delta = target_score - source_score`. Negative deltas mean the
 target regressed; positive deltas mean it improved.
 
-AIMigrate ships four families:
+EvalShift ships four families:
 
 ## Structural (deterministic, free)
 
@@ -51,7 +51,7 @@ sentence ("which output preserves more factual detail?"). Multiple
 
 ## Tool-call evaluators (v0.2, agent migrations)
 
-For prompts with `tools_path:` set, AIMigrate parses each model's
+For prompts with `tools_path:` set, EvalShift parses each model's
 response into a provider-agnostic `ToolTrace` and scores three
 orthogonal dimensions:
 

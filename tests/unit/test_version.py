@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-import aimigrate
+import evalshift
 
 
 def test_version_is_semver_like() -> None:
-    assert isinstance(aimigrate.__version__, str)
-    assert re.match(r"^\d+\.\d+\.\d+(?:[-+.].+)?$", aimigrate.__version__)
+    assert isinstance(evalshift.__version__, str)
+    assert re.match(r"^\d+\.\d+\.\d+(?:[-+.].+)?$", evalshift.__version__)

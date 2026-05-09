@@ -1,10 +1,10 @@
 # Methodology
 
-How AIMigrate decides whether a model swap caused a regression.
+How EvalShift decides whether a model swap caused a regression.
 
 ## The shape of the problem
 
-For each (prompt × example) pair, AIMigrate produces two outputs:
+For each (prompt × example) pair, EvalShift produces two outputs:
 `source_output` (from the old model) and `target_output` (from the
 new one). Each evaluator scores both halves on a 0–1 scale, and the
 quantity we care about is the per-example **delta**:

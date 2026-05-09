@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-If you believe you've found a security vulnerability in AIMigrate,
+If you believe you've found a security vulnerability in EvalShift,
 please **do not open a public GitHub issue**. Instead, email the
 maintainer directly at:
 
@@ -20,19 +20,19 @@ disclosure timeline.
 
 ## Scope
 
-AIMigrate is a local-first CLI; the threat model is centred on:
+EvalShift is a local-first CLI; the threat model is centred on:
 
-* **Untrusted project files.** `aimigrate.yaml`, `prompts.py`, and
+* **Untrusted project files.** `evalshift.yaml`, `prompts.py`, and
   the suite JSONL come from the user's project. The Python-string
   parser AST-walks `prompts.py` rather than executing it; suite and
-  config parsing reject unknown keys; AIMigrate never `eval`s user
+  config parsing reject unknown keys; EvalShift never `eval`s user
   data.
 * **Outbound API calls** go directly to the LLM provider you
-  configured. AIMigrate does not phone home, send telemetry, or
+  configured. EvalShift does not phone home, send telemetry, or
   upload your prompts anywhere else.
-* **The local SQLite cache** at `~/.aimigrate/cache.db` is the only
-  persistent storage; nothing outside `~/.aimigrate/` and the project
+* **The local SQLite cache** at `~/.evalshift/cache.db` is the only
+  persistent storage; nothing outside `~/.evalshift/` and the project
   directory is touched.
 
 Out of scope (for now): hosted backends, multi-tenant deployments,
-any "AIMigrate cloud" — none of which exist in the MVP.
+any "EvalShift cloud" — none of which exist in the MVP.

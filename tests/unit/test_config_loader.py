@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.config.loader`.
+"""Tests for :mod:`evalshift.config.loader`.
 
 We assert two things across all paths:
 
@@ -14,20 +14,20 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from aimigrate.config.loader import (
+from evalshift.config.loader import (
     ConfigError,
     ConfigErrorDetail,
     _format_loc,
     load_config,
 )
-from aimigrate.config.models import AIMigrateConfig
+from evalshift.config.models import EvalShiftConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _write(tmp_path: Path, body: str, name: str = "aimigrate.yaml") -> Path:
+def _write(tmp_path: Path, body: str, name: str = "evalshift.yaml") -> Path:
     p = tmp_path / name
     p.write_text(body, encoding="utf-8")
     return p
@@ -52,7 +52,7 @@ class TestLoadConfigHappy:
             """,
         )
         cfg = load_config(path)
-        assert isinstance(cfg, AIMigrateConfig)
+        assert isinstance(cfg, EvalShiftConfig)
         assert len(cfg.prompts) == 1
         assert cfg.prompts[0].id == "cs"
         assert cfg.prompts[0].variables == ["conversation"]
@@ -239,7 +239,7 @@ class TestLoadConfigSchema:
 class TestConfigErrorFormatting:
     def test_format_plain_includes_path_and_details(self, tmp_path: Path) -> None:
         err = ConfigError(
-            path=tmp_path / "aimigrate.yaml",
+            path=tmp_path / "evalshift.yaml",
             kind="schema",
             summary="2 schema problems found",
             details=[
@@ -248,14 +248,14 @@ class TestConfigErrorFormatting:
             ],
         )
         text = err.format_plain()
-        assert "aimigrate.yaml" in text
+        assert "evalshift.yaml" in text
         assert "prompts.0.content" in text
         assert "defaults.concurrency" in text
         assert "Field required" in text
 
     def test_format_rich_renders_to_string(self, tmp_path: Path) -> None:
         err = ConfigError(
-            path=tmp_path / "aimigrate.yaml",
+            path=tmp_path / "evalshift.yaml",
             kind="schema",
             summary="1 schema problem found",
             details=[ConfigErrorDetail("prompts", "Field required")],

@@ -1,6 +1,6 @@
 # Agent migrations (v0.2)
 
-AIMigrate v0.2 extends the v0.1 pipeline to compare **agent behaviour** —
+EvalShift v0.2 extends the v0.1 pipeline to compare **agent behaviour** —
 which tools the model called, what arguments it passed, and how it
 sequenced them — across two model versions.
 
@@ -26,7 +26,7 @@ The killer scenario it catches:
 
 ## Walkthrough
 
-`aimigrate init` ships a complete agent project as the default
+`evalshift init` ships a complete agent project as the default
 scaffold — six customer-support tools (`search_orders`,
 `lookup_customer`, `issue_refund`, `update_order_status`,
 `send_email`, `notify_security_team`) and a 40-row golden suite
@@ -37,22 +37,22 @@ across five slices (`security`, `routine`, `refund`,
 mkdir my-agent-eval && cd my-agent-eval
 export GOOGLE_API_KEY=...                 # or OPENAI_API_KEY / ANTHROPIC_API_KEY
 
-aimigrate init                            # writes aimigrate.yaml + prompts.py +
+evalshift init                            # writes evalshift.yaml + prompts.py +
                                           #        tools.yaml + golden.jsonl
-aimigrate doctor
-aimigrate run --yes                       # uses Gemini defaults from the yaml
-RUN_ID=$(ls .aimigrate/runs/ | head -1)
-aimigrate evaluate $RUN_ID
-aimigrate analyze $RUN_ID
-aimigrate report $RUN_ID --open
+evalshift doctor
+evalshift run --yes                       # uses Gemini defaults from the yaml
+RUN_ID=$(ls .evalshift/runs/ | head -1)
+evalshift evaluate $RUN_ID
+evalshift analyze $RUN_ID
+evalshift report $RUN_ID --open
 ```
 
 The same files exist as a checked-in reference at `examples/agent/` if
 you want to read or copy them without scaffolding.
 
-`aimigrate run` notices `tools_path` on the prompt and dispatches via
+`evalshift run` notices `tools_path` on the prompt and dispatches via
 `ModelClient.complete_with_tools` — each `Call` row in `raw.jsonl`
-carries a parsed `ToolTrace`. `aimigrate evaluate` then runs
+carries a parsed `ToolTrace`. `evalshift evaluate` then runs
 `tool_selection` (and any other configured tool evaluators) against the
 per-example `expected_tools` ground truth.
 
@@ -96,7 +96,7 @@ evaluators:
 
 The tools file (`tools.yaml`) accepts either Anthropic-shape
 (`name` / `description` / `input_schema`) or OpenAI-shape
-(`{ "type": "function", "function": {...} }`) entries. `aimigrate run`
+(`{ "type": "function", "function": {...} }`) entries. `evalshift run`
 serialises them in the right shape per provider.
 
 ## Suite ground truth
@@ -122,7 +122,7 @@ already adjusting for the multi-test count.
 
 * **"prompt has tools_path but no tool_* evaluators are configured"** —
   add at least one `tool_*` block under `evaluators:` or remove the
-  `tools_path`. `aimigrate doctor` warns about this.
+  `tools_path`. `evalshift doctor` warns about this.
 * **Bimodal score distribution** — tool evaluators often produce
   scores at exactly 0 or 1. The analysis layer's Shapiro-Wilk
   fallback routes these through Wilcoxon signed-rank automatically.

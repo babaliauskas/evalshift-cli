@@ -1,4 +1,4 @@
-"""Tests for :mod:`aimigrate.runner.checkpoint`.
+"""Tests for :mod:`evalshift.runner.checkpoint`.
 
 The two invariants we care about most:
 
@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from aimigrate.config.models import (
-    AIMigrateConfig,
+from evalshift.config.models import (
+    EvalShiftConfig,
     PromptDefinition,
 )
-from aimigrate.runner import checkpoint as cp
-from aimigrate.runner.checkpoint import (
+from evalshift.runner import checkpoint as cp
+from evalshift.runner.checkpoint import (
     CheckpointError,
     append_call,
     completed_call_keys,
@@ -36,7 +36,7 @@ from aimigrate.runner.checkpoint import (
     validate_resume,
     write_state,
 )
-from aimigrate.runner.models import Call, RunModels, RunState
+from evalshift.runner.models import Call, RunModels, RunState
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,8 +59,8 @@ def _state(run_id: str = "r_20260601_abc123", **overrides: object) -> RunState:
     return RunState.model_validate(base)
 
 
-def _config() -> AIMigrateConfig:
-    return AIMigrateConfig(
+def _config() -> EvalShiftConfig:
+    return EvalShiftConfig(
         prompts=[PromptDefinition(id="p1", detection="manual", content="hi")],
     )
 
@@ -110,7 +110,7 @@ class TestRunIdAndHash:
 
     def test_config_hash_changes_with_config_content(self) -> None:
         cfg_a = _config()
-        cfg_b = AIMigrateConfig(
+        cfg_b = EvalShiftConfig(
             prompts=[PromptDefinition(id="p2", detection="manual", content="hi")],
         )
         assert compute_config_hash(cfg_a, "x") != compute_config_hash(cfg_b, "x")
