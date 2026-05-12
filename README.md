@@ -94,6 +94,8 @@ customer-support example.
 
 ## What the report looks like
 
+[**See a live example →**](https://evalshift.dev/example-report.html)
+
 The HTML report (single file, no external assets, works offline) has:
 
 * **Executive summary** — one row per prompt with a severity badge.
