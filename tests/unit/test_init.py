@@ -226,12 +226,13 @@ class TestInitCI:
         wf = in_tmp / CI_WORKFLOW_PATH
         assert wf.is_file()
         body = wf.read_text(encoding="utf-8")
-        # The workflow must wire the gate and the env var contract.
+        # The workflow must use the reusable hosted action and token contract.
         assert "EVALSHIFT_NONINTERACTIVE" in body
-        assert "--gate critical,high" in body
-        # And upload the analysis artefact so reviewers can see the report.
-        assert "actions/upload-artifact" in body
-        assert "analysis.json" in body
+        assert "babaliauskas/evalshift-action@v0" in body
+        assert "EVALSHIFT_TOKEN" in body
+        assert "fail-on: regression" in body
+        assert "pull-requests: write" in body
+        assert "statuses: write" in body
 
     def test_ci_flag_refuses_to_overwrite_existing_workflow(self, in_tmp: Path) -> None:
         wf = in_tmp / CI_WORKFLOW_PATH

@@ -269,20 +269,27 @@ _GOLDEN_JSONL_TEMPLATE: Final = "\n".join(
 
 
 _CI_WORKFLOW_TEMPLATE: Final = """\
-# Run EvalShift on every pull request and gate merges on regressions.
+# Run EvalShift on every pull request, push runs to hosted EvalShift, and
+# update the PR with a hosted regression summary.
 #
 # Prerequisites:
 #   - A provider API key stored as a repo secret (the example below uses
 #     GEMINI_API_KEY; swap or add ANTHROPIC_API_KEY / OPENAI_API_KEY to
 #     match the models in your evalshift.yaml).
-#   - `evalshift` installable via pip. If you're consuming a private
-#     fork, replace the install step with `pip install <git-url>`.
+#   - EVALSHIFT_TOKEN stored as a repo secret. Create it from the hosted
+#     app's org settings with project or org scope.
 name: evalshift
 
 on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
 
 jobs:
   evalshift:
@@ -293,32 +300,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: EvalShift hosted regression check
+        uses: babaliauskas/evalshift-action@v0
         with:
-          python-version: "3.12"
-
-      - name: Install evalshift
-        run: pip install evalshift
-
-      - name: Run
-        run: evalshift run
-
-      - name: Resolve latest run id
-        id: run
-        run: echo "run_id=$(ls -t .evalshift/runs/ | head -n1)" >> "$GITHUB_OUTPUT"
-
-      - name: Evaluate
-        run: evalshift evaluate ${{ steps.run.outputs.run_id }}
-
-      - name: Analyze (gate critical + high)
-        run: evalshift analyze ${{ steps.run.outputs.run_id }} --gate critical,high
-
-      - name: Upload analysis.json
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evalshift-analysis
-          path: .evalshift/runs/${{ steps.run.outputs.run_id }}/analysis.json
+          token: ${{ secrets.EVALSHIFT_TOKEN }}
+          fail-on: regression
 """
 
 
@@ -347,8 +333,8 @@ def init(
             "--ci",
             help=(
                 f"Also scaffold {CI_WORKFLOW_PATH} — a GitHub Actions "
-                "workflow that runs evalshift on every PR and gates "
-                "merges on critical/high severity regressions."
+                "workflow that runs evalshift on every PR, pushes to hosted "
+                "EvalShift, and gates merges on hosted diff regressions."
             ),
         ),
     ] = False,
@@ -401,8 +387,8 @@ def init(
         console.print()
         console.print(
             f"  CI: commit [cyan]{CI_WORKFLOW_PATH}[/cyan] and add a "
-            "[bold]GEMINI_API_KEY[/bold] (or your provider's key) as a "
-            "repo secret.",
+            "[bold]GEMINI_API_KEY[/bold] (or your provider's key) and "
+            "[bold]EVALSHIFT_TOKEN[/bold] as repo secrets.",
         )
 
 

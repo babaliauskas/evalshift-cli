@@ -1,0 +1,54 @@
+# Dogfood the evalshift-action against the OSS CLI's own showcase suite.
+#
+# This is the canonical example referenced by the evalshift-action README.
+# The job only runs when the EVALSHIFT_TOKEN secret is set on this repo
+# (skipped automatically on forks and on local clones without the secret),
+# so a missing secret is a no-op rather than a CI failure.
+#
+# `fail-on: never` keeps a regression on the showcase from blocking CLI
+# merges until alpha customers actually rely on the gate. Flip to
+# `fail-on: regression` once the action has shipped a real release and
+# the showcase is stable.
+
+name: EvalShift (dogfood)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evalshift:
+    name: Run evalshift on showcase/pass-clean
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
+    env:
+      HAS_EVALSHIFT_TOKEN: ${{ secrets.EVALSHIFT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Note missing EVALSHIFT_TOKEN secret
+        if: ${{ env.HAS_EVALSHIFT_TOKEN != 'true' }}
+        run: |
+          echo "::notice::EVALSHIFT_TOKEN secret is not configured on this repository."
+          echo "Add it under Settings → Secrets → Actions to enable hosted evalshift on PRs."
+
+      - name: Run evalshift on the showcase suite
+        if: ${{ env.HAS_EVALSHIFT_TOKEN == 'true' }}
+        uses: babaliauskas/evalshift-action@main
+        with:
+          token: ${{ secrets.EVALSHIFT_TOKEN }}
+          config: examples/showcase/pass-clean/evalshift.yaml
+          suite: examples/showcase/pass-clean/golden.jsonl
+          fail-on: never
