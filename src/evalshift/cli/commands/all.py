@@ -48,6 +48,7 @@ from evalshift.cli.commands.run import DEFAULT_FIXTURES_FILENAME
 from evalshift.config.loader import ConfigError, load_config
 from evalshift.config.models import EvalShiftConfig
 from evalshift.evaluators.tool_loader import ToolLoaderError
+from evalshift.hosted.push import PushError, push_local_run
 from evalshift.models.client import ModelClient
 from evalshift.models.registry import (
     PROVIDER_ENV_VARS,
@@ -356,6 +357,10 @@ def all_command(
         bool,
         typer.Option("--open", help="Open the rendered HTML report in your browser."),
     ] = False,
+    push: Annotated[
+        bool,
+        typer.Option("--push", help="Push the completed run bundle to hosted EvalShift."),
+    ] = False,
     runs_base: Annotated[
         Path,
         typer.Option("--runs-base", help="Base directory for run state (advanced).", hidden=True),
@@ -574,6 +579,20 @@ def all_command(
 
     console.print()
     console.print(f"[dim]report:[/dim] {report_result.html_path}")
+
+    if push:
+        try:
+            push_result = push_local_run(
+                run_id=run_result.run_id,
+                config_path=config_path,
+                suite_path=suite_path,
+                runs_base=runs_base,
+                console=console,
+            )
+        except PushError as exc:
+            console.print(f"[red]✗ hosted push failed:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        console.print(f"[dim]hosted:[/dim] {push_result.view_url}")
 
     if open_browser:
         webbrowser.open(report_result.html_path.resolve().as_uri())

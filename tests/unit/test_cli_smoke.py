@@ -23,12 +23,22 @@ def test_version_flag_prints_version() -> None:
 def test_help_lists_all_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for cmd in ("doctor", "init", "run", "report"):
+    for cmd in ("doctor", "init", "run", "report", "login", "whoami", "bundle", "push"):
         assert cmd in result.stdout
 
 
 def test_top_level_help_lists_main_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for cmd in ("doctor", "init", "run", "evaluate", "analyze", "report", "cache"):
+    for cmd in (
+        "doctor",
+        "init",
+        "run",
+        "evaluate",
+        "analyze",
+        "report",
+        "bundle",
+        "push",
+        "cache",
+    ):
         assert cmd in result.stdout

@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "evalshift"
-version = "0.3.0"
+version = "0.4.0"
 description = "Run your prompts on two LLMs and find out, with statistical confidence, what regressed."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "AGPL-3.0-or-later" }
 requires-python = ">=3.14"
 authors = [{ name = "Lukas Babaliauskas" }]
 keywords = ["llm", "evaluation", "regression-testing", "anthropic", "openai", "gemini", "migration"]
@@ -15,7 +15,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.14",

@@ -1,0 +1,420 @@
+{
+  "bundle": {
+    "$defs": {
+      "Aggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_seconds": {
+            "minimum": 0.0,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "failed": {
+            "minimum": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pass_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pass Rate",
+            "type": "number"
+          },
+          "passed": {
+            "minimum": 0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "slices": {
+            "items": {
+              "$ref": "#/$defs/SliceAggregate"
+            },
+            "title": "Slices",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "passed",
+          "failed",
+          "pass_rate",
+          "duration_seconds"
+        ],
+        "title": "Aggregate",
+        "type": "object"
+      },
+      "BundleManifest": {
+        "additionalProperties": false,
+        "description": "The `manifest` block inside a bundle.",
+        "properties": {
+          "branch": {
+            "minLength": 1,
+            "title": "Branch",
+            "type": "string"
+          },
+          "bundle_version": {
+            "const": 1,
+            "title": "Bundle Version",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_hash": {
+            "description": "SHA-256 hex digest, `sha256:` prefixed",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Dataset Hash",
+            "type": "string"
+          },
+          "eval_config_hash": {
+            "description": "SHA-256 hex digest, `sha256:` prefixed",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Eval Config Hash",
+            "type": "string"
+          },
+          "git_sha": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Git Sha",
+            "type": "string"
+          },
+          "pr_number": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pr Number"
+          },
+          "project_slug": {
+            "pattern": "^[a-z0-9-]+/[a-z0-9-]+$",
+            "title": "Project Slug",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "minimum": 0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_model": {
+            "minLength": 1,
+            "title": "Source Model",
+            "type": "string"
+          },
+          "target_model": {
+            "minLength": 1,
+            "title": "Target Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "project_slug",
+          "source_model",
+          "target_model",
+          "git_sha",
+          "branch",
+          "eval_config_hash",
+          "dataset_hash",
+          "size_bytes",
+          "created_at",
+          "bundle_version"
+        ],
+        "title": "BundleManifest",
+        "type": "object"
+      },
+      "Example": {
+        "additionalProperties": true,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "example_id": {
+            "title": "Example Id",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected"
+          },
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Score"
+          },
+          "slice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Slice"
+          },
+          "source_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Output"
+          },
+          "target_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Output"
+          }
+        },
+        "required": [
+          "example_id",
+          "input",
+          "passed"
+        ],
+        "title": "Example",
+        "type": "object"
+      },
+      "SliceAggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pass_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pass Rate",
+            "type": "number"
+          },
+          "passed": {
+            "minimum": 0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "total",
+          "passed",
+          "pass_rate"
+        ],
+        "title": "SliceAggregate",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Full bundle payload (manifest + run data).",
+    "properties": {
+      "aggregate": {
+        "$ref": "#/$defs/Aggregate"
+      },
+      "bundle_version": {
+        "const": 1,
+        "title": "Bundle Version",
+        "type": "integer"
+      },
+      "dataset_snapshot": {
+        "additionalProperties": true,
+        "title": "Dataset Snapshot",
+        "type": "object"
+      },
+      "evaluator_config": {
+        "additionalProperties": true,
+        "title": "Evaluator Config",
+        "type": "object"
+      },
+      "examples": {
+        "items": {
+          "$ref": "#/$defs/Example"
+        },
+        "title": "Examples",
+        "type": "array"
+      },
+      "manifest": {
+        "$ref": "#/$defs/BundleManifest"
+      },
+      "report_html": {
+        "title": "Report Html",
+        "type": "string"
+      }
+    },
+    "required": [
+      "bundle_version",
+      "manifest",
+      "aggregate",
+      "examples",
+      "report_html",
+      "evaluator_config",
+      "dataset_snapshot"
+    ],
+    "title": "Bundle",
+    "type": "object"
+  },
+  "manifest": {
+    "additionalProperties": false,
+    "description": "The `manifest` block inside a bundle.",
+    "properties": {
+      "branch": {
+        "minLength": 1,
+        "title": "Branch",
+        "type": "string"
+      },
+      "bundle_version": {
+        "const": 1,
+        "title": "Bundle Version",
+        "type": "integer"
+      },
+      "created_at": {
+        "format": "date-time",
+        "title": "Created At",
+        "type": "string"
+      },
+      "dataset_hash": {
+        "description": "SHA-256 hex digest, `sha256:` prefixed",
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "title": "Dataset Hash",
+        "type": "string"
+      },
+      "eval_config_hash": {
+        "description": "SHA-256 hex digest, `sha256:` prefixed",
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "title": "Eval Config Hash",
+        "type": "string"
+      },
+      "git_sha": {
+        "pattern": "^[0-9a-f]{40}$",
+        "title": "Git Sha",
+        "type": "string"
+      },
+      "pr_number": {
+        "anyOf": [
+          {
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Pr Number"
+      },
+      "project_slug": {
+        "pattern": "^[a-z0-9-]+/[a-z0-9-]+$",
+        "title": "Project Slug",
+        "type": "string"
+      },
+      "run_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "title": "Run Id",
+        "type": "string"
+      },
+      "size_bytes": {
+        "minimum": 0,
+        "title": "Size Bytes",
+        "type": "integer"
+      },
+      "source_model": {
+        "minLength": 1,
+        "title": "Source Model",
+        "type": "string"
+      },
+      "target_model": {
+        "minLength": 1,
+        "title": "Target Model",
+        "type": "string"
+      }
+    },
+    "required": [
+      "run_id",
+      "project_slug",
+      "source_model",
+      "target_model",
+      "git_sha",
+      "branch",
+      "eval_config_hash",
+      "dataset_hash",
+      "size_bytes",
+      "created_at",
+      "bundle_version"
+    ],
+    "title": "BundleManifest",
+    "type": "object"
+  }
+}

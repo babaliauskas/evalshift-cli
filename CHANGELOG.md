@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-16
+
+### Changed
+
+- **License changed from MIT to AGPL-3.0-or-later.** Versions `0.3.0` and
+  earlier remain available under the MIT License terms they were released
+  with. From `0.4.0` onward the project is AGPL: derivative works,
+  including network-hosted services, must be released under the same
+  license. Commercial dual-licensing is available on request.
+
 ## [0.3.0] — 2026-05-12
 
 ### Added

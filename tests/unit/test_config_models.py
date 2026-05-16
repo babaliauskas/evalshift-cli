@@ -235,6 +235,29 @@ class TestEvalShiftConfig:
         assert isinstance(cfg.defaults, Defaults)
         assert isinstance(cfg.evaluators, EvaluatorsConfig)
         assert cfg.slices == []
+        assert cfg.project is None
+        assert cfg.thresholds == {}
+
+    def test_hosted_project_and_thresholds_are_valid(self) -> None:
+        cfg = EvalShiftConfig(
+            prompts=[
+                PromptDefinition(id="cs", detection="manual", content="hi {n}"),
+            ],
+            project="acme/model-migration",
+            thresholds={"pass_rate_min": 0.91, "slices": {"security": 0.95}},
+        )
+
+        assert cfg.project == "acme/model-migration"
+        assert cfg.thresholds == {"pass_rate_min": 0.91, "slices": {"security": 0.95}}
+
+    def test_invalid_hosted_project_slug_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            EvalShiftConfig(
+                prompts=[
+                    PromptDefinition(id="cs", detection="manual", content="hi {n}"),
+                ],
+                project="Acme/model migration",
+            )
 
     def test_round_trip_through_dump(self) -> None:
         original = EvalShiftConfig(

@@ -3,7 +3,7 @@
 > Run your prompts on two LLMs and find out, with statistical confidence, what regressed.
 
 [![CI](https://github.com/babaliauskas/EvalShift/actions/workflows/ci.yml/badge.svg)](https://github.com/babaliauskas/EvalShift/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
 
@@ -131,4 +131,12 @@ full deferred-features list.
 
 ## License
 
-[MIT](LICENSE) — free for any use.
+[AGPL-3.0-or-later](LICENSE). Free for any use, including commercial, provided
+that derivative works — including network-hosted services — are released under
+the same license.
+
+Versions `0.3.0` and earlier (published on PyPI before this change) remain
+available under the MIT License terms they were released with.
+
+Commercial licenses without the AGPL share-back requirement are available;
+contact <l.babaliauskas@gmail.com>.

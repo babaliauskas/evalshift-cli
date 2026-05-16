@@ -15,7 +15,7 @@ gives us real validation and keeps ``mypy --strict`` happy.
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -307,6 +307,8 @@ class EvalShiftConfig(_StrictModel):
     """Top-level configuration loaded from ``evalshift.yaml``."""
 
     version: Literal[1] = 1
+    project: str | None = Field(default=None, pattern=r"^[a-z0-9-]+/[a-z0-9-]+$")
+    thresholds: dict[str, Any] = Field(default_factory=dict)
     prompts: list[PromptDefinition] = Field(min_length=1)
     defaults: Defaults = Field(default_factory=Defaults)
     evaluators: EvaluatorsConfig = Field(default_factory=EvaluatorsConfig)

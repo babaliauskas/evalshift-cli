@@ -24,6 +24,8 @@ from evalshift.cli.commands.all import (
     _compose_verdict,
     _evaluator_family_summary,
 )
+from evalshift.cli.commands.analyze import AnalyzeResult
+from evalshift.cli.commands.analyze import run_analyze as _real_run_analyze
 from evalshift.cli.main import app
 from evalshift.config.models import (
     EvalShiftConfig,
@@ -125,7 +127,7 @@ def _comp(
         evaluator_name=evaluator,
         slice_name="all",
         n=20,
-        test="paired-t",
+        test="paired_t",
         statistic=1.5,
         p_value=0.01,
         p_value_corrected=p_corr,
@@ -254,6 +256,56 @@ class TestEndToEnd:
         assert (runs[0] / "report.html").exists()
         assert (runs[0] / "scores.jsonl").exists()
         assert (runs[0] / "analysis.json").exists()
+
+    def test_all_pushes_before_gate_exit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        _scaffold(tmp_path)
+        _patch_client(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        pushed: list[str] = []
+
+        def fake_push_local_run(
+            *,
+            run_id: str,
+            config_path: Path,
+            suite_path: Path,
+            runs_base: Path,
+            console: Any,
+        ) -> Any:
+            pushed.append(run_id)
+
+            class Result:
+                view_url = "https://app.test/app/acme/project/runs/" + run_id
+
+            return Result()
+
+        monkeypatch.setattr("evalshift.cli.commands.all.push_local_run", fake_push_local_run)
+
+        def fake_run_analyze(*, run_id: str, config_path: Path, runs_base: Path) -> AnalyzeResult:
+            real = _real_run_analyze(run_id=run_id, config_path=config_path, runs_base=runs_base)
+            return AnalyzeResult(
+                run_id=real.run_id,
+                output_path=real.output_path,
+                comparisons=(
+                    _comp(
+                        severity="critical",
+                        effect_size=-1.0,
+                        delta=-0.4,
+                    ),
+                ),
+                n_records=real.n_records,
+            )
+
+        monkeypatch.setattr("evalshift.cli.commands.all.run_analyze", fake_run_analyze)
+
+        result = runner.invoke(app, ["all", "--yes", "--push", "--gate", "critical"])
+
+        assert result.exit_code == 1
+        assert len(pushed) == 1
+        assert "https://app.test/app/acme/project/runs/" in result.output
 
     def test_all_aborts_on_missing_api_key(
         self,
