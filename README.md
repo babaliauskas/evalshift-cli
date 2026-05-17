@@ -2,18 +2,21 @@
 
 > Run your prompts on two LLMs and find out, with statistical confidence, what regressed.
 
-[![CI](https://github.com/babaliauskas/EvalShift/actions/workflows/ci.yml/badge.svg)](https://github.com/babaliauskas/EvalShift/actions/workflows/ci.yml)
+[![CI](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
 
-EvalShift is a local-first CLI that helps engineering teams migrate safely between
-LLM versions (e.g. `claude-4.5-sonnet` → `claude-5-sonnet`). Point it at your
-prompts and a golden suite of inputs; it runs both models, scores the outputs
-with structural / semantic / LLM-as-judge evaluators, and produces a single-file
-HTML report with **defensible statistics**: paired tests, Cohen's d, 95% CIs,
-and Benjamini–Hochberg correction across every (prompt × evaluator × slice)
-comparison.
+EvalShift is a local-first CLI that helps engineering teams migrate safely
+between LLM versions (for example `gemini-2.5-flash` → `gemini-3.1-flash-lite-preview`).
+Point it at your prompts and a golden suite of inputs; it runs both models,
+scores the outputs with structural / semantic / LLM-as-judge / tool-call
+evaluators, and produces a single-file HTML report with **defensible
+statistics**: paired tests, Cohen's d, 95% CIs, and Benjamini-Hochberg
+correction across every (prompt x evaluator x slice) comparison.
+
+Local runs stay on your machine by default. Hosted private-alpha commands are
+available when you explicitly log in and push a run.
 
 ## Status
 
@@ -32,8 +35,8 @@ uv pip install evalshift     # or: pip install evalshift
 From source (for contributors):
 
 ```bash
-git clone https://github.com/babaliauskas/EvalShift.git
-cd EvalShift
+git clone https://github.com/babaliauskas/evalshift-cli.git
+cd evalshift-cli
 uv venv --python 3.14
 source .venv/bin/activate
 uv pip install -e ".[dev]"
@@ -48,7 +51,7 @@ mkdir my-eval && cd my-eval
 evalshift init
 
 # 2. Set whichever provider keys you'll use
-export GOOGLE_API_KEY=...   # or ANTHROPIC_API_KEY / OPENAI_API_KEY
+export GOOGLE_API_KEY=<google-api-key>   # or ANTHROPIC_API_KEY / OPENAI_API_KEY
 
 # 3. Run the whole pipeline in one command (doctor → run → evaluate
 #    → analyze → report). Pass --open to launch the report.
@@ -74,15 +77,69 @@ evalshift report <run-id> --open
 
 Every artefact lives under `.evalshift/runs/<run-id>/` — `state.json`,
 `raw.jsonl`, `scores.jsonl`, `analysis.json`, `report.json`,
-`report.html`. None of it leaves your machine.
+`report.html`. None of it leaves your machine unless you opt in to hosted
+upload commands.
 
-## Agent migrations (v0.2)
+## Hosted private alpha
 
-Migrating an agent (a prompt that uses tools)? EvalShift v0.2 detects
+Hosted EvalShift adds shared run history, web viewing, diffs, and GitHub PR
+comments. It is optional: local CLI usage does not require an account.
+
+```bash
+# Create a hosted API token in the web app, then store it locally.
+evalshift login --token <hosted-api-token> --host <hosted-api-url>
+evalshift whoami
+
+# Add a hosted project to evalshift.yaml:
+# project: acme/model-migration
+# thresholds:
+#   pass_rate_min: 0.95
+
+# Run locally, then package and push the result.
+evalshift all --yes --push
+```
+
+You can also drive the hosted steps manually:
+
+```bash
+evalshift bundle <run-id>
+evalshift push <run-id>
+evalshift push --bundle .evalshift/runs/<run-id>/run_bundle.json.gz
+```
+
+Credential precedence is explicit CLI flags, then `EVALSHIFT_HOST` /
+`EVALSHIFT_TOKEN`, then `~/.evalshift/credentials`.
+
+## GitHub Action
+
+`evalshift init --ci` scaffolds a workflow that runs EvalShift on pull
+requests, pushes the run to hosted EvalShift, compares against the latest
+compatible base-branch run, posts or updates one PR comment, and sets the
+`evalshift/regression` commit status.
+
+Required setup:
+
+```bash
+evalshift init --ci
+```
+
+Then add repository secrets for `EVALSHIFT_TOKEN` and the provider keys your
+models use. The generated workflow uses:
+
+```yaml
+uses: babaliauskas/evalshift-action@v0
+```
+
+See [`docs/github-action.md`](docs/github-action.md) for workflow permissions,
+`fail-on` modes, and baseline behavior.
+
+## Agent migrations
+
+Migrating an agent (a prompt that uses tools)? EvalShift detects
 regressions in *which* tools the new model calls, *what* arguments it
 passes, and *how* it sequences them. The killer scenario: a routing
 agent that silently stops calling `notify_security_team` after the
-migration — text-only eval reports green, v0.2 marks it CRITICAL.
+migration — text-only eval reports green, EvalShift marks it CRITICAL.
 
 The default `evalshift init` scaffold *is* an agent project — six tools
 plus a 40-row golden suite. Just run the quick-start above and the
@@ -94,7 +151,15 @@ customer-support example.
 
 ## What the report looks like
 
-[**See a live example →**](https://evalshift.dev/example-report.html)
+Generate a deterministic example locally — no API keys required:
+
+```bash
+scripts/run_showcase.sh --offline --only pass-clean --open
+```
+
+That runs the [`examples/showcase/pass-clean/`](examples/showcase/pass-clean/)
+scenario with the bundled `fixtures.jsonl`, writes a single-file HTML report
+under `.evalshift/runs/<run-id>/report.html`, and opens it in your browser.
 
 The HTML report (single file, no external assets, works offline) has:
 
@@ -106,13 +171,19 @@ The HTML report (single file, no external assets, works offline) has:
 
 ## Why local-first?
 
-Your prompts and your suite never leave your machine. The only outbound calls
-are to the LLM providers you configure (Anthropic, OpenAI, Google) using your
-own API keys. There is no EvalShift cloud.
+Your prompts and suite stay local for `doctor`, `run`, `evaluate`, `analyze`,
+and `report`. The only outbound calls in local mode are to the LLM providers
+you configure (Anthropic, OpenAI, Google) using your own API keys.
+
+`bundle` packages completed local artifacts into `run_bundle.json.gz` without
+uploading them. `push` and `all --push` upload that bundle to the hosted
+backend associated with your token.
 
 ## Documentation
 
 * [Getting started](docs/getting-started.md) — install + first run walkthrough
+* [Hosted alpha](docs/hosted.md) — login, bundle, push, thresholds, privacy
+* [GitHub Action](docs/github-action.md) — PR comments + hosted regression gate
 * [Configuration reference](docs/configuration.md) — every `evalshift.yaml` field
 * [Evaluators](docs/evaluators.md) — when to use which family
 * [Methodology](docs/methodology.md) — the statistical machinery
@@ -120,14 +191,12 @@ own API keys. There is no EvalShift cloud.
 
 ## Non-goals
 
-* Hosted backend / web UI
+* General-availability hosted service or billing
+* Hosted provider-key storage
 * Multi-criterion judge in a single call
 * Custom evaluator plugin system
 * Comparing more than 2 models in one run
 * Auto-detection of LangChain / LlamaIndex prompt patterns
-
-These are deferred to v0.2+; see the PDF spec in the repo for the
-full deferred-features list.
 
 ## License
 

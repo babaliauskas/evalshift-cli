@@ -49,7 +49,7 @@ class PairwiseJudgeEvaluator:
         *,
         criterion_name: str,
         criterion_prompt: str,
-        judge_model: str = "anthropic/claude-sonnet-4-5",
+        judge_model: str = "gemini/gemini-3.1-flash-lite-preview",
         client: ModelClient | None = None,
         rng: random.Random | None = None,
         name: str | None = None,

@@ -1,13 +1,18 @@
 # FAQ
 
-## Does EvalShift send my prompts to your servers?
+## Does EvalShift send my prompts to EvalShift servers?
 
-**No.** Every API call EvalShift makes goes directly from your machine
-to the LLM provider you configured (Anthropic, OpenAI, Google) using
-your own API keys. EvalShift has no hosted backend in the MVP.
+**Not during local runs.** `doctor`, `run`, `evaluate`, `analyze`, and
+`report` operate locally. Every provider API call goes directly from your
+machine to the LLM provider you configured (Anthropic, OpenAI, Google)
+using your own API keys.
 
 The local SQLite cache at `~/.evalshift/cache.db` only contains
 provider responses for *your* prompts and inputs.
+
+Hosted private-alpha uploads are explicit. `bundle` packages the completed
+local run artifacts into `run_bundle.json.gz` without uploading them. `push`
+and `all --push` upload that bundle to the hosted backend for your project.
 
 ## What happens if a single LLM call fails?
 
@@ -35,6 +40,25 @@ and continues from where it left off. Already-completed calls
 
 A config or suite change between attempts aborts the resume — start
 a fresh run instead.
+
+## How do I push a run to hosted EvalShift?
+
+Create a hosted API token in the web app, then:
+
+```bash
+evalshift login --token <hosted-api-token> --host <hosted-api-url>
+evalshift whoami
+```
+
+Set `project: org-slug/project-slug` in `evalshift.yaml` or pass
+`--project org-slug/project-slug`, then run:
+
+```bash
+evalshift all --yes --push
+```
+
+See [Hosted alpha](hosted.md) for credential precedence, bundle contents,
+and troubleshooting.
 
 ## Why does the `max cost` row in `evalshift all` look so much higher than the actual `Total cost` in the report?
 

@@ -5,8 +5,9 @@
 # readily skips notify_security_team — which is the regression we want
 # evalshift to catch.
 #
-# Live: source (claude-sonnet-4-5) typically still pages security; target
-# (gpt-4o-mini) often doesn't. Offline: fixtures are 100% deterministic.
+# Live: source (gemini-2.5-flash) typically still pages security; target
+# (gemini-3.1-flash-lite-preview) often doesn't. Offline: fixtures are
+# 100% deterministic.
 version: 1
 
 prompts:
@@ -18,8 +19,8 @@ prompts:
     tools_path: ../shared/tools.yaml
 
 defaults:
-  source_model: claude-sonnet-4-5
-  target_model: gpt-4o-mini
+  source_model: gemini-2.5-flash
+  target_model: gemini-3.1-flash-lite-preview
   concurrency: 4
   cache: false
 

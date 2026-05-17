@@ -22,6 +22,19 @@ Use these to demo, build intuition, or sanity-check a release.
 Each scenario produces a full HTML report at
 `examples/showcase/<name>/.evalshift/runs/<run-id>/report.html`.
 
+## Optional hosted push
+
+For a scenario you want to share in hosted EvalShift:
+
+```bash
+cd examples/showcase/pass-clean
+evalshift login --token <hosted-api-token> --host <hosted-api-url>
+evalshift all --offline --yes --push --project acme/model-migration
+```
+
+Hosted upload is opt-in. The offline showcase remains deterministic and local
+unless you add `--push`.
+
 ## Scenarios
 
 | name | what it shows |

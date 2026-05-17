@@ -44,8 +44,8 @@ def _write_project_files(root: Path) -> None:
             content: "Hello {name}"
             variables: [name]
         defaults:
-          source_model: openai/gpt-4o-mini
-          target_model: anthropic/claude-haiku-4-5
+          source_model: gemini/gemini-2.5-flash
+          target_model: gemini/gemini-3.1-flash-lite-preview
         evaluators:
           structural:
             - type: length
@@ -68,7 +68,9 @@ def _write_completed_run(root: Path, run_id: str = "r_20260516_abcdef") -> Path:
         config_hash="local-config-hash",
         started_at=datetime(2026, 5, 16, 12, 0, tzinfo=UTC),
         last_checkpoint_at=datetime(2026, 5, 16, 12, 1, 14, tzinfo=UTC),
-        models=RunModels(source="openai/gpt-4o-mini", target="anthropic/claude-haiku-4-5"),
+        models=RunModels(
+            source="gemini/gemini-2.5-flash", target="gemini/gemini-3.1-flash-lite-preview"
+        ),
         prompt_ids=["greet"],
         suite_path=str(root / "golden.jsonl"),
         total_evaluations=2,
@@ -81,7 +83,7 @@ def _write_completed_run(root: Path, run_id: str = "r_20260516_abcdef") -> Path:
             run_id=run_id,
             prompt_id="greet",
             example_id="ex1",
-            model_id="openai/gpt-4o-mini",
+            model_id="gemini/gemini-2.5-flash",
             role="source",
             text="hello ada",
             input_tokens=10,
@@ -96,7 +98,7 @@ def _write_completed_run(root: Path, run_id: str = "r_20260516_abcdef") -> Path:
             run_id=run_id,
             prompt_id="greet",
             example_id="ex1",
-            model_id="anthropic/claude-haiku-4-5",
+            model_id="gemini/gemini-3.1-flash-lite-preview",
             role="target",
             text="hello ada!",
             input_tokens=10,

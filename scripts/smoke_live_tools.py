@@ -72,9 +72,8 @@ PROMPTS: list[tuple[str, str]] = [
 ]
 
 MODELS = [
-    "anthropic/claude-sonnet-4-5",
-    "openai/gpt-4o",
-    "gemini/gemini-2.5-pro",
+    "gemini/gemini-2.5-flash",
+    "gemini/gemini-3.1-flash-lite-preview",
 ]
 
 

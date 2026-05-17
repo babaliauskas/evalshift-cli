@@ -1,11 +1,11 @@
-# EvalShift v0.2 agent example: a customer-support routing agent with 6 tools.
+# EvalShift agent example: a customer-support routing agent with 6 tools.
 #
 # Run with mocked LLMs (CI / no API keys):
 #     pytest tests/integration/test_tool_pipeline.py
 #
 # Or with real Gemini keys:
 #     cd examples/agent
-#     export GOOGLE_API_KEY=...
+#     export GOOGLE_API_KEY=<google-api-key>
 #     evalshift run --yes --from gemini-2.5-flash --to gemini-2.5-pro
 #     evalshift evaluate <run-id>
 #     evalshift analyze <run-id>
@@ -18,7 +18,7 @@ prompts:
     path: prompts.py
     variable: AGENT_SYSTEM_PROMPT
     variables: [query]
-    # v0.2 — tools_path makes this an agent prompt; the orchestrator
+    # tools_path makes this an agent prompt; the orchestrator
     # uses ModelClient.complete_with_tools and tool evaluators apply.
     tools_path: tools.yaml
 

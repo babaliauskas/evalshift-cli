@@ -20,8 +20,10 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Default judge model used across the config when none is specified.
-# Centralised here so a single edit propagates everywhere.
-DEFAULT_JUDGE_MODEL: str = "claude-5-sonnet-20260101"
+# Centralised here so a single edit propagates everywhere. Gemini's
+# flash-lite-preview tier is intentionally cheap; users who want a
+# stronger judge should override via `evaluators.llm_judge[*].judge_model`.
+DEFAULT_JUDGE_MODEL: str = "gemini-3.1-flash-lite-preview"
 
 
 class _StrictModel(BaseModel):

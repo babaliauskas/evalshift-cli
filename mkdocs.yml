@@ -1,8 +1,8 @@
 site_name: EvalShift
 site_description: Run your prompts on two LLMs and find out what regressed.
-site_url: https://babaliauskas.github.io/EvalShift/
-repo_url: https://github.com/babaliauskas/EvalShift
-repo_name: babaliauskas/EvalShift
+site_url: https://babaliauskas.github.io/evalshift-cli/
+repo_url: https://github.com/babaliauskas/evalshift-cli
+repo_name: babaliauskas/evalshift-cli
 
 theme:
   name: material
@@ -30,9 +30,11 @@ theme:
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - Hosted alpha: hosted.md
+  - GitHub Action: github-action.md
   - Configuration: configuration.md
   - Evaluators: evaluators.md
-  - Agent migrations (v0.2): agents.md
+  - Agent migrations: agents.md
   - Methodology: methodology.md
   - FAQ: faq.md
   - Changelog: changelog.md

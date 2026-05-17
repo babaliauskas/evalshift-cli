@@ -25,15 +25,15 @@ evalshift --version
 ## 2. Set provider API keys
 
 EvalShift calls Anthropic, OpenAI, and Google directly using your own keys.
-Nothing is sent to any EvalShift-operated server — every API call is
-client-side, and responses are cached locally in `~/.evalshift/cache.db`.
+Local runs do not send prompts or outputs to an EvalShift-operated server.
+Provider responses are cached locally in `~/.evalshift/cache.db`.
 
 Set whichever providers you intend to use:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export GOOGLE_API_KEY=...
+export ANTHROPIC_API_KEY=<anthropic-api-key>
+export OPENAI_API_KEY=<openai-api-key>
+export GOOGLE_API_KEY=<google-api-key>
 ```
 
 ## 3. Scaffold a starter project
@@ -78,7 +78,7 @@ If everything is green or yellow, you're ready to run.
 The fast path is one command:
 
 ```bash
-evalshift all --from claude-4.5-sonnet --to claude-5-sonnet --yes --open
+evalshift all --from gemini-2.5-flash --to gemini-3.1-flash-lite-preview --yes --open
 ```
 
 This runs `doctor → run → evaluate → analyze → report` under a single
@@ -90,7 +90,7 @@ If you want to drive each stage by hand (useful when re-running just
 one stage after fixing config, or in CI where you stage artefacts):
 
 ```bash
-evalshift run --from claude-4.5-sonnet --to claude-5-sonnet
+evalshift run --from gemini-2.5-flash --to gemini-3.1-flash-lite-preview
 evalshift evaluate <run-id>
 evalshift analyze <run-id>
 evalshift report <run-id> --open
@@ -99,5 +99,39 @@ evalshift report <run-id> --open
 `evalshift all` accepts every flag the underlying commands do
 (`--from/--to`, `--config`, `--suite`, `--offline`, `--fixtures`,
 `--yes`, `--resume`, `--gate`, `--open`).
+
+## 6. Optional: push to hosted EvalShift
+
+Hosted private alpha adds shared run history, web viewing, diffs, and
+GitHub PR comments. Create an API token in the hosted web app, then log in:
+
+```bash
+evalshift login --token <hosted-api-token> --host <hosted-api-url>
+evalshift whoami
+```
+
+Add a hosted project path to `evalshift.yaml`:
+
+```yaml
+project: acme/model-migration
+thresholds:
+  pass_rate_min: 0.95
+```
+
+Then push a completed run:
+
+```bash
+evalshift all --yes --push
+```
+
+Or package and push manually:
+
+```bash
+evalshift bundle <run-id>
+evalshift push <run-id>
+```
+
+See [Hosted alpha](hosted.md) and [GitHub Action](github-action.md) for CI
+setup and privacy details.
 
 [uv]: https://docs.astral.sh/uv/

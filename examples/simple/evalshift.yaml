@@ -5,7 +5,7 @@
 #
 # Or with real keys:
 #   cd examples/simple
-#   export GOOGLE_API_KEY=...
+#   export GOOGLE_API_KEY=<google-api-key>
 #   evalshift run --yes --from gemini-2.5-flash --to gemini-2.5-pro
 #   evalshift evaluate <run-id>
 #   evalshift analyze <run-id>
@@ -20,6 +20,9 @@ prompts:
     variables: [name, tone]
 
 defaults:
+  # Intentional small -> big example so the diff highlights a real
+  # capability jump. The showcase scenarios use flash -> flash-lite to
+  # demo regression-detection on near-equivalent models.
   source_model: gemini-2.5-flash
   target_model: gemini-2.5-pro
   concurrency: 4

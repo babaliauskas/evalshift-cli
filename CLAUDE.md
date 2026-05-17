@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-EvalShift is a local-first CLI for safe LLM model migrations (e.g. `claude-4.5-sonnet` → `claude-5-sonnet`).
+EvalShift is a local-first CLI for safe LLM model migrations (e.g. `gemini-2.5-flash` → `gemini-3.1-flash-lite-preview`).
 It runs the same prompts on two models against a golden suite, scores outputs with structural / semantic /
 LLM-as-judge / tool-call evaluators, and emits an HTML report with paired stats (Cohen's d, 95% CIs,
 Benjamini–Hochberg FDR correction). Status is **alpha**; not yet on PyPI.

@@ -1,4 +1,4 @@
-"""Agent system prompt for the v0.2 customer-support routing example."""
+"""Agent system prompt for the customer-support routing example."""
 
 AGENT_SYSTEM_PROMPT = """\
 You are a customer-support routing agent. Read the inbound message and

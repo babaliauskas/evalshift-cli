@@ -13,8 +13,8 @@ prompts:
     tools_path: ../shared/tools.yaml
 
 defaults:
-  source_model: claude-sonnet-4-5
-  target_model: claude-opus-4-5
+  source_model: gemini-2.5-flash
+  target_model: gemini-3.1-flash-lite-preview
   concurrency: 4
   cache: false
 

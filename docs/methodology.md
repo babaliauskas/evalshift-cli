@@ -105,7 +105,7 @@ backing it up.
   false positives are expected when many tests run. Use the effect
   sizes and CIs to triage.
 
-* **Per-call sampling variance.** The MVP doesn't run repeated trials
+* **Per-call sampling variance.** EvalShift doesn't run repeated trials
   per (prompt, example) pair. If your models are stochastic,
   consider setting `temperature=0` (the registry default) or running
   multiple seeds and averaging the scores upstream.

@@ -10,6 +10,8 @@ your needs. Below is the canonical reference.
 
 ```yaml
 version: 1                # required, must be 1
+project: org/project      # optional, required for hosted push unless passed by flag
+thresholds: {...}         # optional hosted project thresholds
 prompts: [...]            # required, at least one
 defaults: {...}           # optional
 evaluators: {...}         # optional (but at least one is needed for `evaluate`)
@@ -18,6 +20,25 @@ slices: [...]             # optional
 
 Unknown keys are rejected (`extra: forbid` everywhere) so typos fail
 fast instead of silently dropping.
+
+## `project` and `thresholds`
+
+These fields are used only by hosted commands. Local `run`, `evaluate`,
+`analyze`, and `report` do not require them.
+
+| Field        | Type   | Required | Description |
+| ------------ | ------ | -------- | ----------- |
+| `project`    | string | no       | Hosted project slug in `org-slug/project-slug` form. `evalshift push` also accepts `--project`, which overrides the config value. |
+| `thresholds` | object | no       | Free-form hosted project thresholds. When provided during `push`, the backend syncs them for owners and returns canonical thresholds. |
+
+Example:
+
+```yaml
+project: acme/model-migration
+thresholds:
+  pass_rate_min: 0.95
+  regression_max: 0
+```
 
 ## `prompts`
 
@@ -60,7 +81,7 @@ A list of prompt definitions. Each entry has:
 | --------------- | ------ | ----------------------------- | ----------- |
 | `source_model`  | string | (none)                        | Default `--from` model id (or alias). |
 | `target_model`  | string | (none)                        | Default `--to` model id (or alias). |
-| `judge_model`   | string | `claude-5-sonnet-20260101`    | Default LLM-as-judge model. |
+| `judge_model`   | string | `gemini-3.1-flash-lite-preview` | Default LLM-as-judge model. |
 | `concurrency`   | int    | 10 (1 ≤ x ≤ 64)               | Max in-flight LLM calls during `evalshift run`. |
 | `cache`         | bool   | `true`                        | Read/write the local SQLite cache at `~/.evalshift/cache.db`. |
 | `max_cost_usd`  | float  | 50.0                          | Soft ceiling reserved for future enforcement. The pre-flight cost prompt currently triggers above $10 (skip with `--yes`). |
@@ -159,7 +180,7 @@ The implicit `"all"` slice always exists.
 | Field         | Type   | Required | Description |
 | ------------- | ------ | -------- | ----------- |
 | `name`        | string | yes      | Slice name surfaced in reports. |
-| `filter`      | string | yes      | A tag string. In MVP the filter is a literal tag — examples whose `tags` list contains the value land in this slice. |
+| `filter`      | string | yes      | A tag string. Currently the filter is a literal tag — examples whose `tags` list contains the value land in this slice. |
 | `applies_to`  | list   | optional | Glob list of prompt ids this slice applies to (default `["*"]`). |
 
 ## Suite (`golden.jsonl`) shape

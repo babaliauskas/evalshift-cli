@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-18
+
+### Added
+
+- Hosted private-alpha CLI flows: `evalshift login`, `whoami`, `bundle`,
+  `push`, and `evalshift all --push`. Credentials live in
+  `~/.evalshift/credentials` (chmod 600); precedence is explicit flags,
+  then `EVALSHIFT_HOST` / `EVALSHIFT_TOKEN`, then the credentials file.
+- `evalshift.yaml` grows two optional top-level fields: `project`
+  (`org-slug/project-slug`, required for hosted push) and `thresholds`
+  (free-form key/value block synced to the hosted backend when a project
+  is set; drives the GitHub Action's `evalshift/regression` gate).
+- `evalshift init --ci` scaffolds a GitHub Actions workflow that runs
+  EvalShift on PRs, pushes the run to hosted EvalShift, posts/updates
+  one PR comment with the regression summary, and sets the commit
+  status. Uses `babaliauskas/evalshift-action@v0`.
+
+### Changed
+
+- Default `judge_model` for the LLM-as-judge evaluator is now
+  `gemini-3.1-flash-lite-preview` (cheap, fast). Users who want a
+  stronger judge should override via
+  `evaluators.llm_judge[*].judge_model`. Existing configs that already
+  set `judge_model` are unaffected.
+- Showcase example configs and replay fixtures migrated to
+  `gemini-2.5-flash` (source) and `gemini-3.1-flash-lite-preview`
+  (target). First-run `scripts/run_showcase.sh --offline` no longer
+  requires an Anthropic key.
+
+### Documentation
+
+- Documented hosted private-alpha CLI flows: `login`, `whoami`, `bundle`,
+  `push`, `all --push`, project thresholds, and GitHub Action setup.
+- Replaced stale "no hosted backend/cloud" wording with the current
+  local-by-default plus explicit hosted-upload model.
+- Renamed checked-in example config files to `evalshift.yaml`.
+
 ## [0.4.0] — 2026-05-16
 
 ### Changed

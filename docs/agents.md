@@ -35,7 +35,7 @@ across five slices (`security`, `routine`, `refund`,
 
 ```bash
 mkdir my-agent-eval && cd my-agent-eval
-export GOOGLE_API_KEY=...                 # or OPENAI_API_KEY / ANTHROPIC_API_KEY
+export GOOGLE_API_KEY=<google-api-key>    # or OPENAI_API_KEY / ANTHROPIC_API_KEY
 
 evalshift init                            # writes evalshift.yaml + prompts.py +
                                           #        tools.yaml + golden.jsonl

@@ -20,7 +20,8 @@ disclosure timeline.
 
 ## Scope
 
-EvalShift is a local-first CLI; the threat model is centred on:
+EvalShift is a local-first CLI with optional hosted private-alpha upload
+commands. The local threat model is centred on:
 
 * **Untrusted project files.** `evalshift.yaml`, `prompts.py`, and
   the suite JSONL come from the user's project. The Python-string
@@ -28,11 +29,21 @@ EvalShift is a local-first CLI; the threat model is centred on:
   config parsing reject unknown keys; EvalShift never `eval`s user
   data.
 * **Outbound API calls** go directly to the LLM provider you
-  configured. EvalShift does not phone home, send telemetry, or
-  upload your prompts anywhere else.
+  configured. Local runs do not phone home, send telemetry, or upload
+  prompts to EvalShift-operated services.
 * **The local SQLite cache** at `~/.evalshift/cache.db` is the only
-  persistent storage; nothing outside `~/.evalshift/` and the project
-  directory is touched.
+  persistent local response cache; nothing outside `~/.evalshift/` and
+  the project directory is touched for local runs.
+* **Hosted credentials** are stored at `~/.evalshift/credentials` as
+  JSON with owner-only `0600` permissions. CI should pass
+  `EVALSHIFT_TOKEN` through secrets, not command-line logs.
+* **Hosted uploads are opt-in.** `evalshift bundle` packages completed run
+  artifacts locally into `run_bundle.json.gz`. `evalshift push` and
+  `evalshift all --push` upload that bundle to the hosted backend configured
+  by `--host` or `EVALSHIFT_HOST`.
 
-Out of scope (for now): hosted backends, multi-tenant deployments,
-any "EvalShift cloud" — none of which exist in the MVP.
+Do not include hosted API tokens, provider API keys, OAuth codes, signed
+upload URLs, or private repository details in bug reports or public issues.
+
+Out of scope for this CLI security policy: the hosted backend's deployment
+security controls, billing, enterprise SSO, and provider-key hosting.
