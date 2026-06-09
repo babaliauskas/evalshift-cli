@@ -353,6 +353,13 @@ def all_command(
             help="CI gate: comma-separated severities that should fail with exit 1.",
         ),
     ] = "",
+    policy_gate: Annotated[
+        bool,
+        typer.Option(
+            "--policy-gate",
+            help="CI gate: fail when migration_policy verdict is fail or conditional_pass.",
+        ),
+    ] = False,
     open_browser: Annotated[
         bool,
         typer.Option("--open", help="Open the rendered HTML report in your browser."),
@@ -570,12 +577,24 @@ def all_command(
 
     # Verdict block.
     console.print()
-    verdict = _compose_verdict(list(analyze_result.comparisons))
-    console.print(verdict.headline)
-    if verdict.detail is not None:
-        console.print(verdict.detail)
-    if verdict.regression_callout is not None:
-        console.print(verdict.regression_callout)
+    if analyze_result.migration_decision is not None:
+        decision = analyze_result.migration_decision
+        style = {
+            "pass": "bold green",
+            "conditional_pass": "bold yellow",
+            "fail": "bold red",
+            "inconclusive": "bold yellow",
+        }.get(decision.verdict, "bold")
+        console.print(f"[{style}]Migration verdict: {decision.verdict}[/{style}]")
+        for rec in decision.recommendations:
+            console.print(f"  {rec}", style="dim")
+    else:
+        verdict = _compose_verdict(list(analyze_result.comparisons))
+        console.print(verdict.headline)
+        if verdict.detail is not None:
+            console.print(verdict.detail)
+        if verdict.regression_callout is not None:
+            console.print(verdict.regression_callout)
 
     console.print()
     console.print(f"[dim]report:[/dim] {report_result.html_path}")
@@ -603,6 +622,16 @@ def all_command(
             console.print(
                 f"[red]✗ gate failed:[/red] {len(offending)} comparison(s) at "
                 f"severity {{{', '.join(sorted(gate_severities))}}}",
+            )
+            raise typer.Exit(code=1)
+
+    if policy_gate:
+        if analyze_result.migration_decision is None:
+            console.print("[red]✗ policy gate failed:[/red] no migration_policy configured")
+            raise typer.Exit(code=1)
+        if analyze_result.migration_decision.verdict in {"fail", "conditional_pass"}:
+            console.print(
+                f"[red]✗ policy gate failed:[/red] {analyze_result.migration_decision.verdict}",
             )
             raise typer.Exit(code=1)
 

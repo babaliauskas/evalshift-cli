@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Local migration-policy verdicts: optional `migration_policy` config,
+  `migration_decision.json` from `analyze`, report-level verdict block,
+  and `--policy-gate` for `analyze` / `all`.
+- Failure taxonomy metadata for structural, semantic, and tool-call
+  evaluators, plus top regression-cause aggregation in reports.
+- Debug commands: `inspect`, `diff case`, and recorded-only
+  `replay case`.
+- `evalshift init --profile ... --pack ...` scaffolding surface for
+  migration profiles and scenario packs.
+
 ## [0.5.0] — 2026-05-18
 
 ### Added

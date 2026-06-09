@@ -69,6 +69,20 @@ class TestInitHappy:
         )
         assert "structural:" not in non_comment
 
+    def test_profile_adds_migration_policy(self, in_tmp: Path) -> None:
+        result = runner.invoke(app, ["init", "--profile", "cost-reduction"])
+        assert result.exit_code == 0, result.stdout
+        body = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
+        assert "# migration_profile: cost-reduction" in body
+        assert "migration_policy:" in body
+        assert "max_cost_increase: 0.05" in body
+
+    def test_pack_is_recorded_in_config(self, in_tmp: Path) -> None:
+        result = runner.invoke(app, ["init", "--pack", "tool-calling-agent"])
+        assert result.exit_code == 0, result.stdout
+        body = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
+        assert "# scenario_pack: tool-calling-agent" in body
+
     def test_written_prompts_module_is_valid_python(self, in_tmp: Path) -> None:
         result = runner.invoke(app, ["init"])
         assert result.exit_code == 0, result.stdout

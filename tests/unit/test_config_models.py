@@ -15,9 +15,11 @@ from evalshift.config.models import (
     EvalShiftConfig,
     EvaluatorsConfig,
     LLMJudgeConfig,
+    MigrationPolicy,
     PromptDefinition,
     SemanticEvaluatorConfig,
     SliceConfig,
+    SliceMigrationPolicy,
     StructuralEvaluatorConfig,
 )
 
@@ -220,6 +222,54 @@ class TestDefaults:
 
 
 # ---------------------------------------------------------------------------
+# MigrationPolicy
+# ---------------------------------------------------------------------------
+
+
+class TestMigrationPolicy:
+    def test_defaults_are_ci_friendly(self) -> None:
+        policy = MigrationPolicy()
+        assert policy.max_overall_regression_rate == pytest.approx(0.03)
+        assert policy.max_critical_regressions == 0
+        assert policy.min_equivalence_rate == pytest.approx(0.95)
+        assert policy.max_tool_argument_drift == pytest.approx(0.01)
+        assert policy.max_cost_increase == pytest.approx(0.20)
+        assert policy.max_latency_increase == pytest.approx(0.30)
+        assert policy.slices == {}
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "max_overall_regression_rate",
+            "min_equivalence_rate",
+            "max_tool_argument_drift",
+            "max_cost_increase",
+            "max_latency_increase",
+        ],
+    )
+    def test_ratio_fields_reject_values_above_one(self, field: str) -> None:
+        with pytest.raises(ValidationError):
+            MigrationPolicy.model_validate({field: 1.5})
+
+    def test_slice_overrides_are_validated(self) -> None:
+        policy = MigrationPolicy(
+            slices={
+                "billing": SliceMigrationPolicy(
+                    max_overall_regression_rate=0.0,
+                    max_critical_regressions=0,
+                    min_equivalence_rate=1.0,
+                ),
+            },
+        )
+
+        assert policy.slices["billing"].min_equivalence_rate == pytest.approx(1.0)
+
+    def test_extra_keys_forbidden(self) -> None:
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MigrationPolicy.model_validate({"typo": 0.1})
+
+
+# ---------------------------------------------------------------------------
 # EvalShiftConfig — top level
 # ---------------------------------------------------------------------------
 
@@ -237,6 +287,18 @@ class TestEvalShiftConfig:
         assert cfg.slices == []
         assert cfg.project is None
         assert cfg.thresholds == {}
+        assert cfg.migration_policy is None
+
+    def test_migration_policy_is_optional_public_config(self) -> None:
+        cfg = EvalShiftConfig(
+            prompts=[
+                PromptDefinition(id="cs", detection="manual", content="hi {n}"),
+            ],
+            migration_policy=MigrationPolicy(max_overall_regression_rate=0.05),
+        )
+
+        assert cfg.migration_policy is not None
+        assert cfg.migration_policy.max_overall_regression_rate == pytest.approx(0.05)
 
     def test_hosted_project_and_thresholds_are_valid(self) -> None:
         cfg = EvalShiftConfig(

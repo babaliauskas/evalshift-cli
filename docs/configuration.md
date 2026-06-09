@@ -12,6 +12,7 @@ your needs. Below is the canonical reference.
 version: 1                # required, must be 1
 project: org/project      # optional, required for hosted push unless passed by flag
 thresholds: {...}         # optional hosted project thresholds
+migration_policy: {...}   # optional local migration verdict policy
 prompts: [...]            # required, at least one
 defaults: {...}           # optional
 evaluators: {...}         # optional (but at least one is needed for `evaluate`)
@@ -39,6 +40,28 @@ thresholds:
   pass_rate_min: 0.95
   regression_max: 0
 ```
+
+## `migration_policy`
+
+Optional local regression budget used by `evalshift analyze`,
+`evalshift all`, and the HTML report to produce a migration verdict.
+Ratio fields use decimal fractions: `0.03` means 3%.
+
+```yaml
+migration_policy:
+  max_overall_regression_rate: 0.03
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.95
+  max_tool_argument_drift: 0.01
+  max_cost_increase: 0.20
+  max_latency_increase: 0.30
+```
+
+Verdicts are `pass`, `conditional_pass`, `fail`, or `inconclusive`.
+When configured, `analyze` writes `migration_decision.json` next to
+`analysis.json`; `report` renders it as the top-level migration verdict.
+Use `--policy-gate` on `analyze` or `all` to fail CI for `fail` and
+`conditional_pass`.
 
 ## `prompts`
 

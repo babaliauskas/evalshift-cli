@@ -93,6 +93,30 @@ class TestAnalyzeHappy:
         assert "aggregates" in data
         assert any(c["severity"] != "insufficient" for c in data["comparisons"])
 
+    def test_writes_migration_decision_when_policy_configured(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold(tmp_path)
+        config_path = cwd / "evalshift.yaml"
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + "\n        migration_policy:\n"
+            + "          max_overall_regression_rate: 0.01\n"
+            + "          max_critical_regressions: 0\n"
+            + "          min_equivalence_rate: 0.99\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(cwd)
+
+        result = runner.invoke(app, ["analyze", run_id])
+
+        assert result.exit_code == 0, result.stdout
+        decision_path = cwd / ".evalshift" / "runs" / run_id / "migration_decision.json"
+        data = json.loads(decision_path.read_text(encoding="utf-8"))
+        assert data["run_id"] == run_id
+        assert data["verdict"] in {"fail", "conditional_pass", "pass", "inconclusive"}
+        assert "budget_results" in data
+
     def test_summary_table_rendered(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         cwd, run_id = _scaffold(tmp_path)
         monkeypatch.chdir(cwd)
@@ -151,6 +175,26 @@ class TestAnalyzeGate:
         monkeypatch.chdir(cwd)
         result = runner.invoke(app, ["analyze", run_id])
         assert result.exit_code == 0, result.stdout
+
+    def test_policy_gate_fails_on_policy_fail(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold(tmp_path)
+        config_path = cwd / "evalshift.yaml"
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + "\n        migration_policy:\n"
+            + "          max_overall_regression_rate: 0.0\n"
+            + "          max_critical_regressions: 0\n"
+            + "          min_equivalence_rate: 1.0\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(cwd)
+
+        result = runner.invoke(app, ["analyze", run_id, "--policy-gate"])
+
+        assert result.exit_code == 1, result.stdout
+        assert "policy gate failed" in result.stdout.lower()
 
 
 class TestAnalyzeStepSummary:

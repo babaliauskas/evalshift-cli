@@ -16,11 +16,14 @@ from evalshift.cli.commands.all import all_command as _all
 from evalshift.cli.commands.analyze import analyze_command as _analyze
 from evalshift.cli.commands.bundle import bundle as _bundle
 from evalshift.cli.commands.cache import cache_app
+from evalshift.cli.commands.diff import diff_app
 from evalshift.cli.commands.doctor import doctor as _doctor
 from evalshift.cli.commands.evaluate import evaluate as _evaluate
 from evalshift.cli.commands.init import init as _init
+from evalshift.cli.commands.inspect import inspect as _inspect
 from evalshift.cli.commands.login import login as _login
 from evalshift.cli.commands.push import push as _push
+from evalshift.cli.commands.replay import replay_app
 from evalshift.cli.commands.report import report as _report
 from evalshift.cli.commands.run import run as _run
 from evalshift.cli.commands.test_call import test_call as _test_call
@@ -69,6 +72,9 @@ app.command(name="bundle")(_bundle)
 app.command(name="push")(_push)
 app.command(name="all")(_all)
 app.add_typer(cache_app, name="cache")
+app.command(name="inspect")(_inspect)
+app.add_typer(diff_app, name="diff")
+app.add_typer(replay_app, name="replay")
 # `validate` and `test-call` are dev/debug commands hidden from the
 # top-level help. They'll be removed (or relocated under a hidden
 # --debug group) in Phase 8.4.

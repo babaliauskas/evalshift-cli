@@ -19,6 +19,7 @@ from typing import Any
 import litellm
 
 from evalshift.evaluators.base import PairedScore
+from evalshift.evaluators.failures import SEMANTIC_REGRESSION
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +63,10 @@ class CosineSimilarityEvaluator:
         return PairedScore(
             source_score=1.0,  # source preserves itself by definition
             target_score=sim_clamped,
-            metadata={"raw_cosine": sim},
+            metadata={
+                "raw_cosine": sim,
+                "failure_categories": [SEMANTIC_REGRESSION] if sim_clamped < 1.0 else [],
+            },
         )
 
     async def _embed(self, text: str) -> list[float]:

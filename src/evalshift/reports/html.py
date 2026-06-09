@@ -53,6 +53,7 @@ def render_html(report: ReportData) -> str:
         failed_calls=report.failed_calls,
         total_cost_usd=report.total_cost_usd,
         executive_summary=report.executive_summary,
+        migration_decision=report.migration_decision,
         prompt_sections=report.prompt_sections,
         methodology_notes=report.methodology_notes,
         css=css,

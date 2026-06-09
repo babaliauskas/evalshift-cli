@@ -284,6 +284,38 @@ class SliceConfig(_StrictModel):
     applies_to: list[str] = Field(default_factory=lambda: ["*"])
 
 
+class SliceMigrationPolicy(_StrictModel):
+    """Per-slice migration budget overrides.
+
+    All ratio fields use decimal fractions: ``0.03`` means 3%.
+    ``None`` means inherit the top-level migration policy value.
+    """
+
+    max_overall_regression_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_critical_regressions: int | None = Field(default=None, ge=0)
+    min_equivalence_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_tool_argument_drift: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_cost_increase: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_latency_increase: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class MigrationPolicy(_StrictModel):
+    """Regression-budget policy for deciding whether a migration is safe.
+
+    Ratio fields use decimal fractions, not percent strings. For example,
+    ``max_cost_increase=0.20`` means the target may cost up to 20% more
+    than the source before the policy fails.
+    """
+
+    max_overall_regression_rate: float = Field(default=0.03, ge=0.0, le=1.0)
+    max_critical_regressions: int = Field(default=0, ge=0)
+    min_equivalence_rate: float = Field(default=0.95, ge=0.0, le=1.0)
+    max_tool_argument_drift: float = Field(default=0.01, ge=0.0, le=1.0)
+    max_cost_increase: float = Field(default=0.20, ge=0.0, le=1.0)
+    max_latency_increase: float = Field(default=0.30, ge=0.0, le=1.0)
+    slices: dict[str, SliceMigrationPolicy] = Field(default_factory=dict)
+
+
 class Defaults(_StrictModel):
     """Top-level defaults applied across the run.
 
@@ -315,6 +347,7 @@ class EvalShiftConfig(_StrictModel):
     defaults: Defaults = Field(default_factory=Defaults)
     evaluators: EvaluatorsConfig = Field(default_factory=EvaluatorsConfig)
     slices: list[SliceConfig] = Field(default_factory=list)
+    migration_policy: MigrationPolicy | None = None
 
     @model_validator(mode="after")
     def _check_unique_prompt_ids(self) -> Self:

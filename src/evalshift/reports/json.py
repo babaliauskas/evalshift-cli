@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift.cli.commands.analyze import ANALYSIS_FILENAME, MIGRATION_DECISION_FILENAME
 from evalshift.cli.commands.evaluate import SCORES_FILENAME
 from evalshift.evaluators.base import EvalRecord
 from evalshift.evaluators.tool_models import ToolTrace
@@ -29,6 +29,17 @@ from evalshift.suite.loader import SuiteError, load_jsonl
 from evalshift.suite.models import Suite
 
 REPORT_JSON_FILENAME: str = "report.json"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolDiff:
+    """One tool-call diff item for a top regression."""
+
+    kind: str
+    tool_name: str
+    message: str
+    source_arguments: dict[str, Any] | None = None
+    target_arguments: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +57,7 @@ class TopRegression:
     # of the source/target text panes.
     source_trace: ToolTrace | None = None
     target_trace: ToolTrace | None = None
+    tool_diffs: list[ToolDiff] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +136,7 @@ class ReportData:
     total_cost_usd: float
 
     executive_summary: list[dict[str, Any]] = field(default_factory=list)
+    migration_decision: dict[str, Any] | None = None
     prompt_sections: list[PromptSection] = field(default_factory=list)
     methodology_notes: list[str] = field(default_factory=list)
 
@@ -151,6 +164,7 @@ def build_report_payload(
     """
     state = read_state(run_dir)
     analysis = _read_analysis(run_dir)
+    migration_decision = _read_migration_decision(run_dir)
     scores = _read_scores(run_dir)
     calls = list(iter_calls(run_dir))
     suite = _load_suite(state.suite_path)
@@ -180,6 +194,7 @@ def build_report_payload(
         failed_calls=failed,
         total_cost_usd=cost,
         executive_summary=summary,
+        migration_decision=migration_decision,
         prompt_sections=sections,
         methodology_notes=_methodology_notes(state),
     )
@@ -204,6 +219,16 @@ def _read_analysis(run_dir: Path) -> dict[str, Any]:
     data: Any = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"{ANALYSIS_FILENAME} must contain a JSON object")
+    return data
+
+
+def _read_migration_decision(run_dir: Path) -> dict[str, Any] | None:
+    path = run_dir / MIGRATION_DECISION_FILENAME
+    if not path.exists():
+        return None
+    data: Any = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{MIGRATION_DECISION_FILENAME} must contain a JSON object")
     return data
 
 
@@ -301,6 +326,9 @@ def _build_prompt_sections(
                     target_text=tgt.text if tgt else "",
                     source_trace=src.trace if src else None,
                     target_trace=tgt.trace if tgt else None,
+                    tool_diffs=_build_tool_diffs(
+                        src.trace if src else None, tgt.trace if tgt else None
+                    ),
                 ),
             )
         # v0.2 — does this prompt have any traces at all? Drives the
@@ -398,6 +426,68 @@ def _build_example_rows(
     return rows
 
 
+def _build_tool_diffs(
+    source_trace: ToolTrace | None,
+    target_trace: ToolTrace | None,
+) -> list[ToolDiff]:
+    if source_trace is None and target_trace is None:
+        return []
+    source_calls = source_trace.calls if source_trace else []
+    target_calls = target_trace.calls if target_trace else []
+    diffs: list[ToolDiff] = []
+
+    max_len = max(len(source_calls), len(target_calls))
+    for index in range(max_len):
+        src = source_calls[index] if index < len(source_calls) else None
+        tgt = target_calls[index] if index < len(target_calls) else None
+        if src is None and tgt is not None:
+            diffs.append(
+                ToolDiff(
+                    kind="extra_tool",
+                    tool_name=tgt.tool_name,
+                    message=f"Target added {tgt.tool_name} at position {index + 1}.",
+                    target_arguments=tgt.arguments,
+                ),
+            )
+            continue
+        if src is not None and tgt is None:
+            diffs.append(
+                ToolDiff(
+                    kind="missing_tool",
+                    tool_name=src.tool_name,
+                    message=f"Target omitted {src.tool_name} at position {index + 1}.",
+                    source_arguments=src.arguments,
+                ),
+            )
+            continue
+        if src is None or tgt is None:
+            continue
+        if src.tool_name != tgt.tool_name:
+            diffs.append(
+                ToolDiff(
+                    kind="tool_order_or_selection",
+                    tool_name=tgt.tool_name,
+                    message=(
+                        f"Position {index + 1}: source called {src.tool_name}, "
+                        f"target called {tgt.tool_name}."
+                    ),
+                    source_arguments=src.arguments,
+                    target_arguments=tgt.arguments,
+                ),
+            )
+        elif src.arguments != tgt.arguments:
+            diffs.append(
+                ToolDiff(
+                    kind="argument_drift",
+                    tool_name=src.tool_name,
+                    message=f"Arguments changed for {src.tool_name} at position {index + 1}.",
+                    source_arguments=src.arguments,
+                    target_arguments=tgt.arguments,
+                ),
+            )
+    return diffs
+
+
 def _build_economics(calls: list[Call]) -> PromptEconomics:
     return PromptEconomics(
         source=_role_economics([c for c in calls if c.role == "source"]),
@@ -458,6 +548,7 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
         "failed_calls": report.failed_calls,
         "total_cost_usd": report.total_cost_usd,
         "executive_summary": report.executive_summary,
+        "migration_decision": report.migration_decision,
         "prompt_sections": [
             {
                 "prompt_id": ps.prompt_id,
@@ -489,6 +580,16 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
                         "target_text": tr.target_text,
                         "source_trace": (tr.source_trace.model_dump() if tr.source_trace else None),
                         "target_trace": (tr.target_trace.model_dump() if tr.target_trace else None),
+                        "tool_diffs": [
+                            {
+                                "kind": d.kind,
+                                "tool_name": d.tool_name,
+                                "message": d.message,
+                                "source_arguments": d.source_arguments,
+                                "target_arguments": d.target_arguments,
+                            }
+                            for d in tr.tool_diffs
+                        ],
                     }
                     for tr in ps.top_regressions
                 ],
@@ -517,6 +618,7 @@ __all__ = [
     "REPORT_JSON_FILENAME",
     "PromptSection",
     "ReportData",
+    "ToolDiff",
     "TopRegression",
     "build_report_payload",
     "write_report_json",

@@ -18,6 +18,7 @@ from typing import Any
 
 from evalshift.config.models import ToolTraceStructureEvaluatorConfig
 from evalshift.evaluators.base import EvalRecord
+from evalshift.evaluators.failures import REFUSAL_REGRESSION, TOOL_TRACE_STRUCTURE_DRIFT
 from evalshift.evaluators.tool_models import ToolTrace
 from evalshift.suite.models import SuiteExample
 
@@ -86,6 +87,12 @@ class ToolTraceStructureEvaluator:
         }
         if "severity_floor" in details:
             meta["severity_floor"] = details["severity_floor"]
+        if target_score < 1.0:
+            meta["failure_categories"] = [
+                REFUSAL_REGRESSION
+                if sub_scores.get("refusal_alignment") == 0.0
+                else TOOL_TRACE_STRUCTURE_DRIFT,
+            ]
         return EvalRecord(
             run_id=run_id,
             prompt_id=prompt_id,

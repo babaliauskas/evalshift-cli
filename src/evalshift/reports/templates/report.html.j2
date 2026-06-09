@@ -22,6 +22,64 @@
   </table>
 </header>
 
+{% if migration_decision %}
+<section>
+<h2>Migration verdict</h2>
+<div class="verdict verdict-{{ migration_decision.verdict }}">
+  <div class="verdict-head">{{ migration_decision.verdict|replace("_", " ")|upper }}</div>
+  <div class="verdict-rates">
+    <span>Equivalent {{ "%.1f"|format(migration_decision.overall.equivalent_rate * 100) }}%</span>
+    <span>Improved {{ "%.1f"|format(migration_decision.overall.improved_rate * 100) }}%</span>
+    <span>Regressed {{ "%.1f"|format(migration_decision.overall.regression_rate * 100) }}%</span>
+  </div>
+</div>
+
+{% set failed_budgets = migration_decision.budget_results|rejectattr("passed")|list %}
+{% if failed_budgets %}
+<h3>Budget failures</h3>
+<table>
+  <thead><tr>
+    <th>Budget</th>
+    <th>Scope</th>
+    <th class="num">Observed</th>
+    <th class="num">Allowed</th>
+  </tr></thead>
+  <tbody>
+  {% for row in failed_budgets %}
+    <tr>
+      <td><code>{{ row.name }}</code></td>
+      <td>{{ row.scope }}</td>
+      <td class="num">{{ "%.3f"|format(row.observed) }}</td>
+      <td class="num">{{ "%.3f"|format(row.allowed) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if migration_decision.failure_categories %}
+<h3>Top regression causes</h3>
+<table>
+  <thead><tr><th>Cause</th><th class="num">Count</th></tr></thead>
+  <tbody>
+  {% for row in migration_decision.failure_categories %}
+    <tr><td><code>{{ row.category }}</code></td><td class="num">{{ row.count }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if migration_decision.recommendations %}
+<h3>Recommendation</h3>
+<ul>
+{% for rec in migration_decision.recommendations %}
+  <li>{{ rec }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+</section>
+{% endif %}
+
 <section>
 <h2>Executive summary</h2>
 {% if executive_summary %}
@@ -195,6 +253,13 @@
   </div>
   {% if tr.source_trace or tr.target_trace %}
   {# v0.2 — tool regression: render the trace diff in place of text. #}
+  {% if tr.tool_diffs %}
+  <ul class="tool-diffs">
+    {% for diff in tr.tool_diffs %}
+    <li><strong>{{ diff.kind|replace("_", " ") }}</strong>: {{ diff.message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   <div class="reg-grid">
     <div>
       <h4>Source trace</h4>

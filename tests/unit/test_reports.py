@@ -148,6 +148,51 @@ def _scaffold_full_run(tmp_path: Path) -> tuple[Path, str]:
     return tmp_path, run_id
 
 
+def _write_migration_decision(run_dir: Path, run_id: str, verdict: str = "fail") -> None:
+    decision = {
+        "run_id": run_id,
+        "source_model": "gemini/gemini-2.5-flash",
+        "target_model": "gemini/gemini-2.5-pro",
+        "verdict": verdict,
+        "overall": {
+            "n_records": 2,
+            "improved_rate": 0.0,
+            "equivalent_rate": 0.0,
+            "regression_rate": 1.0,
+            "critical_regressions": 1,
+            "tool_argument_drift_rate": 0.0,
+            "cost_increase_rate": 0.0,
+            "latency_increase_rate": 0.0,
+        },
+        "slices": {},
+        "budget_results": [
+            {
+                "name": "max_overall_regression_rate",
+                "observed": 1.0,
+                "allowed": 0.03,
+                "passed": False,
+                "scope": "overall",
+            },
+        ],
+        "blocking_regressions": [
+            {
+                "prompt_id": "greet",
+                "evaluator_name": "structural.length",
+                "slice_name": "all",
+                "severity": "critical",
+                "delta_avg_score": -0.75,
+                "effect_size": -1.2,
+            },
+        ],
+        "failure_categories": [{"category": "SEMANTIC_REGRESSION", "count": 2}],
+        "recommendations": ["Do not migrate globally under the configured policy."],
+    }
+    (run_dir / "migration_decision.json").write_text(
+        json.dumps(decision),
+        encoding="utf-8",
+    )
+
+
 # ---------------------------------------------------------------------------
 # build_report_payload
 # ---------------------------------------------------------------------------
@@ -166,6 +211,19 @@ class TestReportPayload:
         section = payload.prompt_sections[0]
         assert section.prompt_id == "greet"
         assert all(tr.delta < 0 for tr in section.top_regressions)
+
+    def test_attaches_migration_decision_when_present(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        _write_migration_decision(run_dir, run_id)
+
+        payload = build_report_payload(run_dir)
+
+        assert payload.migration_decision is not None
+        assert payload.migration_decision["verdict"] == "fail"
+        assert payload.migration_decision["failure_categories"][0]["category"] == (
+            "SEMANTIC_REGRESSION"
+        )
 
     def test_economics_aggregates_per_role(self, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)
@@ -330,6 +388,18 @@ class TestHtmlRender:
         assert "gemini/gemini-2.5-flash" in html
         # No external scripts.
         assert "<script" not in html.lower()
+
+    def test_renders_migration_verdict_when_present(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        _write_migration_decision(run_dir, run_id)
+        payload = build_report_payload(run_dir)
+
+        html = render_html(payload)
+
+        assert "Migration verdict" in html
+        assert "SEMANTIC_REGRESSION" in html
+        assert "Do not migrate globally" in html
 
     def test_writes_file(self, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)

@@ -22,6 +22,7 @@ from typing import Any
 
 from evalshift.config.models import ToolArgumentsEvaluatorConfig
 from evalshift.evaluators.base import EvalRecord, PairedScore
+from evalshift.evaluators.failures import ARGUMENT_VALUE_DRIFT
 from evalshift.evaluators.tool_models import ToolCall, ToolTrace
 from evalshift.suite.models import SuiteExample
 
@@ -65,7 +66,10 @@ class ToolArgumentsEvaluator:
                 source_score=1.0,
                 target_score=target_score,
                 delta=target_score - 1.0,
-                metadata={"reason": "no matched calls between source and target"},
+                metadata={
+                    "reason": "no matched calls between source and target",
+                    "failure_categories": [ARGUMENT_VALUE_DRIFT] if target_score < 1.0 else [],
+                },
             )
 
         per_call: list[float] = []
@@ -89,7 +93,10 @@ class ToolArgumentsEvaluator:
             source_score=paired.source_score,
             target_score=paired.target_score,
             delta=paired.delta,
-            metadata=paired.metadata,
+            metadata={
+                **paired.metadata,
+                "failure_categories": [ARGUMENT_VALUE_DRIFT] if paired.delta < 0 else [],
+            },
         )
 
     # ------------------------------------------------------------------

@@ -17,6 +17,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from evalshift.analysis.policy import MigrationDecision, evaluate_migration_policy
 from evalshift.analysis.slicing import (
     SliceAggregate,
     aggregates,
@@ -29,12 +30,14 @@ from evalshift.config.loader import ConfigError, load_config
 from evalshift.evaluators.base import EvalRecord
 from evalshift.runner.checkpoint import (
     CheckpointError,
+    iter_calls,
     read_state,
     run_dir_for,
 )
 from evalshift.suite.loader import SuiteError, load_jsonl
 
 ANALYSIS_FILENAME: str = "analysis.json"
+MIGRATION_DECISION_FILENAME: str = "migration_decision.json"
 
 GATE_SEVERITIES: frozenset[str] = frozenset({"critical", "high", "medium", "low"})
 
@@ -55,6 +58,7 @@ class AnalyzeResult:
     output_path: Path
     comparisons: tuple[ComparisonResult, ...]
     n_records: int
+    migration_decision: MigrationDecision | None = None
 
 
 def run_analyze(
@@ -111,13 +115,29 @@ def run_analyze(
     out_path = run_dir / ANALYSIS_FILENAME
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    _ = cfg  # kept for future config-driven slicing options.
+    migration_decision: MigrationDecision | None = None
+    if cfg.migration_policy is not None:
+        migration_decision = evaluate_migration_policy(
+            run_id=run_id,
+            source_model=state.models.source,
+            target_model=state.models.target,
+            policy=cfg.migration_policy,
+            comparisons=list(comparisons),
+            records=records,
+            calls=list(iter_calls(run_dir)),
+        )
+        decision_path = run_dir / MIGRATION_DECISION_FILENAME
+        decision_path.write_text(
+            json.dumps(migration_decision.to_dict(), indent=2),
+            encoding="utf-8",
+        )
 
     return AnalyzeResult(
         run_id=run_id,
         output_path=out_path,
         comparisons=tuple(comparisons),
         n_records=len(records),
+        migration_decision=migration_decision,
     )
 
 
@@ -156,6 +176,13 @@ def analyze_command(
             ),
         ),
     ] = "",
+    policy_gate: Annotated[
+        bool,
+        typer.Option(
+            "--policy-gate",
+            help="CI gate: fail when migration_policy verdict is fail or conditional_pass.",
+        ),
+    ] = False,
 ) -> None:
     """Run paired statistical tests over scored evaluations."""
     console = Console()
@@ -188,6 +215,23 @@ def analyze_command(
     comparisons = list(result.comparisons)
     _print_summary(console, comparisons, result.output_path, run_id)
     _write_step_summary(comparisons, result.output_path, run_id)
+
+    if result.migration_decision is not None:
+        console.print(
+            f"[bold]Migration verdict:[/bold] {result.migration_decision.verdict}",
+        )
+
+    if policy_gate:
+        if result.migration_decision is None:
+            console.print(
+                "[red]✗ policy gate failed:[/red] no migration_policy configured",
+            )
+            raise typer.Exit(code=1)
+        if result.migration_decision.verdict in {"fail", "conditional_pass"}:
+            console.print(
+                f"[red]✗ policy gate failed:[/red] {result.migration_decision.verdict}",
+            )
+            raise typer.Exit(code=1)
 
     if gate_severities:
         offending = [c for c in comparisons if c.severity in gate_severities]
@@ -326,6 +370,7 @@ def _write_step_summary(
 __all__ = [
     "ANALYSIS_FILENAME",
     "GATE_SEVERITIES",
+    "MIGRATION_DECISION_FILENAME",
     "AnalyzeResult",
     "EmptyScoresError",
     "MissingScoresError",

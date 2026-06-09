@@ -44,6 +44,15 @@ cd my-eval
 evalshift init
 ```
 
+You can also pick a migration profile and scenario pack:
+
+```bash
+evalshift init --profile cost-reduction --pack tool-calling-agent
+```
+
+Profiles scaffold a `migration_policy` block that powers the verdict in
+`analyze`, `all`, and `report`.
+
 This writes four files (a runnable customer-support agent project):
 
 | File              | Purpose                                               |
@@ -98,7 +107,7 @@ evalshift report <run-id> --open
 
 `evalshift all` accepts every flag the underlying commands do
 (`--from/--to`, `--config`, `--suite`, `--offline`, `--fixtures`,
-`--yes`, `--resume`, `--gate`, `--open`).
+`--yes`, `--resume`, `--gate`, `--policy-gate`, `--open`).
 
 ## 6. Optional: push to hosted EvalShift
 

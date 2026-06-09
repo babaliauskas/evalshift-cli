@@ -11,6 +11,7 @@ from jsonschema import Draft7Validator
 from jsonschema.exceptions import SchemaError
 
 from evalshift.evaluators.base import EvaluatorError, PairedScore
+from evalshift.evaluators.failures import FORMAT_FAILURE
 
 
 class JsonSchemaEvaluator:
@@ -43,9 +44,12 @@ class JsonSchemaEvaluator:
         source_output: str,
         target_output: str,
     ) -> PairedScore:
+        source_score = self._validate_one(source_output)
+        target_score = self._validate_one(target_output)
         return PairedScore(
-            source_score=self._validate_one(source_output),
-            target_score=self._validate_one(target_output),
+            source_score=source_score,
+            target_score=target_score,
+            metadata=_failure_metadata(source_score, target_score, FORMAT_FAILURE),
         )
 
     def _validate_one(self, output: str) -> float:
@@ -75,9 +79,12 @@ class RegexEvaluator:
         source_output: str,
         target_output: str,
     ) -> PairedScore:
+        source_score = 1.0 if self._pattern.search(source_output) else 0.0
+        target_score = 1.0 if self._pattern.search(target_output) else 0.0
         return PairedScore(
-            source_score=1.0 if self._pattern.search(source_output) else 0.0,
-            target_score=1.0 if self._pattern.search(target_output) else 0.0,
+            source_score=source_score,
+            target_score=target_score,
+            metadata=_failure_metadata(source_score, target_score, FORMAT_FAILURE),
         )
 
 
@@ -113,9 +120,12 @@ class LengthEvaluator:
         source_output: str,
         target_output: str,
     ) -> PairedScore:
+        source_score = self._score_length(len(source_output))
+        target_score = self._score_length(len(target_output))
         return PairedScore(
-            source_score=self._score_length(len(source_output)),
-            target_score=self._score_length(len(target_output)),
+            source_score=source_score,
+            target_score=target_score,
+            metadata=_failure_metadata(source_score, target_score, FORMAT_FAILURE),
         )
 
     def _score_length(self, n: int) -> float:
@@ -126,6 +136,12 @@ class LengthEvaluator:
             denom = max(self._max, 1)
             return max(0.0, 1.0 - (n - self._max) / denom)
         return 1.0
+
+
+def _failure_metadata(source_score: float, target_score: float, category: str) -> dict[str, Any]:
+    if target_score < source_score:
+        return {"failure_categories": [category]}
+    return {}
 
 
 __all__ = ["JsonSchemaEvaluator", "LengthEvaluator", "RegexEvaluator"]

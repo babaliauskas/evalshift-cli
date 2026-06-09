@@ -19,6 +19,7 @@ from typing import Any
 
 from evalshift.config.models import ToolSelectionEvaluatorConfig
 from evalshift.evaluators.base import EvalRecord, PairedScore
+from evalshift.evaluators.failures import TOOL_SELECTION_DRIFT
 from evalshift.evaluators.tool_models import ToolTrace
 from evalshift.suite.models import SuiteExample
 
@@ -248,6 +249,8 @@ class ToolSelectionEvaluator:
         meta: dict[str, Any] = dict(paired.metadata)
         if self.config.severity_floor:
             meta["severity_floor"] = self.config.severity_floor
+        if paired.target_score < paired.source_score:
+            meta["failure_categories"] = [TOOL_SELECTION_DRIFT]
         return EvalRecord(
             run_id=run_id,
             prompt_id=prompt_id,

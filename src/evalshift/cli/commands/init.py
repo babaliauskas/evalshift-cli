@@ -24,7 +24,7 @@ Files are never overwritten unless ``--force`` is passed.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 import typer
 from rich.console import Console
@@ -35,6 +35,70 @@ PROMPTS_FILENAME: Final = "prompts.py"
 SUITE_FILENAME: Final = "golden.jsonl"
 TOOLS_FILENAME: Final = "tools.yaml"
 CI_WORKFLOW_PATH: Final = ".github/workflows/evalshift.yml"
+
+MigrationProfile = Literal[
+    "model-upgrade",
+    "cost-reduction",
+    "local-model",
+    "quantization",
+    "provider-switch",
+]
+ScenarioPack = Literal[
+    "tool-calling-agent",
+    "coding-agent",
+    "devops-agent",
+    "rag-qa",
+    "json-extraction",
+    "customer-support-agent",
+]
+
+_PROFILE_POLICIES: Final[dict[str, str]] = {
+    "model-upgrade": """\
+migration_policy:
+  max_overall_regression_rate: 0.03
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.95
+  max_tool_argument_drift: 0.01
+  max_cost_increase: 0.20
+  max_latency_increase: 0.30
+""",
+    "cost-reduction": """\
+migration_policy:
+  max_overall_regression_rate: 0.02
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.97
+  max_tool_argument_drift: 0.01
+  max_cost_increase: 0.05
+  max_latency_increase: 0.30
+""",
+    "local-model": """\
+migration_policy:
+  max_overall_regression_rate: 0.05
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.90
+  max_tool_argument_drift: 0.02
+  max_cost_increase: 0.00
+  max_latency_increase: 0.50
+""",
+    "quantization": """\
+migration_policy:
+  max_overall_regression_rate: 0.02
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.97
+  max_tool_argument_drift: 0.005
+  max_cost_increase: 0.00
+  max_latency_increase: 0.20
+""",
+    "provider-switch": """\
+migration_policy:
+  max_overall_regression_rate: 0.03
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.95
+  max_tool_argument_drift: 0.01
+  max_cost_increase: 0.20
+  max_latency_increase: 0.40
+""",
+}
 
 
 _EVALSHIFT_YAML_TEMPLATE: Final = """\
@@ -338,13 +402,27 @@ def init(
             ),
         ),
     ] = False,
+    profile: Annotated[
+        MigrationProfile,
+        typer.Option(
+            "--profile",
+            help="Migration profile used to scaffold default regression budgets.",
+        ),
+    ] = "model-upgrade",
+    pack: Annotated[
+        ScenarioPack,
+        typer.Option(
+            "--pack",
+            help="Scenario pack to scaffold. Phase 1 packs share the agent scaffold.",
+        ),
+    ] = "customer-support-agent",
 ) -> None:
     """Scaffold ``evalshift.yaml`` + agent prompt + tools + golden suite."""
     target = directory.resolve()
     target.mkdir(parents=True, exist_ok=True)
 
     files: dict[str, str] = {
-        CONFIG_FILENAME: _EVALSHIFT_YAML_TEMPLATE,
+        CONFIG_FILENAME: _render_config_template(profile=profile, pack=pack),
         PROMPTS_FILENAME: _PROMPTS_PY_TEMPLATE,
         TOOLS_FILENAME: _TOOLS_YAML_TEMPLATE,
         SUITE_FILENAME: _GOLDEN_JSONL_TEMPLATE,
@@ -390,6 +468,12 @@ def init(
             "[bold]GEMINI_API_KEY[/bold] (or your provider's key) and "
             "[bold]EVALSHIFT_TOKEN[/bold] as repo secrets.",
         )
+
+
+def _render_config_template(*, profile: str, pack: str) -> str:
+    header = f"# migration_profile: {profile}\n# scenario_pack: {pack}\n"
+    policy = _PROFILE_POLICIES[profile]
+    return header + _EVALSHIFT_YAML_TEMPLATE.rstrip() + "\n\n" + policy
 
 
 __all__ = [
