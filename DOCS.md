@@ -12,7 +12,7 @@ hosted (opt-in)  run history, diffs, PR gates
 
 The suite is the crux, so the capture SDK is the recommended way to build one: it records real production runs to disk and `evalshift capture sync` promotes them into golden suites. Hand-written suites are fully supported — see [The golden suite](#the-golden-suite).
 
-- **Package name:** `evalshift` · **CLI entry point:** `evalshift` · **version:** 0.13.0
+- **Package name:** `evalshift` · **CLI entry point:** `evalshift` · **version:** 0.13.1
 - **Python:** >= 3.11 · **License:** AGPL-3.0-or-later · **Status:** alpha
 - **Local-first.** Runs, scores, stats, and reports all happen on your machine under `.evalshift/`. The only network calls are the model API calls you asked for — and, if you opt in, pushes to the hosted service.
 - **Four pieces:** CLI (this doc), SDK, GitHub Action, hosted server — each with its own machine-readable reference for AI tools. See [Ecosystem and AI-tool references](#ecosystem-and-ai-tool-references).
@@ -741,35 +741,15 @@ Exit code is 1 and nothing is uploaded. The CLI never decides entitlements itsel
 
 ## GitHub Action
 
-`evalshift init --ci` scaffolds `.github/workflows/evalshift.yml`:
+`evalshift init --ci` scaffolds `.github/workflows/evalshift.yml` — a production-shaped, self-documenting workflow (the setup checklist lives in its header comment) with three jobs:
 
-```yaml
-name: evalshift
-on:
-  pull_request:
-  push:
-    branches: [main]
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
-jobs:
-  evalshift:
-    runs-on: ubuntu-latest
-    env:
-      EVALSHIFT_NONINTERACTIVE: "1"
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: EvalShift hosted regression check
-        uses: babaliauskas/evalshift-action@v0
-        with:
-          token: ${{ secrets.EVALSHIFT_TOKEN }}
-          fail-on: regression
-```
+- `discover` lists committed suites under `.evalshift/suites/*/golden.jsonl` — a suite added by `capture sync` is evaluated on the next run with no workflow edit, and a project with no suites yet skips green. Suites must be committed for CI to see them: keep `.evalshift/*` ignored but un-ignore `.evalshift/suites/` and `.evalshift/toolsets/`.
+- `eval <suite>` is a matrix job per suite (the action evaluates one suite per invocation) with `fail-on: policy` and `evalshift-version` pinned to the scaffolding CLI. `max-parallel` defaults to 1; raise it toward the hosted plan's in-flight ceiling (Free 1, Pro 5, Team 10). Only the first matrix job posts the PR comment — the comment marker is a constant, so multiple suites would overwrite one another.
+- `evalshift gate` is the single check to require in branch protection: it fails if any suite failed and passes when evaluation was skipped (fork PR, no suites, or `EVALSHIFT_TOKEN` not yet set). Don't require the per-suite jobs (dynamic names) or the `evalshift/regression` commit status (last writer wins across suites).
 
-The action runs the pipeline, pushes the candidate run, finds the latest compatible base-branch run, fetches the hosted diff, maintains a single marked PR comment, and sets the `evalshift/regression` commit status. Inputs: `token` (required), `host`, `config` (default `evalshift.yaml`), `suite` (default `golden.jsonl`), `fail-on` (`never` | `regression` (default) | `any-slice-regression`), `create-project` (default `true`), `comment` (default `true`). With no baseline yet, the comment notes the push and gating passes.
+Runs on pushes to main create the base-branch baselines PRs diff against, so the workflow cancels superseded runs on PRs only, never on main.
+
+The action runs the pipeline, pushes the candidate run, finds the latest compatible base-branch run, fetches the hosted diff, maintains a single marked PR comment, and sets the `evalshift/regression` commit status. Inputs: `token` (required), `host`, `config` (default `evalshift.yaml`), `suite` (default `golden.jsonl`), `fail-on` (`policy` (default — hosted migration-policy verdict, falling back to regression gating when unreachable) | `never` | `regression` | `any-slice-regression`), `evalshift-version` (exact CLI version from PyPI), `create-project` (default `true`), `comment` (default `true`). With no baseline yet, the comment notes the push and gating passes.
 
 Secrets needed: a provider API key matching your config's models, and `EVALSHIFT_TOKEN` — a service account key from Settings → API tokens → Service accounts, scoped to `run:create` + `run:read`, stored as an encrypted repository or environment secret. Not a personal token, never a literal in the workflow YAML, and never reachable from `pull_request_target`. Rotate by minting the successor first (24h grace), updating the secret, confirming a green run, then letting the old key expire. Two things a scoped key can't do, by design: auto-create the project (`project:create` is owner-only — pre-create it and set `create-project: false`) and rewrite gating thresholds (`policy:configure` is owner-only — keep `thresholds:` out of the config the CI job runs). Full guidance: the action's [README](https://github.com/babaliauskas/evalshift-action#readme).
 

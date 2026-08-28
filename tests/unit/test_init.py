@@ -12,8 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
+import evalshift
 from evalshift.cli.commands._agents import (
     AGENT_INSTRUCTIONS_FILENAME,
     DEFAULT_AGENT_CONTEXT_FILE,
@@ -276,22 +278,89 @@ class TestInitConflicts:
 
 
 class TestInitCI:
-    """``--ci`` drops a GitHub Actions workflow that wires the gate."""
+    """``--ci`` drops a production-shaped GitHub Actions workflow.
+
+    The invariants: the file is valid YAML; suites are discovered dynamically
+    (so ``capture sync`` adding one needs no workflow edit) and an empty
+    project stays green; a single join job exists for branch protection
+    (per-suite matrix job names are dynamic and the ``evalshift/regression``
+    commit status is last-write-wins across suites); the CLI version in CI is
+    pinned to the CLI that scaffolded the config (``extra="forbid"`` config
+    from a newer scaffold fails loudly on an older CLI); and the provider key
+    matches ``--provider``.
+    """
+
+    def _workflow(self, in_tmp: Path, *args: str) -> tuple[str, dict[str, object]]:
+        result = runner.invoke(app, ["init", "--ci", *args])
+        assert result.exit_code == 0, result.stdout
+        body = (in_tmp / CI_WORKFLOW_PATH).read_text(encoding="utf-8")
+        return body, yaml.safe_load(body)
 
     def test_no_ci_flag_skips_workflow(self, in_tmp: Path) -> None:
         runner.invoke(app, ["init"])
         assert not (in_tmp / CI_WORKFLOW_PATH).exists()
 
-    def test_ci_flag_writes_workflow(self, in_tmp: Path) -> None:
-        result = runner.invoke(app, ["init", "--ci"])
-        assert result.exit_code == 0, result.stdout
-        wf = in_tmp / CI_WORKFLOW_PATH
-        assert wf.is_file()
-        body = wf.read_text(encoding="utf-8")
-        assert "EVALSHIFT_NONINTERACTIVE" in body
+    def test_ci_flag_writes_valid_workflow(self, in_tmp: Path) -> None:
+        body, wf = self._workflow(in_tmp)
         assert "babaliauskas/evalshift-action@v0" in body
         assert "EVALSHIFT_TOKEN" in body
-        assert "fail-on: regression" in body
+        assert "EVALSHIFT_NONINTERACTIVE" in body
+        jobs = wf["jobs"]
+        assert isinstance(jobs, dict)
+        assert set(jobs) == {"discover", "evalshift", "gate"}
+
+    def test_gate_job_joins_the_dynamic_matrix(self, in_tmp: Path) -> None:
+        _, wf = self._workflow(in_tmp)
+        jobs = wf["jobs"]
+        assert isinstance(jobs, dict)
+        gate = jobs["gate"]
+        assert gate["needs"] == ["discover", "evalshift"]
+        # Must run even when the matrix is skipped/failed, else branch
+        # protection sees "expected" forever on fork PRs and empty projects.
+        assert "always()" in gate["if"]
+
+    def test_empty_suite_dir_is_skipped_not_failed(self, in_tmp: Path) -> None:
+        # A fresh `init --ci` project has no suites until the first
+        # `capture sync`; an unguarded glob would matrix over the literal
+        # pattern and fail every CI run until then.
+        body, wf = self._workflow(in_tmp)
+        assert "shopt -s nullglob" in body
+        jobs = wf["jobs"]
+        assert isinstance(jobs, dict)
+        assert "!= '[]'" in jobs["evalshift"]["if"]
+
+    def test_gates_on_hosted_policy_verdict(self, in_tmp: Path) -> None:
+        # `policy` re-scores against the migration_policy block init itself
+        # writes into evalshift.yaml — the two scaffolds gate on one contract.
+        body, _ = self._workflow(in_tmp)
+        assert "fail-on: policy" in body
+        assert "fail-on: regression" not in body
+
+    def test_pins_the_scaffolding_cli_version(self, in_tmp: Path) -> None:
+        body, _ = self._workflow(in_tmp)
+        assert f'evalshift-version: "{evalshift.__version__}"' in body
+
+    def test_provider_key_matches_provider(self, in_tmp: Path) -> None:
+        body, _ = self._workflow(in_tmp, "--provider", "anthropic")
+        assert "ANTHROPIC_API_KEY" in body
+        assert "GEMINI_API_KEY" not in body
+
+    def test_main_baseline_runs_are_never_cancelled(self, in_tmp: Path) -> None:
+        # Push runs on main produce the base-branch baselines PRs diff
+        # against; cancel-in-progress must be scoped to pull requests.
+        _, wf = self._workflow(in_tmp)
+        concurrency = wf["concurrency"]
+        assert isinstance(concurrency, dict)
+        assert "pull_request" in str(concurrency["cancel-in-progress"])
+
+    def test_documents_the_setup_it_needs(self, in_tmp: Path) -> None:
+        # The file is the documentation: committing suites past the
+        # `.evalshift/` ignore, the required check, and the secrets must all
+        # be explained in place, not in a repo the user has to go find.
+        body, _ = self._workflow(in_tmp)
+        assert "!.evalshift/suites/" in body
+        assert "evalshift gate" in body
+        assert "capture sync" in body
 
 
 class TestInitDirectoryFlag:

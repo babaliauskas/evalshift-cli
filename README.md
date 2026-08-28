@@ -222,26 +222,24 @@ The short version:
 
 ## GitHub Action
 
-`evalshift init --ci` scaffolds a workflow that runs EvalShift on pull
-requests, pushes the run to hosted EvalShift, compares against the latest
-compatible base-branch run, posts or updates one PR comment, and sets the
-`evalshift/regression` commit status.
-
-Required setup:
+`evalshift init --ci` scaffolds a production-shaped workflow: it discovers
+every committed suite under `.evalshift/suites/`, evaluates each on every
+pull request via [`babaliauskas/evalshift-action@v0`](https://github.com/babaliauskas/evalshift-action)
+(one matrix job per suite), pushes the runs to hosted EvalShift, compares
+against the latest compatible base-branch run, posts one PR comment, and
+gates merges on your `migration_policy` through a single required
+`evalshift gate` check. The full setup checklist — secrets, committing
+suites, branch protection — is documented in the generated file itself.
 
 ```bash
 evalshift init --ci
 ```
 
 Then add repository secrets for `EVALSHIFT_TOKEN` and the provider keys your
-models use. The generated workflow uses:
+models use; until they exist the workflow no-ops green with a notice.
 
-```yaml
-uses: babaliauskas/evalshift-action@v0
-```
-
-See [`docs/github-action.md`](docs/github-action.md) for workflow permissions,
-`fail-on` modes, and baseline behavior.
+See [`docs/github-action.md`](docs/github-action.md) for the workflow's
+shape, `fail-on` modes, and baseline behavior.
 
 ## Agent migrations
 

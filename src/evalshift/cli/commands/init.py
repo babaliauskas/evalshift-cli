@@ -24,15 +24,17 @@ import typer
 from rich.console import Console
 from rich.prompt import Prompt
 
+from evalshift import __version__
 from evalshift.cli.commands._agents import (
     AGENT_INSTRUCTIONS_FILENAME,
     wire_agent_instructions,
 )
 from evalshift.cli.commands._scaffold import (
     CI_WORKFLOW_PATH,
-    CI_WORKFLOW_TEMPLATE,
     INIT_PROFILE_POLICIES,
+    PROVIDER_API_KEY_ENVS,
     ProfileOption,
+    render_ci_workflow,
     write_scaffold_files,
 )
 from evalshift.cli.commands._suites import render_suites_region
@@ -209,8 +211,11 @@ def init(
             "--ci",
             help=(
                 f"Also scaffold {CI_WORKFLOW_PATH} — a GitHub Actions "
-                "workflow that runs evalshift on every PR, pushes to hosted "
-                "EvalShift, and gates merges on hosted diff regressions."
+                "workflow that discovers every committed suite, evaluates "
+                "each on every PR, pushes the runs to hosted EvalShift, and "
+                "gates merges on the migration policy via a single "
+                "'evalshift gate' check. Setup steps are documented in the "
+                "file itself."
             ),
         ),
     ] = False,
@@ -268,7 +273,7 @@ def init(
         CONFIG_FILENAME: render_minimal_config(profile=profile, provider=provider),
     }
     if ci:
-        files[CI_WORKFLOW_PATH] = CI_WORKFLOW_TEMPLATE
+        files[CI_WORKFLOW_PATH] = render_ci_workflow(provider=provider, version=__version__)
 
     write_scaffold_files(target=target, files=files, force=force, console=console)
 
@@ -298,9 +303,11 @@ def init(
     if ci:
         console.print()
         console.print(
-            f"  CI: commit [cyan]{CI_WORKFLOW_PATH}[/cyan] and add a "
-            "[bold]GEMINI_API_KEY[/bold] (or your provider's key) and "
-            "[bold]EVALSHIFT_TOKEN[/bold] as repo secrets.",
+            f"  CI: commit [cyan]{CI_WORKFLOW_PATH}[/cyan], add "
+            f"[bold]{PROVIDER_API_KEY_ENVS[provider]}[/bold] and "
+            "[bold]EVALSHIFT_TOKEN[/bold] as repo secrets, and require the "
+            "[bold]evalshift gate[/bold] check in branch protection — the "
+            "full checklist is documented at the top of the workflow file.",
         )
 
 

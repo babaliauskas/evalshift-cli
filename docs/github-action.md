@@ -12,36 +12,49 @@ From a new EvalShift project:
 evalshift init --ci      # capture-first project
 ```
 
-This writes `.github/workflows/evalshift.yml` with:
+This writes `.github/workflows/evalshift.yml` — a production-shaped,
+self-documenting workflow (its header comment carries the full setup
+checklist) with three jobs:
 
-```yaml
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
+- **`discover`** — lists every committed suite under
+  `.evalshift/suites/*/golden.jsonl`. A suite added by `evalshift capture
+  sync` is evaluated on the next run with no workflow edit; a project with no
+  suites yet skips green with a notice instead of failing.
+- **`eval <suite>`** — a matrix job per discovered suite (the action
+  evaluates one suite per invocation). Runs `fail-on: policy`, so the verdict
+  is the hosted re-score against the `migration_policy` block in
+  `evalshift.yaml`. `evalshift-version` is pinned to the CLI that scaffolded
+  the project so CI and local runs agree. `max-parallel` defaults to 1 —
+  raise it toward your hosted plan's in-flight-run ceiling (Free 1, Pro 5,
+  Team 10). The PR comment is posted by the first matrix job only: the
+  comment marker is a constant, so multiple suites would overwrite one
+  another's summary.
+- **`evalshift gate`** — the join job to require in branch protection. It
+  fails if any suite failed and passes when evaluation was skipped (fork PR
+  — no secret access, no suites committed, or `EVALSHIFT_TOKEN` not set
+  yet). Require this check, not the per-suite jobs (dynamic names) and not
+  the `evalshift/regression` commit status (with several suites the last
+  writer wins that status).
 
-jobs:
-  evalshift:
-    runs-on: ubuntu-latest
-    env:
-      EVALSHIFT_NONINTERACTIVE: "1"
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
+The workflow keys off `${{ secrets.<PROVIDER>_API_KEY }}` for the provider
+chosen at `init` time; add further keys under the eval job's `env:` if your
+judge or embedding models live in another family. Suites must be committed
+for CI to see them — keep runtime data ignored and un-ignore just the suites:
 
-      - name: EvalShift hosted regression check
-        uses: babaliauskas/evalshift-action@v0
-        with:
-          token: ${{ secrets.EVALSHIFT_TOKEN }}
-          fail-on: regression
+```gitignore
+.evalshift/*
+!.evalshift/suites/
+!.evalshift/toolsets/
 ```
 
-Adjust provider secrets to match the models in your config.
+Runs on pushes to the main branch create the base-branch baselines pull
+requests diff against; the workflow's `concurrency` block therefore cancels
+superseded runs on PRs only, never on main.
 
 The scaffold refuses to overwrite existing files. If you already have
-an `evalshift.yaml`, copy the workflow shape below into
-`.github/workflows/evalshift.yml` instead of overwriting your project.
+an `evalshift.yaml`, run `evalshift init --ci --directory` somewhere scratch
+and copy `.github/workflows/evalshift.yml` across instead of overwriting
+your project.
 
 ## Required secrets
 
@@ -95,6 +108,7 @@ but there is no baseline yet. Gating passes in that case.
 
 | Mode | Behavior |
 | --- | --- |
+| `policy` (default) | Ask hosted EvalShift for the migration-policy verdict — the run re-scored against the `migration_policy` limits in `evalshift.yaml`. `fail` fails; `pass`/`conditional_pass` pass. If the policy check is unreachable, falls back to `regression` gating and says so. |
 | `never` | Do not fail the workflow for hosted regressions. |
 | `regression` | Fail when the hosted diff reports one or more regressed examples. |
 | `any-slice-regression` | Fail when any slice pass rate moves down. |
@@ -111,8 +125,9 @@ Common inputs:
 | `token` | required | Hosted EvalShift API token. |
 | `host` | hosted default | Hosted API base URL. |
 | `config` | `evalshift.yaml` | Config path. |
-| `suite` | `golden.jsonl` | Suite path. |
-| `fail-on` | `regression` | Hosted regression gate mode. |
+| `suite` | `golden.jsonl` | Suite path (one suite per invocation). |
+| `fail-on` | `policy` | Gate mode — see the table above. |
+| `evalshift-version` | pinned by the action | Exact CLI version installed from PyPI. The scaffold pins this to the CLI that generated the project. |
 | `create-project` | `true` | Allow project auto-create when permissions allow it. |
 | `comment` | `true` | Post or update the PR comment on pull requests. |
 

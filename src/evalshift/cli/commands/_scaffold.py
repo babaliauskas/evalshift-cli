@@ -106,44 +106,202 @@ migration_policy:
 }
 
 
+# Env var each provider's key must arrive under — litellm reads them by name.
+PROVIDER_API_KEY_ENVS: Final[dict[str, str]] = {
+    "gemini": "GEMINI_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
+
+# The `__PROVIDER_API_KEY__` / `__EVALSHIFT_VERSION__` sentinels are replaced
+# by ``render_ci_workflow`` — plain ``str.format`` would fight the workflow's
+# own ``${{ }}`` expressions and ``string.Template`` its shell ``$vars``.
 CI_WORKFLOW_TEMPLATE: Final = """\
-# Run EvalShift on every pull request, push runs to hosted EvalShift, and
-# update the PR with a hosted regression summary.
+# EvalShift eval-regression gate — scaffolded by `evalshift init --ci`.
 #
-# Prerequisites:
-#   - A provider API key stored as a repo secret (the example below uses
-#     GEMINI_API_KEY; swap or add ANTHROPIC_API_KEY / OPENAI_API_KEY to
-#     match the models in your evalshift.yaml).
-#   - EVALSHIFT_TOKEN stored as a repo secret. Create it from the hosted
-#     app's org settings with project or org scope.
+# On every PR (and push to main) this replays each captured suite against the
+# source/target models in evalshift.yaml, pushes the run to hosted EvalShift
+# (https://www.evalshift.dev), and posts a PR comment + commit status with any
+# regression against the base-branch baseline. Push runs on main are what
+# create those baselines, so keep the `push:` trigger.
+#
+# Setup checklist — everything this file needs, in one place:
+#
+#   1. Repo secrets (Settings -> Secrets and variables -> Actions):
+#        EVALSHIFT_TOKEN       hosted EvalShift service-account key (es_...).
+#                              Mint it in the web app (org Settings -> API
+#                              tokens -> Service accounts) scoped to
+#                              run:create + run:read. Not a personal token.
+#        __PROVIDER_API_KEY__      key for the provider your evalshift.yaml models
+#                              use. Add further keys here (and under `env:`
+#                              below) if your judge/embedding models live in
+#                              another family.
+#      Until EVALSHIFT_TOKEN is set, runs no-op green with a notice — this
+#      workflow never fails just because setup isn't finished.
+#
+#   2. Commit your suites. `evalshift capture sync` writes them under
+#      `.evalshift/suites/<name>/golden.jsonl`, but `.evalshift/` is usually
+#      gitignored wholesale. Keep the runtime data ignored and un-ignore just
+#      the suites (+ their toolset sidecars) in .gitignore:
+#          .evalshift/*
+#          !.evalshift/suites/
+#          !.evalshift/toolsets/
+#      With no suites committed, this workflow skips (green) with a notice.
+#
+#   3. Branch protection: require the single check "evalshift gate" (the join
+#      job below) — NOT the per-suite jobs (their names are dynamic) and NOT
+#      the `evalshift/regression` commit status (with several suites, every
+#      suite writes that same status, so the last one to finish overwrites the
+#      rest; the gate job is the only surface that sees every suite).
+#
+# How suites get evaluated: the action evaluates ONE suite per invocation, so
+# the `discover` job lists `.evalshift/suites/*/golden.jsonl` and fans out a
+# matrix job per suite. A suite added by `capture sync` is picked up on the
+# next run — no workflow edit.
+#
+# How the verdict is decided: `fail-on: policy` asks hosted EvalShift to
+# re-score the run against the `migration_policy` limits in evalshift.yaml —
+# the same budgets `init` scaffolded. Other modes: `regression` (fail on any
+# regressed example), `any-slice-regression`, `never`. If the policy check is
+# unreachable the action falls back to plain regression gating and says so.
+
 name: evalshift
 
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main]
 
 permissions:
-  contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
+  contents: read # actions/checkout
+  pull-requests: write # PR comment
+  issues: write # comment upsert uses the issues API
+  statuses: write # evalshift/regression commit status
+
+# Supersede in-flight runs when a PR gets a new push — but never cancel runs
+# on main: those produce the base-branch baselines every future PR diffs
+# against, and two quick merges would otherwise eat the first baseline.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  evalshift:
+  discover:
+    name: discover suites
     runs-on: ubuntu-latest
-    env:
-      EVALSHIFT_NONINTERACTIVE: "1"
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    outputs:
+      suites: ${{ steps.list.outputs.suites }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - name: List suites under .evalshift/suites
+        id: list
+        # nullglob: with no suites yet (fresh project, suites not committed)
+        # the glob must yield an empty list — not the literal pattern, which
+        # would matrix a job over a suite named "*" and fail every run.
+        run: |
+          shopt -s nullglob
+          names=()
+          for f in .evalshift/suites/*/golden.jsonl; do
+            names+=("$(basename "$(dirname "$f")")")
+          done
+          if [ "${#names[@]}" -eq 0 ]; then
+            echo "::notice::No suites under .evalshift/suites/ — run 'evalshift capture sync' and commit the suites (see the checklist at the top of this workflow)."
+            suites='[]'
+          else
+            suites=$(printf '%s\\n' "${names[@]}" | jq -R . | jq -sc .)
+          fi
+          echo "Discovered suites: $suites"
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
 
-      - name: EvalShift hosted regression check
+  evalshift:
+    name: eval ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    needs: discover
+    # Skip when there is nothing to evaluate, and on PRs from forks (fork PRs
+    # cannot read repo secrets). Both skips turn green via the gate job.
+    if: ${{ needs.discover.outputs.suites != '[]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    strategy:
+      # One suite regressing must not cancel the others' results.
+      fail-fast: false
+      # Hosted EvalShift refuses uploads past your org plan's in-flight run
+      # ceiling (Free 1, Pro 5, Team 10). Raise this toward your plan's limit
+      # to evaluate suites in parallel.
+      max-parallel: 1
+      matrix:
+        suite: ${{ fromJSON(needs.discover.outputs.suites) }}
+    env:
+      HAS_EVALSHIFT_TOKEN: ${{ secrets.EVALSHIFT_TOKEN != '' }}
+      EVALSHIFT_NONINTERACTIVE: "1"
+      __PROVIDER_API_KEY__: ${{ secrets.__PROVIDER_API_KEY__ }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Note missing EVALSHIFT_TOKEN secret
+        if: ${{ env.HAS_EVALSHIFT_TOKEN != 'true' }}
+        run: |
+          echo "::notice::EVALSHIFT_TOKEN not set — add it under Settings -> Secrets -> Actions to enable the hosted regression gate."
+
+      - name: Run evalshift on ${{ matrix.suite }}
+        if: ${{ env.HAS_EVALSHIFT_TOKEN == 'true' }}
         uses: babaliauskas/evalshift-action@v0
         with:
           token: ${{ secrets.EVALSHIFT_TOKEN }}
-          fail-on: regression
+          config: evalshift.yaml
+          suite: .evalshift/suites/${{ matrix.suite }}/golden.jsonl
+          # Pin CI to the CLI version that scaffolded this project; the
+          # action's own default can lag, and evalshift.yaml from a newer CLI
+          # fails loudly on an older one. Bump when you upgrade locally.
+          evalshift-version: "__EVALSHIFT_VERSION__"
+          fail-on: policy
+          # The PR comment's marker is one constant, so with several suites
+          # every job would overwrite one comment with just its own summary —
+          # let only the first matrix job comment. The full per-suite verdict
+          # is this workflow's job list; the merge gate is the gate job.
+          comment: ${{ strategy.job-index == 0 }}
+
+  # The one check to require in branch protection. Collapses the dynamic
+  # matrix into a single stable-named verdict: fails if any suite failed,
+  # passes when evaluation was skipped (fork PR, no suites, no token yet).
+  gate:
+    name: evalshift gate
+    runs-on: ubuntu-latest
+    needs: [discover, evalshift]
+    if: ${{ always() }}
+    steps:
+      - name: Collapse suite results into one verdict
+        env:
+          DISCOVER_RESULT: ${{ needs.discover.result }}
+          EVAL_RESULT: ${{ needs.evalshift.result }}
+        run: |
+          echo "discover: $DISCOVER_RESULT, evalshift: $EVAL_RESULT"
+          if [ "$DISCOVER_RESULT" != "success" ]; then
+            echo "::error::suite discovery failed"
+            exit 1
+          fi
+          case "$EVAL_RESULT" in
+            success) echo "all suites passed the gate" ;;
+            skipped) echo "::notice::evaluation skipped (fork PR, or no suites committed yet) — gate passes" ;;
+            *)
+              echo "::error::one or more suites failed the eval gate — see the eval jobs above"
+              exit 1
+              ;;
+          esac
 """
+
+
+def render_ci_workflow(*, provider: str, version: str) -> str:
+    """Render the ``--ci`` GitHub Actions workflow for a provider.
+
+    Args:
+        provider: Key of :data:`PROVIDER_API_KEY_ENVS`; selects the provider
+            API key the workflow wires through as a secret.
+        version: CLI version to pin via the action's ``evalshift-version``
+            input, normally :data:`evalshift.__version__`.
+    """
+    return CI_WORKFLOW_TEMPLATE.replace(
+        "__PROVIDER_API_KEY__", PROVIDER_API_KEY_ENVS[provider]
+    ).replace("__EVALSHIFT_VERSION__", version)
 
 
 def write_scaffold_files(

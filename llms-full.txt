@@ -1,7 +1,7 @@
 # evalshift (CLI) — complete reference for AI tools
 
 Canonical hosted copy: https://www.evalshift.dev/cli-llms-full.txt
-Package: evalshift (PyPI) | CLI entry point: evalshift | version: 0.13.0
+Package: evalshift (PyPI) | CLI entry point: evalshift | version: 0.13.1
 Python: >=3.11 | license: AGPL-3.0-or-later | status: alpha
 Install: pip install evalshift   (or: uv pip install evalshift)
 
@@ -952,20 +952,38 @@ evalshift all --suite-name <suite> --to gemini-3.1-pro-preview --gate critical,h
 # (name/description/parameters) shapes are all accepted; `[]` is a real, valid "no tools
 # offered" value.
 
-# CI workflow (what init --ci scaffolds, core)
+# CI workflow (what init --ci scaffolds, shape)
+# Three jobs; the generated file's header comment carries the full setup checklist.
+#   discover -> lists committed suites (.evalshift/suites/*/golden.jsonl); nullglob-safe, a
+#     project with no suites yet skips green. Suites must be COMMITTED: keep `.evalshift/*`
+#     ignored, un-ignore `!.evalshift/suites/` and `!.evalshift/toolsets/`.
+#   eval <suite> -> matrix job per suite (action evaluates ONE suite per invocation);
+#     fail-on: policy; evalshift-version pinned to the scaffolding CLI (extra="forbid" config
+#     from a newer CLI fails loudly on an older one); max-parallel: 1 by default — raise
+#     toward the hosted plan's in-flight ceiling (Free 1, Pro 5, Team 10); PR comment only
+#     from the first matrix job (constant comment marker, multiple suites would overwrite);
+#     provider key env matches init's --provider; skips on fork PRs (no secret access) and
+#     no-ops green with a notice while EVALSHIFT_TOKEN is unset.
+#   evalshift gate -> the ONE check to require in branch protection: fails if any suite
+#     failed, passes when evaluation was skipped. Never require the per-suite jobs (dynamic
+#     names) or the `evalshift/regression` commit status (last writer wins across suites).
+# concurrency cancels superseded runs on PRs only — push runs on main create the base-branch
+# baselines PRs diff against and are never cancelled.
 permissions: {contents: read, pull-requests: write, issues: write, statuses: write}
-env: {EVALSHIFT_NONINTERACTIVE: "1", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"}
-steps:
-  - uses: actions/checkout@v4
-  - uses: babaliauskas/evalshift-action@v0
-    with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", fail-on: regression}
+env: {EVALSHIFT_NONINTERACTIVE: "1", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"}  # key matches --provider
+uses: babaliauskas/evalshift-action@v0
+with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", config: evalshift.yaml,
+       suite: ".evalshift/suites/<name>/golden.jsonl", evalshift-version: "<pinned>",
+       fail-on: policy}
 # EVALSHIFT_TOKEN must be an encrypted GitHub secret (repository or, preferably, environment)
 # holding a scoped service account key -- never a personal token, never a literal in YAML,
 # never reachable from pull_request_target. A scoped key cannot auto-create the project
 # (project:create is owner-only -> pre-create it, set create-project: false) and cannot rewrite
 # gating thresholds (policy:configure is owner-only -> keep `thresholds:` out of the CI config).
 # Action inputs: token (required), host, config=evalshift.yaml, suite=golden.jsonl,
-# fail-on=never|regression(default)|any-slice-regression, create-project=true, comment=true.
+# fail-on=policy(default: hosted migration-policy verdict, falls back to regression gating when
+# unreachable)|never|regression|any-slice-regression, evalshift-version, create-project=true,
+# comment=true.
 # Behavior: pushes candidate run, finds latest compatible base-branch run, fetches hosted diff,
 # maintains one marked PR comment, sets `evalshift/regression` commit status.
 
