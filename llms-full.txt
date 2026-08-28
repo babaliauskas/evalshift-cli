@@ -1,0 +1,1000 @@
+# evalshift (CLI) — complete reference for AI tools
+
+Canonical hosted copy: https://www.evalshift.dev/cli-llms-full.txt
+Package: evalshift (PyPI) | CLI entry point: evalshift | version: 0.13.0
+Python: >=3.11 | license: AGPL-3.0-or-later | status: alpha
+Install: pip install evalshift   (or: uv pip install evalshift)
+
+Product flow: evalshift-sdk captures real agent behavior in production -> this CLI replays those
+captures against a candidate model (scores, paired statistics, HTML report) -> opt-in hosted
+service keeps run history, diffs and PR gates. The SDK is the recommended source of golden
+suites; hand-written golden.jsonl is equally supported.
+
+Purpose: local-first CLI for safe LLM model migrations. Runs the same prompts on two models
+(source = current production, target = candidate) against a golden JSONL suite, scores each
+(source, target) output pair with structural / semantic / LLM-judge / tool-call evaluators,
+runs paired statistics over the deltas (Shapiro-Wilk screen, paired-t or Wilcoxon, Cohen's d
+with 95% CI, Benjamini-Hochberg FDR at alpha=0.05), classifies severities, computes an optional
+migration-policy verdict, and renders a single-file HTML report. Everything happens on the
+user's machine under .evalshift/; the only network traffic is the model API calls plus
+opt-in pushes to hosted EvalShift (api.evalshift.dev).
+
+Ecosystem — four pieces, one reference each. Fetch the one matching the task:
+| Piece | What it is | Reference for AI tools |
+| CLI (PyPI evalshift) | this document — run/score/analyze/report/bundle/push | https://www.evalshift.dev/cli-llms-full.txt |
+| SDK (PyPI evalshift-sdk) | in-process capture inside the user's agent | https://www.evalshift.dev/sdk-llms-full.txt |
+| GitHub Action (babaliauskas/evalshift-action@v0) | PR run + comment + regression gate | https://www.evalshift.dev/ci-llms-full.txt |
+| Hosted server (api.evalshift.dev, web app evalshift.dev) | stores pushed bundles, diffs runs, drives PR comments/gating | this document (bundle/push contract) |
+Data flow: SDK captures -> CLI runs and bundles -> server stores/diffs -> web app displays.
+
+Companion package: evalshift-sdk (separate PyPI package, in-process capture SDK) records
+production agent runs as JSON captures under .evalshift/captures/<suite>/cap_<hex>.json;
+this CLI promotes them into golden suites (`evalshift capture sync`). Disk is the only
+interface between SDK and CLI — they never import or call each other.
+CAUTION: both packages use top-level import name `evalshift` —
+install them in separate virtual environments.
+`evalshift init` (default --wire-agents) writes EVALSHIFT.md into the user's project and points
+existing agent files (AGENTS.md, CLAUDE.md, GEMINI.md, .cursorrules,
+.github/copilot-instructions.md) at all three URLs above, creating AGENTS.md when none of them
+exist; --no-wire-agents disables it.
+
+Quickstart (recommended, capture-first):
+1. pip install evalshift
+2. evalshift init                       -> minimal capture-first evalshift.yaml
+3. pip install evalshift-sdk            -> IN THE AGENT'S OWN VENV (shared import name `evalshift`)
+4. decorate the agent (@capture.agent(suite=..., redact=True), @capture.tool(name=...)), run it
+   with EVALSHIFT_CAPTURE=1 -> writes .evalshift/captures/<suite>/cap_<hex>.json
+   redact= is REQUIRED on every sdk capture point (@capture.agent, capture.agent_session,
+   capture.agent_session_async, EvalShiftCallbackHandler) as of evalshift-sdk 0.3.0: True masks
+   emails/API keys/bearer tokens via default_redactor, False records verbatim, or pass a
+   (value) -> value callable. Any other value, None included, raises TypeError. There is no
+   configure(redact=...) — it was removed in 0.3.0.
+5. evalshift capture sync               -> captures become .evalshift/suites/<suite>/golden.jsonl
+                                           and the managed `suites:` block in evalshift.yaml
+6. evalshift all --suite-name <suite> --to <candidate-model>   (real API calls; costs money —
+   confirm prompt above $10 estimate)
+Suite-first alternative: hand-write golden.jsonl and point `suites:` at it. Fully supported;
+capture-first is recommended because the suite is only worth the examples in it.
+
+## Pipeline and artifacts
+
+Stages: init (scaffold) -> doctor (checks) -> run -> evaluate -> analyze -> report.
+`evalshift all` chains doctor..report. Each stage writes one artifact under
+.evalshift/runs/<run-id>/ and is independently re-runnable. Run id: r_<YYYYMMDD>_<suite-slug>_<hex>.
+Warnings raised mid-pipeline (LiteLLM deprecations, insights retries) are deferred and printed
+as one section under the pipeline block (also on stage failure); errors are never deferred.
+
+| File | Stage | Contents |
+|---|---|---|
+| state.json | run | status (in_progress/completed/failed), models, config_hash, counters, non_deterministic_models, evaluator_coverage (written by evaluate: attempted vs recorded per axis, the pairs that produced no row, + the axis's blocking flag; absent flag reads as true) |
+| raw.jsonl | run | one model call per line: prompt, output, tokens, cost, latency, tool trace, error |
+| scores.jsonl | evaluate | one EvalRecord per (pair x evaluator): source/target scores in [0,1], delta |
+| analysis.json | analyze | per-(prompt,evaluator,slice) statistics + severity |
+| migration_decision.json | analyze | policy verdict (only when migration_policy configured) |
+| report.json + report.html | report | payload + single-file HTML (no external assets, dark-only) |
+| insights.json | report | cached machine-written narrative (optional; --no-insights skips) |
+| traces.jsonl | traces import | optional BYO agent traces |
+| run_bundle.json.gz | bundle/push | optional hosted upload bundle |
+
+Cache: SQLite ~/.evalshift/cache.db, key = SHA-256 of canonical JSON
+{model, prompt, inputs, temperature, max_tokens[, history]}, TTL 7 days. defaults.cache: false
+disables; `evalshift cache clear` wipes.
+Resume: `run --resume` continues newest in_progress run; requires config_hash match (config +
+suite byte-identical), skips (prompt_id, example_id, role) keys already in raw.jsonl; errored
+calls count as done and are NOT retried.
+Retention: after each completed run, per-suite pruning keeps newest retention.max_runs_per_suite
+(default 20; 0 disables) and evicts runs older than run_ttl_days (default off). Never prunes
+in-progress or just-finished runs. EVALSHIFT_MAX_RUNS overrides; `evalshift runs clean` on demand.
+Cost guards: pre-flight worst-case estimate (assumes registry default_max_tokens, 4096,
+per completion); > $10 -> confirmation prompt (skip: --yes or EVALSHIFT_NONINTERACTIVE).
+defaults.max_cost_usd (default 50.0) is a soft ceiling reserved for future enforcement —
+not yet enforced at run time.
+
+## Command reference
+
+Conventions: -c/--config default ./evalshift.yaml; exit 0 success, 1 on handled errors.
+Scaffolds refuse to overwrite without --force.
+
+evalshift --version
+evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire-agents (default on)]
+    [--provider gemini|openai|anthropic] [--profile PROFILE]
+  Writes ONLY a minimal capture-first evalshift.yaml: passthrough prompt
+  (id: replay, detection: manual, content: "{input}", variables: [input]), advisory
+  semantic + llm_judge evaluators (blocking: false), empty managed suites: block, migration
+  policy from --profile. --ci also writes .github/workflows/evalshift.yml. --wire-agents writes
+  EVALSHIFT.md and points AGENTS.md/CLAUDE.md/GEMINI.md/.cursorrules/copilot-instructions at it;
+  creates AGENTS.md when none of those files exist. Idempotent.
+  --provider prompted on TTY, else gemini. Does NOT write prompts.py/tools.yaml/golden.jsonl.
+  PROFILE budgets (regression/critical/equivalence/arg-drift/cost/latency):
+    model-upgrade (default): .03/0/.95/.01/.20/.30 | cost-reduction: .02/0/.97/.01/.05/.30
+    local-model: .05/0/.90/.02/.00/.50 | quantization: .02/0/.97/.005/.00/.20
+    provider-switch: .03/0/.95/.01/.20/.40
+evalshift doctor
+  Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation; missing API
+  keys are soft warnings (exit 0).
+  Reports the toolset each configured suite carries (name, or the flat golden.jsonl); warns
+  (warn-level, exit 0) when a suite's examples carry more than one distinct toolset -- legal
+  (each example dispatches its own), but also the shape a wiring mistake takes.
+evalshift run [-f/--from MODEL] [-t/--to MODEL] [-c CONFIG] [-s/--suite FILE]
+    [--suite-name NAME] [--resume] [-y/--yes]
+  Paired run over (prompt x example x {source,target}). --from/--to override
+  defaults.source_model/target_model. --suite default ./golden.jsonl; --suite-name selects a
+  key under suites: in config. Costs money — always calls real models.
+evalshift evaluate RUN_ID [-c CONFIG]      -> scores.jsonl
+  Prints a red doctor-style "broken eval harness" row when the SOURCE model failed the recorded
+  ground truth on >= 50% of >= 4 tool_selection.conformance rows, naming the rate and the likely
+  causes (wrong toolset, wrong prompt, suite promoted from another agent). `all` reprints it
+  directly above the verdict block. Also on EvaluateResult.harness_check.
+evalshift analyze RUN_ID [-c CONFIG] [--gate SEVS] [--policy-gate]
+  --gate: comma-separated from {critical,high,medium,low}; any matching comparison -> exit 1.
+  --policy-gate: exit 1 when verdict is fail OR conditional_pass.
+  If $GITHUB_STEP_SUMMARY set, appends a markdown results table.
+evalshift report RUN_ID [-c CONFIG] [--open] [--insights/--no-insights (default on)]
+  -> report.html + report.json (+ insights.json). --no-insights skips the narrative and its
+  one extra LLM call. See "Run insights".
+  report.html layout: header (run id, source->target, suite, examples/calls, spend) ->
+  verdict / advisory-signal / economics panels -> six-cell run strip (examples, calls,
+  failed/truncated, total cost, latency delta, mean score delta) -> recommendations +
+  top regression causes -> executive summary -> insights narrative -> one section per
+  prompt (economics, per-example, by-evaluator, slices, top regressions as collapsible
+  cards) -> methodology. Dark-only, no external assets, no JS. Rendered surfaces show
+  display names, never internal identifiers: failure categories as plain language
+  (TOOL_SELECTION_DRIFT -> "Different tools chosen"; map in evaluators/failures.py), budgets
+  as their labels (max_tool_divergence -> "Tool-selection divergence"; map in
+  analysis/policy.py BUDGET_LABELS) with the yaml field kept as a secondary code hint in the
+  budget-failures table only. report.json and the bundle keep the machine labels.
+evalshift all [run flags] [--gate SEVS] [--policy-gate] [--open] [--push]
+    [--insights/--no-insights (default on)]
+  doctor -> run -> evaluate -> analyze -> report under one live progress display.
+
+Hosted:
+evalshift login [--token es_...] [--host URL] [--no-browser] [--timeout SECS=900]
+  Device-code browser flow, or --token (verified via GET /me). Credentials stored at
+  ~/.evalshift/credentials (owner-only perms).
+  Issues a PERSONAL token: tied to your membership, dies with it. Correct for a workstation,
+  wrong for CI. For CI mint a SERVICE ACCOUNT KEY in the hosted web app (Settings -> API
+  tokens -> Service accounts): org-owned machine identity, never owner-equivalent (role is
+  `member` or `viewer` only), consumes no seat, survives the employee who created it. Scope it
+  to the permission keys the job needs (`run:create` + `run:read` covers push + diff), store it
+  as an encrypted CI secret, pass it as EVALSHIFT_TOKEN -- do not run `login` on a runner.
+  Rotation is overlapping keys: mint successor, update secret, confirm a green run, let the
+  predecessor expire (24h default grace).
+evalshift logout | evalshift whoami [--host] [--token]
+evalshift bundle RUN_ID [-c] [-s/--suite] [--suite-name] [-o/--output PATH] [--project org/project]
+  Builds run_bundle.json.gz locally, no upload. Payload: manifest, examples (inputs, both
+  outputs, per-evaluator scores, cost/latency deltas, traces[] — one stream per model side:
+  ordered tool calls w/ arguments, any final text, round markers; model_call input/output
+  excluded; oversized tool results shortened not dropped; same trace shown on the hosted
+  run-detail page), aggregate, analysis, decision,
+  # examples[].passed is False when the pair scored NO rows: all() over an empty list is True,
+  #   and "nothing measured" reading as "passed" is the same silence-as-success bug as the
+  #   fabricated skip scores. Example.passed is a required non-nullable bool server-side, so
+  #   "unknown" cannot be expressed; score/worst_delta_score/scores are empty beside it.
+  # examples[].tool_match is SIGNED -- all(delta >= 0) over the run's tool evaluators, not
+  #   all(target_score >= 1.0). The absolute form was a single-axis predicate; with two
+  #   tool_selection rows per example it silently became "conform to ground truth AND match
+  #   the source", forcing false onto every pair of a captures-promoted suite whose ground
+  #   truth both models fail. null still means no tool evaluator scored the pair.
+  economics (run-level per-role calls/tokens/cost/latency), methodology_notes, insights|null,
+  evaluator_config, dataset_snapshot. report.html is NOT uploaded (still written to the run
+  dir for local viewing). Suite content is NOT uploaded either: dataset_snapshot ships
+  metadata plus examples_hash (no examples[] -- histories/system prompts stay local), and
+  evaluator_config ships prompts[].content nulled with a content_hash beside it. Both
+  manifest hashes are still computed over the FULL objects, so hash values are unchanged
+  and cross-version diffs stay direct. No bundle_version/schema_version/manifest.size_bytes; the compressed
+  size is sent on POST /runs instead. Bytes are deterministic (gzip level 9, mtime=0).
+  manifest.cli_version: installed evalshift version string ("0.0.0" when unreadable), so the
+  web app can tell "run recorded no output" from "CLI could not record output".
+  Hosted validates shape, not version: every bundle block is extra="forbid", so a missing
+  required field or one hosted does not know is rejected at parse time. Net effect: bundles
+  from CLIs older than 0.10.0 (where the current shape landed) do not upload -- upgrade.
+evalshift push [RUN_ID] [--bundle PATH] [--project] [--host] [--token]
+    [--create-project/--no-create-project (default on)] [-c] [-s] [--suite-name]
+  Requires RUN_ID or --bundle. Idempotent on run id. Auto-creates missing projects when
+  permissions allow (project-scoped tokens cannot). GitHub env (GITHUB_SHA, ref vars) is baked
+  into the bundle for base-branch pairing.
+  Credential precedence: flags > EVALSHIFT_HOST/EVALSHIFT_TOKEN env > ~/.evalshift/credentials.
+  Local validation: the bundle is schema-checked against the vendored server export BEFORE any
+  HTTP call, so a stale/hand-edited/foreign --bundle fails in <1s ("bundle failed schema
+  validation: ...", exit 1) instead of after a full upload. >= 50 MB compressed prints a soft-
+  limit warning naming the server's 100 MB hard limit and uploads anyway (the hard limit is
+  server-configurable, so the CLI quotes it rather than enforcing a stale copy).
+  Plan limits: server answers 402 when the org's plan does not cover the push (monthly runs,
+  seats, retention) or the subscription stopped paying. CLI prints the server's sentence plus
+  `Upgrade: <url>` and exits 1; nothing uploaded, local run untouched. Never retried.
+
+Captures (read from .evalshift/captures/ under CWD, or $EVALSHIFT_DIR):
+evalshift capture list [SUITE] [--json]
+evalshift capture promote CAPTURE_ID [--as CASE_ID] [--suite S] [--input-var NAME=input]
+    [--tag T]... [--strict-args] [--names-only] [--tool-count] [--rounds first(default)|all]
+    [--allow-errored] [-f/--force]
+  One capture -> one golden case. History recovered only from that capture's own messages list
+  (no cross-capture reconstruction; warns if unpromoted sibling turns exist -> use sync).
+  EXITS 1 if the capture's trace carries an error event; --allow-errored promotes anyway.
+evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--strict-args]
+    [--names-only] [--tool-count] [--rounds first(default)|all] [--allow-errored] [-c CONFIG] [-f]
+    [--write/--print (default write)] [--keep-duplicates]
+  Promotes EVERY capture: groups by conversation_id, orders by turn_index, one SuiteExample per
+  turn; writes .evalshift/suites/<suite>/golden.jsonl and rewrites the managed suites: block in
+  evalshift.yaml (between ">>> evalshift suites" markers). Content-duplicate captures skipped by
+  default (duplicates inflate n, corrupt paired stats); --keep-duplicates opts out. Dedup is
+  seeded from cases already promoted in the suite dir, so it spans sync runs.
+  Reports "wired generation config for N case(s)" when promoted captures carried one.
+  Each suite's entry is DERIVED from its own rows, evaluators included:
+    no row offered a toolset -> no evaluators: block (suite inherits the top level; a tool
+      evaluator on a tool-free suite would score an empty denominator = inconclusive gate)
+    any row offered a toolset -> tool_selection: [{name: routing, conformance: expected,
+      divergence: set}]
+    any row recorded call arguments -> tool_arguments: [{name: routing_args, against: expected}]
+      (no strategies: -- default_strategy auto already grades free text by meaning)
+    structural is NEVER derived (a capture says nothing about required answer shape)
+  Generated names (routing, routing_args) are STABLE by contract: reports key on evaluator
+  names across runs, so regeneration must not rename what it already wired.
+  Only the suites just promoted are regenerated; every other entry inside the markers is
+  carried forward VERBATIM (raw mappings, not revalidated -- a malformed hand edit is never
+  silently deleted). Partition guarantee: syncing one suite cannot disturb another.
+  managed: false on an entry -> left alone; sync prints the entry it WOULD have written.
+  Sync never touches config OUTSIDE the markers, so a stale top-level tool evaluator block
+  is yours to delete by hand.
+  Mapping: first model input -> inputs (bare string lands under --input-var), recorded tool
+  calls -> expected_tools, final output -> expected, messages list -> history.
+  expected text: final_output event wins; else falls back to the LAST model_call with non-empty
+  str output (the reply the user saw, after the tool round-trips). Only the SDK's LangChain
+  adapter emits final_output, so without the fallback every manually instrumented project
+  promotes expected: null. Non-str output ignored (never stringified); neither -> warn + null.
+  Rounds: tool calls are grouped into agent rounds (split at each recorded model_call). Every
+  round -> expected_tool_rounds; expected_tools (and --tool-count) are scoped to ROUND 1, the
+  only round a single-shot replay can produce. Multi-round captures warn; --rounds all flattens
+  every round into expected_tools instead.
+  Captures whose trace carries an error event are SKIPPED (--allow-errored promotes them).
+  Warns on duplicate (conversation_id, turn_index) and on failed tool results.
+  Wrapper args: a capture recording a decorated function's parameters yields
+  {"tool_args": {...}} where the model only saw the flat declared properties. Promotion
+  unwraps it ONLY when the capture's own recorded toolset schema confirms (wrapper key
+  undeclared + inner keys all declared); no resolvable sidecar -> recording left untouched.
+evalshift capture clean [SUITE] [--promoted (default) | --all] [-y]
+  Deletes capture files, never touches promoted suites. Then sweeps <base>/toolsets/: any
+  sidecar referenced by neither a surviving capture (any suite, promoted or not) nor a
+  promoted suite example is deleted and reported. Refcounted across <base>/captures/ AND
+  <base>/suites/, so a sidecar a promoted golden.jsonl still uses is never swept, even
+  with --all.
+evalshift capture diff CAPTURE_A CAPTURE_B     (tool-trace diff)
+
+Traces / debug:
+evalshift traces import RUN_ID --source FILE --target FILE [--strict]
+  Attaches BYO agent-trace JSONL to a completed run -> traces.jsonl. --strict fails when a
+  completed pair lacks a trace pair. Every event timestamp must carry a UTC offset (...Z or
+  ...+02:00): offsets are converted to UTC on import, a naive timestamp is rejected with its
+  file:line (assuming UTC would silently relabel a trace recorded in another zone, and the
+  bundle contract requires UTC).
+evalshift inspect RUN_ID [--failed] | evalshift inspect case RUN_ID EXAMPLE_ID
+evalshift diff case RUN_ID EXAMPLE_ID          (trace diff when traces exist, else text diff)
+evalshift replay case RUN_ID EXAMPLE_ID [--model source|target (default target)] [--trace]
+evalshift runs clean [--keep N] [--older-than DAYS] [--suite SLUG] [--dry-run] [-y] [--config]
+  Precedence for keep count: --keep > EVALSHIFT_MAX_RUNS > config (default 20). 0 disables.
+evalshift cache clear
+
+Hidden debug commands:
+evalshift validate [-s SUITE=golden.jsonl] [-c CONFIG]   (config+suite+prompt cross-check)
+evalshift test-call -m/--model MODEL [-p/--prompt TEXT] [-t/--temperature 0..2=0]
+    [--max-tokens 1..8192=256] [--tools FILE]   (single live call; --tools prints a ToolTrace)
+
+## Environment variables
+
+| Var | Default | Meaning |
+|---|---|---|
+| GEMINI_API_KEY / GOOGLE_API_KEY | — | Google auth (either alias works) |
+| OPENAI_API_KEY | — | OpenAI auth |
+| ANTHROPIC_API_KEY | — | Anthropic auth |
+| EVALSHIFT_NONINTERACTIVE | unset | non-empty -> implied --yes (skip cost prompt); set in scaffolded CI |
+| EVALSHIFT_MAX_RUNS | unset | overrides retention.max_runs_per_suite; 0/none/unlimited/off disables |
+| EVALSHIFT_DIR | .evalshift | base dir for SDK captures read by `capture` commands |
+| EVALSHIFT_HOST | https://api.evalshift.dev | hosted API base URL |
+| EVALSHIFT_TOKEN | unset | hosted token (beats credentials file, loses to --token) |
+| EVALSHIFT_CREDENTIALS_PATH | ~/.evalshift/credentials | credentials file override |
+| GITHUB_STEP_SUMMARY | — | analyze appends a markdown table when set |
+
+Keys are consumed by LiteLLM at call time; the CLI never stores or uploads provider keys.
+
+## evalshift.yaml schema
+
+Strict Pydantic, extra="forbid" everywhere — unknown keys fail at load.
+
+version: 1                          # required literal
+project: str|null                   # hosted slug, regex ^[a-z0-9-]+/[a-z0-9-]+$
+prompts:                            # required, >=1, unique ids
+  - id: str
+    detection: manual | python_string
+    content: str                    # manual only (required for manual)
+    path: str                       # python_string only (both required)
+    variable: str                   # python_string only
+    variables: [str]                # {placeholder} names the template uses
+    max_tokens: int>0|null          # per-prompt override of defaults.max_tokens
+defaults:
+  source_model: str|null            # --from overrides
+  target_model: str|null            # --to overrides
+  judge_model: str = gemini-3.1-flash-lite-preview
+  insights_model: str|null            # run-narrative model; falls back to judge_model
+  concurrency: int = 10 (1..64)   # applies to run AND evaluate
+  cache: bool = true              # covers completions, embeddings, judge verdicts
+  max_cost_usd: float = 50.0        # soft ceiling, reserved for future enforcement
+  max_tokens: int = 4096            # truncated calls are EXCLUDED from stats
+evaluators:                         # every evaluator config also takes blocking: bool = true
+  structural:                       # list; free, no API calls
+    - type: json_schema | regex | length
+      # json_schema: schema_path (path to a Draft 7 schema FILE, relative to project root);
+      #   score 1.0 valid else 0.0
+      # regex: pattern; re.search; 1.0/0.0
+      # length: min_chars/max_chars (>=1 of them); 1.0 in bounds, linear decay to 0 at 2x bound
+      applies_to: ["*"]
+  semantic:                         # single block, not a list
+    embedding_model: str = text-embedding-3-small
+    min_similarity: float = 0.9     # below -> SEMANTIC_REGRESSION flag
+    # source score pinned 1.0; target = cosine(source, target) clamped [0,1]
+    # both outputs empty (tool-only turn) -> NO record at all (score returns None),
+    #   no provider call. ONE empty side still scores: 0.0 similarity by definition,
+    #   no embedding call (provider 400s on empty input); min_similarity gate applies;
+    #   metadata.empty_side = "source"|"target"; either direction scored the same.
+  llm_judge:                        # list; pairwise A/B, order-randomized; win->(0,1), tie->(.5,.5)
+    # both outputs empty (tool-only turn) -> NO record at all, no judge call
+    - criterion_name: str
+      criterion_prompt: str         # keep symmetric + explicit tie instruction
+      judge_model: str = "gemini-3.1-flash-lite-preview"  # per-criterion; defaults.judge_model is NOT consulted
+  tool_selection:                   # list; TWO independent axes, ONE RECORD EACH
+    - name: str
+      conformance: expected(default) | expected_set | off
+      # kind: tool_selection.conformance -- grades EACH SIDE absolutely vs ground truth,
+      #   so both can fail at once and delta stays 0 (the migration didn't cause it)
+      # expected: vs example.expected_tools, in-order normalized match
+      # expected_set: same, order-insensitive multiset recall (dupes count, extra calls
+      #   ignored) -- use for parallel fan-outs where call order carries no meaning
+      # expected_no_tools example -> 1.0 iff zero calls, under EITHER strategy: it is
+      #   this axis's INPUT, not a branch over the evaluator
+      # both sides < 1.0 -> failure_categories: [TOOL_GROUND_TRUTH_MISS] = broken harness
+      #   (ground truth came from the source model), NOT a migration finding
+      # SOURCE side < 1.0 on >= 50% of >= 4 conformance rows -> `evaluate` prints a red
+      #   doctor-style "broken eval harness" row naming the rate + likely causes, and
+      #   `all` reprints it directly above the verdict. Counted on the SOURCE side alone:
+      #   0.0/1.0 (source fails, target passes) is a POSITIVE delta with no
+      #   TOOL_GROUND_TRUTH_MISS tag, so the exclusion rule cannot see it and it is just
+      #   as broken. < 4 rows -> silent (Wilson lower bound on 3/3 is 0.44, under half)
+      # no expected_tools at all -> NO record (nothing measured), not a fabricated 1.0
+      divergence: set(default) | exact | first | off
+      # kind: tool_selection.divergence -- grades TARGET vs SOURCE, source is its own
+      #   baseline at 1.0, so drift is a negative delta = regression
+      # set: Jaccard on names (default: reordered identical calls must not read as drift)
+      # exact: sequence equality | first: first call only
+      # both axes off -> config error. `mode:` was DELETED (no alias, no fallback);
+      #   a stale `mode:` key now fails validation under extra=forbid
+      # report.html renders the two axes as SEPARATE labelled rows (name + slug + what the
+      #   axis compares); an axis whose every pair was TOOL_GROUND_TRUTH_MISS is headlined
+      #   "Ground truth missed by both", never "Equivalent". Tool NAMES are surfaced from the
+      #   record metadata (source_names/target_names | source_set/target_set |
+      #   source_first/target_first): a "Tools called (source -> target)" column on every
+      #   per-example row, plus both sides' tools on each top-regression card.
+      severity_floor: low|medium|high|critical|null   # regression severity never below floor
+      applies_to: ["*"]
+  tool_arguments:                   # list
+    - name: str
+      against: source|expected = source   # source: drift vs source model (source_score is
+      #   1.0 by construction); expected: correctness of BOTH sides vs
+      #   expected_tools[].arguments -- expectation's match_strategy picks the compared
+      #   keys (exact = union, subset/contains_per_field = recorded keys only); an
+      #   expected call the model never made scores 0; no expected args -> skip at 1.0/1.0
+      strategies: {field: exact|subset|numeric|semantic|auto}  # unlisted -> default_strategy
+      # keys are bare field names matched across ALL tools; `semantic` needs an
+      # evaluators.semantic block to borrow an embedding model+cache from,
+      # else it degrades to exact
+      default_strategy: exact|subset|numeric|semantic|auto = auto   # per-field entry wins
+      # auto = ladder, cheapest rung first:
+      #   1. normalized exact: both str and equal after casefold + strip + whitespace-run
+      #      collapse -> 1.0. No schema read, no API call. Capitalization is not a wrong value.
+      #   2. schema dispatch: field looked up in THIS example's toolset (toolset_ref sidecar or
+      #      inline tools, injected as a resolver; resolver failure -> None, never raises).
+      #      name ends _id/_ids, enum, boolean, format date|date-time|uuid|email -> exact;
+      #      number|integer -> numeric; object|array -> subset; free string -> rung 3.
+      #   3. graded similarity: semantic when embeddings_fn present, else
+      #      difflib.SequenceMatcher ratio (partial credit survives with NO embedding model).
+      #      non-str: numbers -> numeric, dict/list -> subset, else exact.
+      # default_strategy: exact restores byte-equality scoring (pre-0.12 behavior).
+      numeric_tolerance: float = 0.05    # relative error, linear decay to 0 at tolerance
+      optional_fields_scored: lenient|strict = lenient  # field on one side only -> 0.5 | 0.0
+      applies_to: ["*"]
+      # calls matched greedily by (tool_name, nearest sequence_index); score = mean over calls
+      # against: expected only -- a ground-truth field NEITHER side produced is dropped from
+      #   that call's denominator on BOTH sides (stale expectation, not a model defect; scored
+      #   it would cap the call < 1.0 forever) and disclosed as per_call[].unmeasured_fields.
+      #   Expectation of only such fields -> 1.0/1.0 (same neutral as "nothing comparable").
+      # ARGUMENT_VALUE_DRIFT is stamped only when target_score < source_score (a REGRESSION).
+      #   Both sides missing ground truth by the same margin -> delta 0, no label.
+  tool_trace_structure:             # list
+    - name: str
+      check_call_count: bool = true
+      check_parallelism: bool = true
+      check_refusals: bool = true   # refusal mismatch forces severity >= high + REFUSAL_REGRESSION
+      call_count_tolerance: int = 1
+  agent_trace:                      # list; scores IMPORTED traces (traces import)
+    - name: str
+      check_tool_order: bool = true          # LCS-normalized
+      check_arguments: bool = true
+      check_missing_verification: bool = true
+      verification_tools: [str]
+      dangerous_tools: [str]
+slices:
+  - name: str                       # "overall" is RESERVED (run-level scope in the bundle);
+    filter: str                     # tag literal matched against example.tags
+    applies_to: ["*"]               # rejected as slice name, example tag, and policy slice key
+suites:                             # managed block; capture sync rewrites between
+  <name>:                           # ">>> evalshift suites" markers
+    source: captured|jsonl = captured
+    path: str                       # relative to the config file's directory
+    managed: bool = true            # false freezes the entry; sync prints what it would write
+    evaluators:                     # optional; same families as top-level evaluators, each
+      structural: [...]|null        #   optional -> FAMILY-LEVEL REPLACEMENT:
+      semantic: {...}|null          #   absent  = inherit the top-level family
+      llm_judge: [...]|null         #   present = replace it wholesale (no deep merge,
+      tool_selection: [...]|null    #             no per-name merge)
+      tool_arguments: [...]|null    #   [] or null = REMOVE the inherited family
+      tool_trace_structure: [...]|null   # absent vs null are DIFFERENT instructions
+      agent_trace: [...]|null            # (resolution reads model_fields_set)
+  # Resolved by EvalShiftConfig.evaluators_for(suite_name) -- the single resolution point;
+  # evaluate, report and the hosted bundle all route through it, so scored set == reported set.
+  # RunState.suite_name carries the name (set by run/all from --suite-name; None for a raw
+  # --suite <path>). None, or a name with no entry -> the top-level block, unchanged.
+migration_policy:                   # optional; fractions not percents
+  max_overall_regression_rate: float = 0.30 (0..1)
+  max_critical_regressions: int = 1
+  min_equivalence_rate: float = 0.75 (0..1)   # floor on non-regression rate (equivalent OR improved)
+  max_tool_argument_drift: float = 0.20 (0..1)
+  max_tool_divergence: float = 0.20 (0..1)   # share of tool_selection.divergence rows that regressed
+  tool_argument_drift_floor: float = 0.9 (0..1)  # target arg score below which a call counts as drifted
+  max_cost_increase: float = 0.30 (0..10)
+  max_latency_increase: float = 0.30 (0..10)
+  # ^ defaults = what `init` writes: a first-migration starting point, loose enough that a
+  #   fresh suite REPORTS regressions instead of failing on a few reworded tool arguments.
+  #   Tighten as the suite grows: `init --profile cost-reduction|quantization|provider-switch|
+  #   local-model` scaffold tighter numbers.
+  slices: {slice_name: {same fields, all nullable -> inherit top level}}
+retention:
+  max_runs_per_suite: int = 20 (>=0; 0 disables)
+  run_ttl_days: int>=1|null = null
+
+Model ids: built-in registry provides aliases/metadata but NEVER gates — LiteLLM is the
+call-time authority; any LiteLLM-supported model works. Unknown ids pass through with provider
+inferred by prefix: gemini-* -> google, claude-* -> anthropic, gpt-*/o1-*/o3-* -> openai, else
+"other". Before a live run the CLI verifies the provider's key env var is set.
+
+## Golden suite JSONL schema (one example per line)
+
+{"id": str (required, unique),
+ "inputs": {var: value},                 # must cover the prompt's variables; validated pre-run
+ "tags": [str],                          # slice labels
+ "expected": {...}|null,                 # reference output (most evaluators ignore it)
+ "expected_tools": [                     # agent ground truth, in order
+   {"tool_name": str,
+    "arguments": {...}|null,             # null -> name-only check
+    "match_strategy": "exact"|"subset"(default)|"contains_per_field",
+    "provenance": "captured"(default)|"reviewed"}],
+                                         # captured = transcribed verbatim from the source
+                                         # model's own recorded call (promote/sync write this);
+                                         # nobody checked it is RIGHT. Scoring identical either
+                                         # way; only gates the disclosure recommendation.
+ "expected_tool_rounds": [[{...}]]|null, # full recorded agent loop, one list per model turn that
+                                         # emitted tool calls; expected_tools is normally
+                                         # expected_tool_rounds[0] (a single-shot replay cannot
+                                         # reach round 2). null for pre-v0.3 suites / no tools.
+ "expected_tool_count": int>=0|null,
+ "expected_no_tools": bool = false,      # incompatible with expected_tools /
+                                         # expected_tool_rounds / nonzero count. Only meaningful
+                                         # when the example's toolset is non-empty -- see below.
+ "expected_parallel": bool|null,
+ "history": [{"role":"system"|"user"|"assistant"|"tool","content":str,
+              "tool_calls":[{"id":str|null,"name":str,"arguments":{}}]|absent,  # assistant only
+              "tool_call_id":str|absent}]|null,  # REQUIRED on role=tool, forbidden elsewhere
+                                         # multi-turn prefix; <=1 system message, must be first;
+                                         # null = single-turn, [] = conversational, no prefix
+ "conversation_id": str|null,
+ "turn_index": int>=0|null,
+ "toolset_ref": "sha256:<hex>",          # EXACTLY ONE of toolset_ref/tools required (neither, or
+                                         # both, fails to load). Content-addressed pointer to a
+                                         # <base>/toolsets/<hex>.json sidecar; what capture
+                                         # promote/sync write, carried verbatim from the source
+                                         # capture's first model_call.
+ "tools": [{"name": str, "description": str, "input_schema": {...}}]}  # the alternative to
+                                         # toolset_ref: inline toolset for a hand-authored suite.
+                                         # [] is a real "no tools offered" value, not an absence.
+
+Loader collects ALL parse/schema errors before raising; duplicate ids rejected. Every example
+must carry a toolset (toolset_ref XOR tools) -- every model call records the toolset it was
+offered, so a suite example must record it too.
+
+## tools.yaml / tools.json
+
+YAML or JSON; flat list or {"tools": [...]}. Two accepted per-entry shapes, mixed freely:
+  Anthropic: {name, description, input_schema}
+  OpenAI:    {"type": "function", "function": {name, description, parameters}}
+(Gemini {name, description, parameters} also normalizes.) The client re-serializes per target
+provider, so one file serves all providers.
+
+## Statistics contract
+
+Constants: MIN_N_FOR_TEST=5, MIN_N_RELIABLE=20, NORMALITY_ALPHA=0.05, FDR_ALPHA=0.05,
+BOOTSTRAP_RESAMPLES=2000 (seeded, deterministic).
+Per (prompt_id, evaluator_name, slice_name) over paired per-example deltas (target - source):
+0. A pair an evaluator measured nothing on (e.g. a tool-only turn) has NO row in scores.jsonl
+   at all - score/score_pair returned None. It is therefore absent from n, from the slice
+   aggregates and from the policy metrics (equivalent_rate) by construction. The count is
+   reconstructed from state.json's evaluator_coverage and noted ("K of N rows not applicable
+   - <reason>"). Nothing measured -> n=0, test "skipped", severity "insufficient", note prefixed
+   "nothing measured:" (UNMEASURED_NOTE_PREFIX). Never "none" - unmeasured is not equivalent.
+   The signal rides in notes[] because the bundle's Comparison is additionalProperties: false.
+   If the axis is blocking: false (read from evaluator_coverage), the synthesized comparison
+   also carries an "advisory:" note (ADVISORY_NOTE_PREFIX) - with zero rows in scores.jsonl
+   that note is the only surviving carrier of the config flag for the policy layer.
+   report.html renders such a row as "Nothing measured" (not the "Not enough data" headline
+   the rest of `insufficient` gets) - the sample was absent, not small.
+1. n<5 -> skipped, severity "insufficient". 5<=n<20 -> tested, flagged uncertain.
+   Zero variance (std < 1e-9) -> skipped, severity "none".
+2. Shapiro-Wilk on deltas at alpha=.05: normal -> paired t-test; else Wilcoxon signed-rank.
+   n>5000 -> skip screen, t-test (CLT).
+3. Effect size: paired Cohen's d = mean(deltas)/std(deltas, ddof=1); 95% CI analytical for
+   t-test, percentile bootstrap for Wilcoxon.
+4. Benjamini-Hochberg FDR at alpha=.05 across ALL testable comparisons in the run.
+5. Severity from corrected p, |d|, direction:
+   critical: regression, p<.01 AND |d|>0.8 | high: significant, |d|>0.5
+   medium: significant, |d|>0.2 | low: significant, small effect
+   improved: significant, delta>0 | none: not significant | insufficient: n<5
+Truncated (max_tokens-capped) calls excluded from stats; empty-but-complete outputs counted.
+
+Sampling control: every test assumes the model is the ONLY difference between arms, which holds
+because EvalShift sends temperature=0 on every call. Two failure modes are handled. Withdrawal:
+providers removing the parameter (announced for Gemini 3+); with drop_params=True the call would
+still succeed while sampling reverts to the provider default, silently weakening every p-value.
+Each arm is checked against litellm.get_supported_openai_params at run start. Value rejection:
+reasoning-tier models (e.g. gpt-5.6-terra) advertise temperature but 400 every value except
+their default, and drop_params does not cover them (LiteLLM special-cases only o-series names);
+the first rejection makes EvalShift resend without temperature and omit it for that model for
+the rest of the process — judge models included. Both paths record the model in state.json under
+non_deterministic_models, and the report renders a banner above the verdict plus a methodology
+note. Those runs measure model change PLUS sampling noise - non-significant results are weak
+evidence; fix with more examples, not a looser threshold. EvalShift does NOT inject sampling
+guidance into the system prompt: that would change the prompt under test, and for one arm only,
+confounding the comparison it was meant to protect.
+
+## Migration policy verdict algorithm
+
+Verdicts: pass | conditional_pass | fail | inconclusive. Written to migration_decision.json.
+- Only records/comparisons from BLOCKING evaluators gate quality. Advisory (blocking: false)
+  results are summarized separately (advisory, advisory_regressions) and never flip the verdict.
+  All evaluators advisory (fresh init) or all errored -> inconclusive with guidance, EXCEPT
+  when max_cost_increase/max_latency_increase is breached -> fail (those read the run's calls,
+  not evaluator records, so they gate with zero blocking evaluators).
+- The four PROPORTION budgets - max_overall_regression_rate, min_equivalence_rate,
+  max_tool_argument_drift, max_tool_divergence, each a count of records over a count of
+  records - are
+  Wilson-CI-aware (95%, z=1.959963984540054, the exact two-sided quantile, same constant the
+  hosted gate uses so both emit identical bounds). Each reports ci_low/ci_high. Rule is
+  ASYMMETRIC: a breach fails ONLY when the CI confirms it (favourable bound clears the
+  budget); a breach with the CI still spanning the budget -> inconclusive (suite too small);
+  a budget the observation HELD is conclusive however wide its CI (a wide CI must never
+  downgrade a clean run). max_critical_regressions is a raw count and cost/latency are ratios
+  of two averages - no proportion, so ci_low/ci_high are null and no CI softens them (a
+  measured breach is never softened), though they are NOT always conclusive - see the
+  zero-valued rule below. Drift got its CI last, once bundles began reporting its denominator:
+  the hosted gate had always scored drift as a proportion, so the same thin sample read fail
+  locally and inconclusive there. Both engines now agree on which budgets get a CI, on the
+  constant, and on the asymmetric rule. Accepted consequence: a small-sample drift breach the
+  lower bound cannot confirm is now inconclusive, not a confident local fail; the 1/n
+  granularity warning still fires to flag the thin sample.
+  Record-derived budgets (regression rate, equivalence rate, critical count, tool-arg drift,
+  tool divergence) report conclusive: false when the scope scored 0 records - their 0/0 default
+  measures nothing. The two per-axis budgets also need one of THEIR OWN rows: a scope with no
+  tool_arguments evaluator, or with divergence: off, is unmeasured however much else it scored.
+- A SHARED GROUND-TRUTH MISS is not equivalence. A tool_selection.conformance row grades each
+  side absolutely, so both can miss at the same height (0.0/0.0 where both models called a tool
+  the recording never made). delta == 0 read as "equivalent" and is the whole of the
+  equivalent_rate: 1.0 a real run shipped over a suite where 9 of 10 pairs routed differently.
+  Conformance rows flagged TOOL_GROUND_TRUTH_MISS whose delta is exactly 0 are now excluded
+  from EVERY policy rate and from n_records - they measure the harness (wrong toolset, wrong
+  prompt, suite promoted from another agent), not the migration. Only the shared-height case
+  goes: 0.8/0.3 is still a regression, 0.2/0.6 still an improvement, and divergence rows are
+  never excluded (that axis has no ground truth). Still reported: the TOOL_GROUND_TRUTH_MISS
+  count in failure_categories plus a recommendations line naming how many were excluded. A run
+  whose every blocking row was a shared miss is inconclusive and says so, rather than claiming
+  every evaluator was advisory; its recommendation is "Fix the eval harness before collecting
+  more examples" - more pairs from the same setup are more excluded rows, so the denominator
+  stays empty however many are added. The DIAGNOSIS is wider than the exclusion: `evaluate`
+  separately grades the SOURCE side alone and prints a red "broken eval harness" row when the
+  source failed >= 50% of >= 4 conformance rows (see evaluators.tool_selection above).
+- Cost/latency ratios default to 0.00 twice over, and BOTH are conclusive: false. (1) Either
+  arm has no error-free call (all target calls errored, or no calls at all). (2) Both arms
+  average zero - unpriced models (LiteLLM returns cost_usd 0.0 for an unpriced id, and
+  latency_ms 0 alongside it). Case 2 has non-empty call lists, so pairing alone called
+  it measured and rendered "observed 0.00, passed, conclusive" for a cost never priced.
+  Call.cost_usd is 0.0 both for unpriced and for genuinely free, and nothing separates them,
+  so a genuinely free pair reads unmeasured too - deliberate: honest-uncertain over confident
+  pass. Case 2 also adds a recommendations line: "The cost increase budget could not be
+  measured: all 4 error-free calls across both models recorded a cost of 0, so its observed
+  0.00 is a default, not a measurement." Case 1 stays silent (empty raw.jsonl already says it).
+  Emitted once per run, not per scope (all scopes read the same run-level calls). Only
+  conclusive changes; observed 0.00 still clears the budget, so no verdict moves.
+- Sub-granular rate CEILINGS are warned about, not silently enforced. A rate over n rows can
+  only be a multiple of 1/n, so max_tool_argument_drift: 0.01 on 10 tool-argument rows means
+  "any drift at all fails". A recommendations line names budget, value, granularity and
+  denominator: "The tool-argument drift budget of 1% (max_tool_argument_drift in
+  evalshift.yaml) is below the 10% granularity of 10 tool-argument comparisons - effective
+  tolerance is zero at this sample size." (slices add "in the '<name>' slice" and use their
+  own row counts). Covers max_overall_regression_rate (over scored
+  records), max_tool_argument_drift (over tool-argument rows) and max_tool_divergence (over
+  tool-divergence rows). Silent when allowed == 0
+  (deliberate zero tolerance), when the denominator is 0 (conclusive: false already says it),
+  for count/ratio budgets, and for the min_equivalence_rate FLOOR (sub-granular there means
+  maximally lax, not zero tolerance). No default changes; no verdict moves.
+- Every BudgetResult also carries denominator: the sample observed was computed over.
+  Scored records for max_overall_regression_rate / min_equivalence_rate (the exact
+  complement, same rows) / max_critical_regressions - counted over MEASUREMENTS, so an
+  evaluator scoring two axes contributes two rows per example and that is correct;
+  tool_arguments rows for max_tool_argument_drift; tool_selection.divergence rows for
+  max_tool_divergence; the error-free calls behind both averages (both roles summed,
+  0 when either role has none) for max_cost_increase / max_latency_increase. Slices report
+  their own counts. Three readings, all distinct: 0 = counted and the sample was empty
+  (observed is a default, passed is vacuous); positive int = that many units counted;
+  MISSING = no sample size reported, NOT zero - only bundles predating the field say that,
+  and the hosted gate falls back to conclusive for them. This CLI always emits an integer.
+  Same number the 1/n granularity warning is judged on (one map, two readers). Orthogonal
+  to conclusive: an all-zero cost ratio counted every call it averaged and still measured
+  nothing -> positive denominator, conclusive: false. The hosted gate computes its OWN
+  Wilson interval from these denominators, over the same three proportion budgets and with
+  the same z, so a local and a hosted verdict agree on whether a breach was confirmed.
+- fail: any conclusive budget failure OR any blocking critical/high comparison. Slice budgets
+  (migration_policy.slices) count here on the same terms as the top-level ones: conclusive
+  breach -> fail, unconfirmed breach -> inconclusive, Wilson-judged over that slice's own
+  denominator. recommendations names the blocking row ("The 'security' slice breached its overall
+  regression rate budget (the share of scored comparisons where the target did worse): 20%
+  over n=20 vs the 0% limit.") and the inconclusive reason scope-qualifies it the same way; slices[*].verdict is unchanged.
+  conditional_pass: any lower-severity blocking regression; also downgrades an overall pass
+  when any slice fails on comparison severity, or when any gating comparison
+  carries a "nothing measured:" note - a blocking evaluator that scored no comparable pair
+  never enforced its gate, so passing on its silence would be a verdict with no evidence.
+  Those evaluators are named in recommendations (also on inconclusive/fail, where the
+  "collect more examples" advice is suppressed - more rows of the same shape would not help).
+  Advisory (blocking: false) evaluators never count as blind gates: advisory-ness is read
+  from the scored rows OR from the "advisory:" note on a zero-row comparison, via one shared
+  helper, so a silent advisory evaluator neither demotes the verdict nor gets named.
+  inconclusive: all comparisons insufficient, or unconfirmed rate-budget breach.
+  pass: otherwise.
+- Semantic drift above min_similarity counts as equivalent, not regression. min_equivalence_rate
+  floors the NON-REGRESSION rate: equivalent and improved both count toward it.
+- cost/latency increase = max(0, (target_avg - source_avg)/source_avg) over non-errored calls.
+CI gates: analyze/all --gate critical,high (exit 1 on matching severities; allowed:
+critical,high,medium,low); --policy-gate (exit 1 on fail OR conditional_pass).
+
+## Run insights
+
+Machine-written narrative produced by `report` (and `all`): verdict_summary, advisory_summary,
+economics_summary, findings[] (kind positive|negative|warning, title, detail), recommendation.
+Rendered at the top of report.html, uploaded as bundle["insights"], cached in insights.json.
+Model: defaults.insights_model, falling back to defaults.judge_model.
+- Figures are NOT generated. Every number is computed first and passed to the model
+  pre-rendered as a display string ("+102%", "$0.0204", "< 0.0001") with an instruction to
+  copy verbatim; output is scanned for numeric tokens outside that allow-list and a single
+  unknown token rejects the generation. Max 2 attempts, then deterministic templated prose
+  (model: "none", findings: []).
+- Internal identifiers never reach the narrative. Budgets and failure categories enter the
+  prompt under display names ("Cost increase", "Different tools chosen"), and output is
+  scanned for the identifiers the prompt could leak - FACTS keys (cost_delta_pct, ...),
+  evalshift.yaml budget fields (max_tool_divergence, ...), machine category labels
+  (TOOL_SELECTION_DRIFT, ...). An echoed identifier rejects the generation like an invented
+  number. User-chosen evaluator names are exempt (they are the reader's own vocabulary).
+- An ABSENT rate is not a figure. equivalence/regression/improved share one denominator and
+  default to 0% over an empty one, which reads as "nothing regressed" when the truth is
+  "nothing was compared". decision.overall.n_records == 0 (no blocking row, or every row
+  excluded as a shared ground-truth miss) -> all three render "not measured" (digit-free) plus
+  a rates_basis line saying why, and the instruction forbids calling the run equivalent,
+  consistent, unchanged or regression-free. With no rate rendered, "achieved a 100%
+  equivalence rate" carries a token that is not a fact and the generation is rejected. The
+  templated fallback reports the basis instead of three 0%s.
+- A BLIND GATE is not a passed gate. A budget counted over an empty sample passes by
+  arithmetic (0/0 is under every ceiling), so bare `passed` renders "7 of 7" on a run with a
+  dead gate. `budgets_passed` therefore counts `passed and measured` only
+  (BudgetResult.measured == conclusive or not passed: a passing budget is conclusive by
+  construction, so passed+inconclusive can only be the 0/0 default). The blind ones ride on
+  their own facts -- `budgets_unmeasured` (count), `unmeasured_budgets` (names),
+  `unmeasured_evaluators` (gating evaluators whose comparison carries the "nothing measured:"
+  note), plus a digit-free `coverage_basis` -- and the instruction forbids "all budgets
+  passed" / "every constraint is met" / "safe to migrate" while that basis is present.
+  `unmeasured_evaluators` comes from policy.unmeasured_gating_evaluators(comparisons, records),
+  the same function the decision's `recommendations` use, so the prose channel and the FACTS
+  channel name the same set. Advisory (blocking: false) evaluators are excluded even when
+  they scored zero rows - the "advisory:" note on the synthesized comparison carries the
+  flag their absent records cannot. Orthogonal to the absent-rate rule above: that one needs
+  n_records == 0, this one fires when only some gate died.
+- Prompt input: the pre-rendered FACTS block plus the worst 8 regressions by worst_delta_score
+  (input + both outputs, each truncated to 2000 chars). Same data exposure as llm_judge.
+- Cost: 1 model call per run (2 on a rejected generation). Cached in insights.json keyed on
+  state.config_hash + model id, so re-running report/push is free; either moving = cache miss.
+- Skipped (warning, never an error) on --no-insights, no provider API key for
+  the chosen model, or no loadable evalshift.yaml. Any generation failure is swallowed and
+  leaves the narrative absent — a narrative NEVER fails a run.
+- insights.json is a cache envelope {config_hash, insight}; only the inner `insight` reaches a
+  bundle (the server's Insights model is extra="forbid"). Unrecognised envelope = cache miss.
+- Server caps enforced client-side before upload: <=10 findings, <=2000 chars per summary and
+  per finding detail, <=200 per finding title, <=200 for model; every prose field non-empty.
+
+## Hosted push: the data contract (what uploads, what stays local)
+
+Canonical human-readable version: docs/hosted.md "Privacy model". Cite THIS contract when a
+user asks what `push` sends, whether EvalShift phones home, or whether suite/prompt/customer
+content leaves the machine.
+
+- The CLI has NO telemetry, analytics, or crash reporting. Only two kinds of outbound traffic,
+  both user-initiated: (1) the user's own model providers with the user's own keys during
+  run/evaluate/report (rendered prompts + histories to both models; outputs to embedding/judge
+  models; worst regressions' inputs+outputs to defaults.insights_model unless --no-insights);
+  (2) the hosted API (https://api.evalshift.dev or --host) on `login`/`whoami`/`push`/
+  `all --push` ONLY. doctor/run/evaluate/analyze/report/bundle send nothing to EvalShift.
+- `push` sends: run_bundle.json.gz + request metadata (bearer token as Authorization header to
+  the configured host only; compressed size; evalshift.yaml `thresholds` when set). `login`
+  sends a client name containing the machine hostname.
+- Bundle contents — UPLOADS:
+  - manifest: run id, org/project slug, source+target model ids, suite name, git SHA, branch,
+    PR number, the LOCAL suite file path as a string (can reveal directory/user names),
+    eval_config_hash, dataset_hash, timestamp, cli_version.
+  - examples[] (one per prompt x example): `inputs` VERBATIM; `expected` VERBATIM; both models'
+    FULL output text; traces (tool names + arguments; imported agent traces also tool results
+    capped 16KB each, retrieval queries/documents, guardrail verdicts; final text; refusal/
+    error text; stream capped 256KB/side); per-evaluator scores + error strings; per-side
+    cost/latency; tags/slice names; turn_index.
+  - aggregate/analysis/decision/economics: numbers and verdict labels, not content.
+  - methodology_notes: model ids + statistical-contract sentences.
+  - insights: the machine-written narrative — prose that can quote the regressions it
+    summarizes.
+  - evaluator_config: config version; prompt list METADATA (names, file paths, variable
+    names — every prompt body replaced by content_hash); defaults (model ids, concurrency,
+    cache, max_cost_usd, max_tokens); slices; full evaluators block INCLUDING each llm_judge
+    criterion_prompt text (keep judge criteria free of secrets).
+  - dataset_snapshot: suite path, size, slice names, examples_hash. No example content.
+- NEVER uploads: provider API keys; the hosted token (never inside a bundle); prompt bodies /
+  system prompts (manual content -> content_hash; python_string bodies never enter the config);
+  suite conversation histories (`history`, embedded system messages included); tool
+  definitions/schemas (toolsets); raw.jsonl; the SQLite response cache; .evalshift/captures/;
+  state.json; report.json; report.html.
+- Hashes that replace content (dataset_hash, examples_hash, prompts[].content_hash) are
+  SHA-256 over canonical JSON, so hosted diffs/baselines align without the content.
+- Residual risk: inputs/expected/outputs/traces upload verbatim — customer data or secrets a
+  model echoed upload with them. Mitigations: SDK redaction at capture time; inspect the exact
+  bytes first (`evalshift bundle <run-id>` then
+  `gunzip -c .evalshift/runs/<run-id>/run_bundle.json.gz | jq .`; `push --bundle` uploads
+  exactly the inspected file); self-host via --host; or never push — every local artefact
+  works without an account.
+
+## Behavior rules (invariants)
+
+- extra="forbid" on every config/suite model: unknown YAML/JSONL keys fail loudly at load.
+- python_string prompts parse source with the AST and NEVER import/execute user code; only
+  plain literals accepted (f-strings, concatenation, .format(), calls, names rejected). Last
+  module-level assignment wins. Workaround for computed prompts: detection: manual.
+- Delta convention: delta = target_score - source_score; negative = regression.
+- Upstream model-call failure or truncation -> pair scored neutral 0.5/0.5 with error attached
+  (cannot masquerade as regression or improvement); run always completes. Evaluator-own failure
+  (judge/embedding call broke) -> record stored as errored and EXCLUDED from statistics.
+- Every example is validated against every prompt (template variables covered) BEFORE any
+  model call is dispatched or money spent.
+- Cost estimate is worst-case (every completion at the registry default_max_tokens, 4096);
+  >$10 -> confirm prompt (--yes / EVALSHIFT_NONINTERACTIVE skips). defaults.max_cost_usd is
+  a soft ceiling reserved for future enforcement — not yet enforced at run time.
+- resume requires config_hash (canonical config + suite path) match; errored calls in a resumed
+  run are not retried — fresh run retries them via cache-missing pairs.
+- Each SuiteExample carries its own toolset -- toolset_ref (sidecar pointer, content-addressed)
+  or inline tools (exactly one required). Dispatch resolves it per example (never per prompt):
+  a non-empty toolset switches that call to the tool-aware client path and enables tool
+  evaluators for that row; two examples under one prompt can dispatch differently in one run.
+- Teacher-forced multi-turn replay: recorded history prefix sent VERBATIM + current turn as
+  final user message; both models see byte-identical context; only the current turn's output is
+  compared. Full-conversation re-drive is deliberately unsupported (breaks pairing).
+  History replays the AGENT LOOP: assistant.tool_calls + tool-role results are sent in the
+  OpenAI wire shape (function.arguments as a JSON string; tool messages keyed by
+  tool_call_id) and LiteLLM translates per provider. A promoted tool result with no recorded
+  id gets a positional id (_posN) with a warning.
+- Promotion copies the first model_call's metadata["generation_config"] (recorded by the SDK:
+  temperature, response_mime_type, response_schema, ...) onto SuiteExample.generation_config
+  VERBATIM. At dispatch the runner translates it: temperature overrides the registry default;
+  response_mime_type "application/json" (+ optional dict response_schema) -> LiteLLM
+  response_format (json_schema when a schema is present, else json_object); a litellm-shaped
+  response_format dict passes through. Applied to BOTH source and target calls and folded into
+  the cache key (absent config keeps pre-existing keys byte-stable). Unknown keys ignored.
+- capture sync recovers history VERBATIM when the capture recorded a full messages list, else
+  RECONSTRUCTS from sibling turns (approximation; earliest turn's system prompt wins, warns on
+  disagreement). capture promote (single) never cross-reconstructs.
+- Promotion hygiene: an `error` event in the trace BLOCKS promotion (promote exits 1, sync
+  skips). --allow-errored overrides, but expected_no_tools is NEVER set on an errored turn --
+  a turn that crashed before acting is not evidence that calling nothing was correct. A blocked
+  turn also does not seed later turns' reconstructed history. Two captures sharing
+  (conversation_id, turn_index) warn once (a retried turn; drop one). A tool_result with an
+  `error` or {"success": false} warns but still promotes.
+- Promotion ALSO blocks unconditionally (--allow-errored does not help) when the first
+  model_call has no toolset_ref: the SDK did not record what tools were offered, so there is
+  no toolset to carry. The error names the capture id and says to re-capture. When present,
+  toolset_ref is copied verbatim onto the example's toolset_ref (a first-class event field,
+  not metadata -- unlike generation_config, whose *shape* this carry mirrors). tools_offered
+  (cheap tool-name list, also on the event) drives expected_no_tools: true only when it is
+  non-empty AND no tool was called AND the turn did not error -- never when nothing was
+  offered, so `tool_selection`'s no-tools scoring (1.0/1.0 whenever both sides call zero
+  tools) cannot fire on a row that measured nothing.
+- `evalshift.captures.reader.load_toolset(ref, *, base=None, cache=None) -> list[ToolSpec]`
+  resolves a toolset sidecar (<base>/toolsets/<hex>.json) via ToolSpec.from_dict -- NEVER via
+  evaluators.tool_loader.load_tools, which rejects an empty list (wrong here: the empty
+  toolset is a first-class value). Pass a shared dict as `cache` to resolve a ref shared by
+  many captures/examples at most once.
+- capture sync drops content-duplicate captures by default (duplicates inflate n and corrupt
+  paired statistics); --keep-duplicates opts out. The dedup key is the built example's replayed
+  content (inputs + history), NOT the envelope input_hash (the SDK salts that with
+  conversation_id and derives it from the agent's bound args). Seeded from already-promoted
+  cases, so dedup spans sync runs.
+- Slices: filter is a tag literal matched against example.tags; each evaluator is analyzed
+  overall AND per slice; slice policy budgets inherit unset fields from the top level.
+- Slice dedup: slices holding identical (prompt, evaluator, example) triples collapse to one
+  before any test runs. Duplicates restate the same finding AND skew BH-FDR anti-conservatively:
+  k extra copies of a p-value raise both n and the rank the copies reach, and (n+k)/(r+k) < n/r,
+  so every adjusted p in the family shrinks and severities can be classified a step too high.
+  (Uniformly-duplicated families cancel exactly and move nothing.)
+  Survivor rank: "all" > names under migration_policy.slices > ordinary tag > provenance tag
+  ("captured", written by capture promote) > alphabetical. A suite promoted wholesale from
+  captures has captured == <suite> == all, so both tag slices drop and no slice section renders.
+  Drops surface as a terminal line and a collapsed_slices map in analysis.json.
+- severity_floor on tool_selection prevents downgrading its regressions below the floor.
+- Per-suite evaluators resolve through EvalShiftConfig.evaluators_for(suite_name) ONLY --
+  family-level replacement, never a deep merge. A second copy of the merge rule would let the
+  scored set and the reported set drift, so evaluate/report/bundle all call it (the bundle
+  snapshots the RESOLVED set into evaluator_config).
+- expected_tools[].provenance defaults to "captured": promote/sync transcribe arguments from
+  the source model's own call, so on those rows the source scores 1.0 BY CONSTRUCTION and
+  `against: expected` degenerates into what `against: source` already measured. The evaluator
+  stamps gt_provenance (captured|reviewed|mixed) on each tool_arguments record, and when EVERY
+  scored row is captured the policy adds a disclosure recommendation. No scoring change; the
+  line goes silent as soon as one row is reviewed (a blanket disclaimer would understate the
+  rows a human did check).
+- Registry is advisory; LiteLLM is authoritative; unknown model ids pass through with
+  prefix-inferred provider; missing provider key env var fails before a live run.
+- Hosted is opt-in: nothing uploads without push / all --push. Bundle contains manifest,
+  examples, outputs, scores, analysis, decision, economics, methodology_notes and insights —
+  never report.html, never provider API keys. Push idempotent on run id. Credential
+  precedence: CLI flags > env > ~/.evalshift/credentials (0600).
+- Plan limits are enforced by the server, never by the CLI: local runs are always unlimited, a
+  402 on push renders the server's message + upgrade URL and exits 1. A payment error is never
+  retried; 429/5xx upload failures are retried with backoff.
+- Report is a single self-contained HTML file: no external assets, works offline.
+- Run pruning never touches an in-progress run or the run just finished.
+- Exit codes: 0 success; 1 handled errors and tripped CI gates; doctor exits 1 only on invalid
+  existing config; init exits 2 on unknown --provider.
+
+## Minimal examples
+
+# evalshift.yaml — text migration (what init writes, trimmed)
+version: 1
+prompts:
+  - id: replay
+    detection: manual
+    content: "{input}"
+    variables: [input]
+defaults:
+  source_model: gemini-3.1-flash-lite-preview
+  target_model: gemini-3.1-pro-preview
+  concurrency: 4
+evaluators:
+  semantic: {embedding_model: gemini/gemini-embedding-001, min_similarity: 0.9, blocking: false}
+  llm_judge:
+    - criterion_name: equivalence
+      criterion_prompt: >
+        Which output is more complete and correct? Answer "tie" when both are
+        equivalent in substance and differ only in wording.
+      judge_model: gemini-3.1-pro-preview
+      blocking: false
+migration_policy: {max_overall_regression_rate: 0.03, max_critical_regressions: 0,
+  min_equivalence_rate: 0.95, max_tool_argument_drift: 0.01, max_tool_divergence: 0.03,
+  tool_argument_drift_floor: 0.9, max_cost_increase: 0.20, max_latency_increase: 0.30}
+# project: your-org/your-project   # hosted only; init scaffolds it commented out
+suites: {}                         # init writes the managed region LAST, after
+                                   # migration_policy: it is the only part a command
+                                   # rewrites and the only part that grows per suite
+
+# evalshift.yaml — agent prompt (tool-calling additions). Tool evaluators live in the
+# PER-SUITE block `capture sync` generates, not at the top level: a tool-free suite that
+# inherits a tool evaluator scores an empty denominator = an inconclusive gate.
+prompts:
+  - id: customer_routing
+    detection: python_string
+    path: prompts.py
+    variable: AGENT_SYSTEM_PROMPT
+    variables: [query]
+slices:
+  - {name: security, filter: security}
+# >>> evalshift suites (managed by `evalshift capture sync`) >>>
+suites:
+  briefing:                                     # tool-free rows -> no evaluators: block
+    source: captured
+    path: .evalshift/suites/briefing/golden.jsonl
+  main_chat:
+    source: captured
+    path: .evalshift/suites/main_chat/golden.jsonl
+    evaluators:                                 # replaces those families for THIS suite only
+      tool_selection:
+        - {name: routing, conformance: expected, divergence: set}
+      tool_arguments:
+        - {name: routing_args, against: expected}
+# <<< evalshift suites <<<
+# Keeping a hand edit (severity_floor: high, a per-field strategy)? Set `managed: false` on
+# that entry -- otherwise the next sync regenerates it.
+
+# golden.jsonl rows
+{"id": "ex_security_01", "inputs": {"query": "User account_42 had 5 failed login attempts in the last hour"}, "tags": ["security"], "expected_tools": [{"tool_name": "notify_security_team", "match_strategy": "subset"}], "toolset_ref": "sha256:1a2b3c..."}
+{"id": "ex_text_only_01", "inputs": {"query": "What is your refund policy?"}, "tags": ["text_only"], "expected_no_tools": true, "tools": []}
+{"id": "conv1_t2", "inputs": {"input": "1pm works"}, "conversation_id": "conv_9f2", "turn_index": 2, "history": [{"role": "system", "content": "You are a scheduling assistant."}, {"role": "user", "content": "Can we move my appointment?"}, {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "name": "get_calendar", "arguments": {"day": "tue"}}]}, {"role": "tool", "tool_call_id": "c1", "content": "{\"slots\": [\"1pm\"]}"}, {"role": "assistant", "content": "Sure — what time works?"}]}
+
+# Capture-first flow (real project)
+evalshift init --provider gemini            # minimal config only
+pip install evalshift-sdk                   # in the AGENT's venv (separate from CLI's!)
+EVALSHIFT_CAPTURE=1 python my_agent.py      # record captures via SDK instrumentation
+evalshift capture list
+evalshift capture sync                      # promote all -> .evalshift/suites/<suite>/golden.jsonl
+evalshift all --suite-name <suite> --to gemini-3.1-pro-preview --gate critical,high --policy-gate
+
+# Tools from code — no separate sync step: capture what your agent actually calls
+# Whatever your Python code defines as tools, the evalshift-sdk records the exact toolset a
+# given call was offered as ModelCallEvent.toolset_ref/tools_offered; `capture promote`/`sync`
+# then write it as a content-addressed <base>/toolsets/<hex>.json sidecar and stamp that ref
+# onto the promoted SuiteExample -- ground truth for what the agent was ACTUALLY offered, not
+# a hand-maintained file that can drift from it.
+# Writing a suite by hand instead (no captures)? Inline the same tool dicts directly:
+# {"id": "ex1", "inputs": {...}, "tools": [{"name": "get_schedule", "description": "...",
+#   "input_schema": {"type": "object", "properties": {...}, "required": [...]}}]}
+# Anthropic (name/description/input_schema), OpenAI ({"type":"function",...}), and Gemini
+# (name/description/parameters) shapes are all accepted; `[]` is a real, valid "no tools
+# offered" value.
+
+# CI workflow (what init --ci scaffolds, core)
+permissions: {contents: read, pull-requests: write, issues: write, statuses: write}
+env: {EVALSHIFT_NONINTERACTIVE: "1", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"}
+steps:
+  - uses: actions/checkout@v4
+  - uses: babaliauskas/evalshift-action@v0
+    with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", fail-on: regression}
+# EVALSHIFT_TOKEN must be an encrypted GitHub secret (repository or, preferably, environment)
+# holding a scoped service account key -- never a personal token, never a literal in YAML,
+# never reachable from pull_request_target. A scoped key cannot auto-create the project
+# (project:create is owner-only -> pre-create it, set create-project: false) and cannot rewrite
+# gating thresholds (policy:configure is owner-only -> keep `thresholds:` out of the CI config).
+# Action inputs: token (required), host, config=evalshift.yaml, suite=golden.jsonl,
+# fail-on=never|regression(default)|any-slice-regression, create-project=true, comment=true.
+# Behavior: pushes candidate run, finds latest compatible base-branch run, fetches hosted diff,
+# maintains one marked PR comment, sets `evalshift/regression` commit status.
+
+## Troubleshooting checklist
+
+Run seems expensive -> estimate is worst-case at max_tokens; actual usually far lower; cache
+makes repeats free; iterate with a small suite.
+All severities "none" -> usually genuinely no significant difference; check n (<5 insufficient,
+<20 uncertain) and remember BH correction raises the bar; zero-variance comparisons skip.
+Verdict "inconclusive" -> (1) all evaluators advisory (fresh init: flip blocking: true as the
+suite grows), (2) rate-budget breach unconfirmed by Wilson CI (grow the suite), (3) all n<5,
+(4) every blocking row excluded as a shared ground-truth miss -> fix the harness, not the
+sample size; more pairs from the same setup are more excluded rows.
+"broken eval harness" row -> the SOURCE model failed ground truth captured from itself. The
+suite does not describe the model under test: re-capture it against the agent actually running,
+or set conformance: off. Any verdict printed beside it is arithmetic over the wrong suite.
+analyze/all print the specific reason + recommended fix under the verdict line (also in
+migration_decision.json as reason/recommendations).
+--resume aborts -> config/suite changed since the run started (config_hash mismatch); start fresh.
+Failed calls -> recorded in raw.jsonl with error, pair scored neutral 0.5/0.5; fresh run
+retries them (cache serves the successes).
+Config rejected -> extra="forbid": check for typo'd keys; error names the exact path.
+python_string rejected -> the variable isn't a plain string literal; use detection: manual.
+Captures not found -> capture commands read .evalshift/captures/ under the CWD (or
+$EVALSHIFT_DIR); run from the directory your agent wrote to.
+Hosted 401 -> check evalshift whoami; precedence flags > env > credentials file; token must
+start with es_; a key past its rotation grace window authenticates as nobody.
+Hosted 403 `Permission denied: <key>` -> the token authenticated but its scopes (or its
+principal's role) don't cover that permission. Widen the scope or mint a key that holds it.
+Owner-only keys a service account can never hold: project:create (auto-create -> use
+--no-create-project on a pre-created project) and policy:configure (sending `thresholds:` from
+evalshift.yaml -> fails `Project owner role required`; manage thresholds in the web app).

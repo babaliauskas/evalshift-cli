@@ -1,0 +1,34 @@
+{
+  "id": "chatcmpl_synthetic_openai_parallel",
+  "object": "chat.completion",
+  "model": "gpt-4o",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_a",
+            "type": "function",
+            "function": {
+              "name": "search_db",
+              "arguments": "{\"query\": \"ACME\"}"
+            }
+          },
+          {
+            "id": "call_b",
+            "type": "function",
+            "function": {
+              "name": "search_db",
+              "arguments": "{\"query\": \"Initech\"}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 50, "completion_tokens": 40, "total_tokens": 90}
+}

@@ -1,0 +1,91 @@
+# Two stages, two jobs:
+#
+#   pre-commit — fast, per-file, and allowed to rewrite what you staged.
+#   pre-push   — exactly what CI runs, over the whole tree, read-only.
+#
+# Both are wired by a single `pre-commit install` thanks to
+# default_install_hook_types. Every hook below pins its stage explicitly: a
+# rewriting hook must never run at push time, because it would fix the working
+# tree while the *committed* blob stays broken — the check would pass locally
+# and CI would still fail on the pushed content.
+#
+# Entries go through `uv run` rather than a bare executable so the hooks work
+# from any shell, activated venv or not.
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: check-yaml
+        stages: [pre-commit]
+      - id: check-toml
+        stages: [pre-commit]
+      - id: check-added-large-files
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+
+  # Run the project venv's ruff and mypy (same commands as CI) instead of
+  # pinned pre-commit mirror venvs, which drift from the project versions
+  # (the mypy mirror venv lacks the runtime dependencies).
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+        stages: [pre-commit]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+        stages: [pre-commit]
+      - id: mypy
+        name: mypy --strict
+        entry: uv run mypy --strict src/evalshift
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Pre-push: exactly what .github/workflows/ci.yml runs, in the same order,
+  # over the whole tree. Keep these four in lockstep with the workflow — a
+  # check that lives only in CI is a check you find out about after pushing.
+  # All four are read-only; none may take --fix.
+  - repo: local
+    hooks:
+      - id: ci-ruff-check
+        name: "CI mirror: ruff check ."
+        entry: uv run ruff check .
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+      - id: ci-ruff-format
+        name: "CI mirror: ruff format --check ."
+        entry: uv run ruff format --check .
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+      - id: ci-mypy
+        name: "CI mirror: mypy --strict src/evalshift"
+        entry: uv run mypy --strict src/evalshift
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+      - id: ci-pytest
+        name: "CI mirror: pytest"
+        entry: uv run pytest
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false

@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>evalshift · {{ run_id }}</title>
+<style>{{ css|safe }}</style>
+</head>
+<body>
+{%- macro pct(value, digits=1) -%}
+  {%- if value is none -%}—{%- else -%}{{ ("%+." ~ digits ~ "f")|format(value) }}%{%- endif -%}
+{%- endmacro -%}
+
+{#- Colour a signed delta. Cost and latency are better when they fall, scores
+    when they rise, so the direction that counts as good is per-metric. -#}
+{%- macro tone_of(value, higher_is_better=False) -%}
+  {%- if value is none -%}muted
+  {%- elif value == 0 -%}ok
+  {%- elif (value > 0) == higher_is_better -%}ok
+  {%- else -%}bad
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- set decision = migration_decision -%}
+{%- set budgets = decision.budget_results if decision else [] -%}
+{%- set rates = (decision.overall if decision and decision.overall.n_records > 0
+                 else (decision.advisory if decision else None)) if decision else None -%}
+{%- set rates_are_advisory = decision and decision.overall.n_records == 0 and decision.advisory -%}
+
+<div class="page">
+
+  <header class="hdr">
+    <div class="hdr-top">
+      {#- The landing hero's − / + eyebrow device, reused verbatim: the report
+          opens from that page's "SEE A FULL DIFF" link and has to answer it. -#}
+      <span class="hdr-tag"><span class="bad">−</span> <span class="ok">+</span> EvalShift migration report</span>
+      <span class="hdr-when">{{ started_at }}</span>
+    </div>
+    <h1>{{ run_id }}</h1>
+    <div class="hdr-pills">
+      <span class="pill">{{ source_model }} <span class="faint">→</span> <span style="color:var(--fg)">{{ target_model }}</span></span>
+      {% if suite_name %}<span class="pill">suite {{ suite_name }}</span>{% endif %}
+      <span class="pill">{{ n_examples }} examples · {{ n_calls }} calls</span>
+      <span class="pill">${{ "%.4f"|format(total_cost_usd) }} total</span>
+    </div>
+    <p class="hdr-suite">{{ suite_path }}</p>
+  </header>
+
+{% if non_deterministic_models %}
+{# Above the verdict on purpose: this weakens every p-value below it, so it
+   cannot sit in the methodology list where nobody would read it. #}
+{% set solo = non_deterministic_models|length == 1 %}
+<div class="warn-banner">
+  <div class="warn-banner-head">Sampling is not controlled in this run</div>
+  <p>
+    {# Separators live outside the <code> chips: the chips are padded, so a comma
+       set directly against one renders with a visible gap. #}
+    {%- for model in non_deterministic_models %}
+      {%- if not loop.first %}{{ " and " if loop.last else ", " }}{% endif -%}
+      <code>{{ model }}</code>
+    {%- endfor %}
+    {{ "does" if solo else "do" }} not honour the <code>temperature</code> parameter.
+    {{ "Its" if solo else "Their" }} output varies between identical calls, so differences measured
+    on {{ "this arm" if solo else "these arms" }} mix model change with sampling noise: paired tests
+    are under-powered and non-significant results are weaker evidence than they appear.
+  </p>
+</div>
+{% endif %}
+
+  <section>
+    <div class="hero">
+      {% if decision %}
+      <div class="card verdict-{{ decision.verdict }}">
+        <span class="eyebrow">Migration verdict</span>
+        <div class="hero-value"><span class="big">{{ decision.verdict|replace("_", " ")|upper }}</span></div>
+        <p>
+          {%- if decision.reason %}{{ decision.reason }}
+          {%- else %}{{ budgets_passed }} of {{ budgets_total }} budgets within policy.
+            {%- if budgets_unmeasured %} {{ budgets_unmeasured }} measured nothing.{% endif %}
+          {%- endif %}
+        </p>
+        {% if rates %}
+        {% set eq = rates.equivalent_rate * 100 %}
+        {% set imp = rates.improved_rate * 100 %}
+        {% set reg = rates.regression_rate * 100 %}
+        <div class="rates">
+          <div class="rates-bar">
+            <div class="meter" style="width:{{ "%.4f"|format(eq) }}%"></div>
+            <div class="meter" style="width:{{ "%.4f"|format(imp) }}%"></div>
+            <div class="meter meter-bad" style="width:{{ "%.4f"|format(reg) }}%"></div>
+          </div>
+          <div class="rates-legend">
+            <span class="ok">Equivalent {{ "%.1f"|format(eq) }}%</span>
+            <span class="{{ "ok" if imp else "faint" }}">Improved {{ "%.1f"|format(imp) }}%</span>
+            <span class="{{ "bad" if reg else "faint" }}">Regressed {{ "%.1f"|format(reg) }}%</span>
+            {% if rates_are_advisory %}<span class="rates-advisory">advisory evaluators — informational, not gating</span>{% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <span class="eyebrow">Advisory signal</span>
+        {% if rates %}
+        {% set reg = rates.regression_rate * 100 %}
+        <div class="hero-value">
+          <span class="big mono {{ "bad" if reg else "ok" }}">{{ "%.1f"|format(reg) }}%</span>
+          <span class="unit">regression rate</span>
+        </div>
+        {% else %}
+        <div class="hero-value"><span class="big mono faint">—</span><span class="unit">regression rate</span></div>
+        {% endif %}
+        <p>
+          {%- set cap = budget_limit(budgets, "max_overall_regression_rate") -%}
+          {%- if cap %}{{ "Below" if cap.passed else "Above" }} the max_overall_regression_rate of {{ "%.0f"|format(cap.allowed * 100) }}%. {% endif -%}
+          {%- if headline %}Effect size {{ "%+.2f"|format(headline.effect_size) }}, confidence {{ confidence_label(headline.severity, headline.p_value_corrected)|lower }} at n = {{ headline.n }}.
+          {%- else %}No statistical test ran on this suite.{% endif -%}
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">Economics</span>
+        <div class="hero-value">
+          <span class="big mono {{ tone_of(cost_delta_pct) }}">{{ pct(cost_delta_pct) }}</span>
+          <span class="unit">cost</span>
+        </div>
+        <p>
+          ${{ "%.4f"|format(source_cost_usd) }} → ${{ "%.4f"|format(target_cost_usd) }}.
+          Latency {{ pct(latency_delta_pct) }}.
+          {%- set cost_cap = budget_limit(budgets, "max_cost_increase") -%}
+          {%- set lat_cap = budget_limit(budgets, "max_latency_increase") -%}
+          {% if cost_cap and lat_cap %}
+            {{ "Both inside" if cost_cap.passed and lat_cap.passed else "Ceilings" }}
+            +{{ "%.0f"|format(cost_cap.allowed * 100) }}% cost / +{{ "%.0f"|format(lat_cap.allowed * 100) }}% latency.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="panel strip">
+      <div class="strip-cell">
+        <span class="eyebrow">Examples</span>
+        <span class="strip-value">{{ n_examples }}</span>
+      </div>
+      <div class="strip-cell">
+        <span class="eyebrow">Calls</span>
+        <span class="strip-value">{{ n_calls }} <span class="note">{{ cached_calls }} cached</span></span>
+      </div>
+      <div class="strip-cell">
+        <span class="eyebrow">Failed / truncated</span>
+        <span class="strip-value {{ "bad" if failed_calls or truncated_calls else "ok" }}">{{ failed_calls }} / {{ truncated_calls }}</span>
+      </div>
+      <div class="strip-cell">
+        <span class="eyebrow">Total cost</span>
+        <span class="strip-value">${{ "%.4f"|format(total_cost_usd) }}</span>
+      </div>
+      <div class="strip-cell">
+        <span class="eyebrow">Latency Δ</span>
+        <span class="strip-value {{ tone_of(latency_delta_pct) }}">{{ pct(latency_delta_pct) }}</span>
+      </div>
+      <div class="strip-cell">
+        <span class="eyebrow">Avg score Δ</span>
+        <span class="strip-value {{ tone_of(avg_score_delta, higher_is_better=True) }}">{% if avg_score_delta is none %}—{% else %}{{ "%+.3f"|format(avg_score_delta) }}{% endif %}</span>
+      </div>
+    </div>
+
+{% if decision %}
+{% set failed_budgets = budgets|rejectattr("passed")|list %}
+{% if failed_budgets or decision.recommendations or decision.failure_categories %}
+    <div class="split">
+      <div class="panel pad" style="display:flex;flex-direction:column;gap:12px">
+        <span class="eyebrow">Recommendation</span>
+        {% for rec in decision.recommendations %}
+        <div class="note-row">
+          <span class="note-glyph">!</span>
+          <p>{{ rec }}</p>
+        </div>
+        {% else %}
+        <div class="note-row">
+          <span class="note-glyph note-glyph-ok">✓</span>
+          <p>No policy action recommended for this run.</p>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% if decision.failure_categories %}
+      {% set top_count = decision.failure_categories|map(attribute="count")|max %}
+      <div class="panel">
+        <div class="cause-head">
+          <span class="eyebrow">Top regression causes</span>
+          <span class="eyebrow">Count</span>
+        </div>
+        {% for row in decision.failure_categories %}
+        <div class="cause-row">
+          <span class="cause-name">{{ category_label(row.category) }}</span>
+          <div class="meter-track"><div class="meter meter-bad" style="width:{{ "%.1f"|format(row.count / top_count * 100) }}%"></div></div>
+          <span class="cause-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+{% endif %}
+
+{% if failed_budgets %}
+{% set count_budgets = ["max_critical_regressions"] %}
+{% set increase_budgets = ["max_cost_increase", "max_latency_increase"] %}
+{%- macro fmt_budget(name, value) -%}
+  {%- if name in count_budgets -%}
+    {{ "%.0f"|format(value) }}
+  {%- else -%}
+    {{ "+" if name in increase_budgets else "" }}{{ "%.1f"|format(value * 100) }}%
+  {%- endif -%}
+{%- endmacro -%}
+    <div class="block">
+      <h3>Budget failures</h3>
+      <div class="panel scroll">
+        <table>
+          <thead><tr>
+            <th>Budget</th>
+            <th>Scope</th>
+            <th class="num">Observed</th>
+            <th class="num">Limit</th>
+          </tr></thead>
+          <tbody>
+          {% for row in failed_budgets %}
+            <tr>
+              <td>
+                <span class="stack" {% if budget_meanings.get(row.name) %}title="{{ budget_meanings[row.name]|capitalize }}"{% endif %}>
+                  <span class="eval-name">{{ budget_labels.get(row.name, row.name) }}</span>
+                  <code class="eval-id">{{ row.name }}</code>
+                </span>
+              </td>
+              <td class="muted">{{ row.scope }}</td>
+              <td class="num bad">{{ fmt_budget(row.name, row.observed) }}</td>
+              <td class="num">{{ "≥" if row.name.startswith("min_") else "≤" }} {{ fmt_budget(row.name, row.allowed) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+{% endif %}
+{% endif %}
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Executive summary</h2>
+      <p class="sub">Plain-language read on each prompt. Hover a cell for the underlying statistics.</p>
+    </div>
+    {% if executive_summary %}
+    <div class="panel scroll">
+      <table class="summary">
+        <thead><tr>
+          <th>Prompt</th>
+          <th>Verdict</th>
+          <th class="num" title="Change in average score, 0–1 scale, target minus source">Score change</th>
+          <th class="num" title="Corrected p-value → how sure we are the change is real, not noise">Confidence</th>
+          <th class="num" title="Number of paired examples compared">Examples</th>
+        </tr></thead>
+        <tbody>
+        {% for row in executive_summary %}
+          {% set head, blurb = verdict(row.severity, row.notes) %}
+          <tr class="sev-{{ row.severity }}">
+            <td><code class="{{ "ok" if row.severity in ("none", "improved") else "bad" if row.severity in ("critical", "high") else "warn" }}">{{ severity_glyph(row.severity) }}</code> <code>{{ row.prompt_id }}</code></td>
+            <td>
+              <span class="stack">
+                <span class="verdict-head">{{ head }}</span>
+                <span class="verdict-blurb">{{ blurb }}</span>
+              </span>
+            </td>
+            <td class="num" title="Δ avg score {{ "%+.3f"|format(row.delta_avg_score) }} · Cohen's |d| {{ "%.2f"|format(row.effect_size|abs) }}">
+              {{ "%+.0f"|format(row.delta_avg_score * 100) }}%
+              <span class="magnitude" style="display:block">{{ effect_magnitude(row.effect_size) }}</span>
+            </td>
+            {% set conf = confidence_label(row.severity, row.p_value_corrected) %}
+            <td class="num" title="p_corrected = {{ "%.3f"|format(row.p_value_corrected) }} (Benjamini–Hochberg)">
+              {% if conf == "—" %}<span class="faint">—</span>{% else %}<span class="badge conf conf-{{ conf|lower }}">{{ conf }}</span>{% endif %}
+            </td>
+            <td class="num">
+              {{ row.n }}{% if row.n < small_sample_threshold %}<span class="small-sample" title="Fewer than {{ small_sample_threshold }} pairs — treat stats as directional, not conclusive">⚠ small</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="panel"><p class="empty">No comparisons available.</p></div>
+    {% endif %}
+  </section>
+
+{% if insight %}
+  <section>
+    <div class="section-head">
+      <h2>What changed, in plain language</h2>
+      <p class="sub insight-provenance">
+        Machine-written by <code>{{ insight.model }}</code> on {{ insight_generated_at }}.
+        Every figure below is copied from the statistics above, not generated.
+      </p>
+    </div>
+    <div class="split split-insight">
+      {#- Raised rather than flat, and the verdict read leads it: of the three
+          paragraphs this is the one a reader has to leave with. -#}
+      <div class="card insight insight-lead">
+        <div class="insight-block insight-block-lead verdict-{{ decision.verdict if decision else "unknown" }}">
+          <span class="eyebrow">Verdict</span>
+          <p>{{ insight.verdict_summary }}</p>
+        </div>
+        <div class="insight-block">
+          <span class="eyebrow">Advisory signal</span>
+          <p>{{ insight.advisory_summary }}</p>
+        </div>
+        <div class="insight-block">
+          <span class="eyebrow">Economics</span>
+          <p>{{ insight.economics_summary }}</p>
+        </div>
+      </div>
+      <div class="panel insight">
+        {% if insight.findings %}
+        <span class="eyebrow">Findings</span>
+        <ul class="insight-findings">
+        {% for finding in insight.findings %}
+          <li class="insight-{{ finding.kind }}">
+            <span class="note-glyph {{ "note-glyph-ok" if finding.kind == "positive" else "note-glyph-bad" if finding.kind == "negative" else "" }}">{{ insight_glyph(finding.kind) }}</span>
+            <span class="stack">
+              <span class="insight-title">{{ finding.title }}</span>
+              <span class="insight-detail">{{ finding.detail }}</span>
+            </span>
+          </li>
+        {% endfor %}
+        </ul>
+        {% endif %}
+        <div class="notice insight-recommendation">
+          <p><strong style="color:var(--fg)">Recommendation.</strong> {{ insight.recommendation }}</p>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endif %}
+
+{% for section in prompt_sections %}
+  <section style="gap:20px">
+    <div class="prompt-head">
+      <h2>Prompt</h2>
+      <span class="pill pill-lg">{{ section.prompt_id }}</span>
+    </div>
+
+    <div class="block">
+      <h3>Run economics</h3>
+      <div class="panel scroll">
+        <table class="econ">
+          <thead><tr>
+            <th></th>
+            <th class="num">Calls</th>
+            <th class="num">Cached</th>
+            <th class="num">Failed</th>
+            <th class="num">Truncated</th>
+            <th class="num" title="Empty text but tokens spent and no error — the model returned no visible text despite spending tokens (often thinking-only responses).">Empty output</th>
+            <th class="num">Cost (USD)</th>
+            <th class="num">Avg latency</th>
+            <th class="num">p95 latency</th>
+            <th class="num">Input tokens</th>
+            <th class="num">Output tokens</th>
+          </tr></thead>
+          <tbody>
+          {% for label, r in [("Source", section.economics.source), ("Target", section.economics.target)] %}
+            {% set is_target = label == "Target" %}
+            <tr>
+              <th>{{ label }}</th>
+              <td class="num">{{ r.calls }}</td>
+              <td class="num faint">{{ r.cached_calls }}</td>
+              <td class="num {{ "bad" if r.failed_calls else "faint" }}">{{ r.failed_calls }}</td>
+              <td class="num {{ "warn" if r.truncated_calls else "faint" }}">{{ r.truncated_calls }}</td>
+              <td class="num {{ "warn" if r.empty_output_calls else "faint" }}">{{ r.empty_output_calls }}</td>
+              <td class="num {{ "bad" if is_target and r.total_cost_usd > section.economics.source.total_cost_usd else "" }}">${{ "%.4f"|format(r.total_cost_usd) }}</td>
+              <td class="num {{ "bad" if is_target and r.latency_ms_avg > section.economics.source.latency_ms_avg else "" }}" title="{{ "%.0f"|format(r.latency_ms_avg) }} ms">{{ latency(r.latency_ms_avg, r.live_calls) }}</td>
+              <td class="num {{ "bad" if is_target and r.latency_ms_p95 > section.economics.source.latency_ms_p95 else "" }}" title="{{ "%.0f"|format(r.latency_ms_p95) }} ms">{{ latency(r.latency_ms_p95, r.live_calls) }}</td>
+              <td class="num">{{ "{:,}".format(r.total_input_tokens) }}</td>
+              <td class="num {{ "bad" if is_target and r.total_output_tokens > section.economics.source.total_output_tokens else "" }}">{{ "{:,}".format(r.total_output_tokens) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="econ-note">Latency stats cover live calls only ({{ section.economics.source.live_calls }} source / {{ section.economics.target.live_calls }} target); cache hits replay from disk.</p>
+    </div>
+
+    <div class="block">
+      <h3>Per-example breakdown</h3>
+      <p class="sub">Each number is target minus source for one example. Scores are on a 0–1 scale, so <code>−0.14</code> means the target scored 0.14 lower than the source on its worst-hit evaluator. Negative = target worse.</p>
+      {% if section.example_rows %}
+      {% set worst = section.example_rows|map(attribute="worst_delta_score")|reject("none")|map("abs")|list %}
+      {% set scale = worst|max if worst else 0 %}
+      <div class="panel scroll">
+        <table class="examples">
+          <thead><tr>
+            <th>Example</th>
+            <th>Tags</th>
+            <th class="num" title="Target latency minus source, in seconds. Shown only when both sides ran live (not cached).">Time Δ</th>
+            <th class="num" title="Target cost minus source cost, per call.">Cost Δ</th>
+            <th title="On the evaluator where the target dropped most: target score minus source score, on a 0–1 scale. Negative = target worse.">Worst score Δ</th>
+            <th title="Whether the target held every tool measurement the source held. ✗ when some tool evaluator scored the target below the source; — when no tool evaluator applies.">Tool match</th>
+            <th class="wrap" title="Which tools each side actually called, as the tool evaluator scored them.">Tools called (source → target)</th>
+          </tr></thead>
+          <tbody>
+          {% for row in section.example_rows %}
+            <tr class="{% if row.worst_delta_score is not none and row.worst_delta_score < 0 %}ex-regression{% elif row.worst_delta_score is not none and row.worst_delta_score > 0 %}ex-improved{% endif %}">
+              <td class="num" style="text-align:left"><code>{{ row.example_id }}</code>{% if row.turn_index is not none %}<span class="turn-badge">turn {{ row.turn_index }}</span>{% endif %}</td>
+              {# One dot-separated line, not a chip per tag: a stack of chips in a
+                 narrow column pushes every other row taller. #}
+              <td class="chip">{{ row.tags|join(" · ") }}</td>
+              <td class="num {{ "bad" if row.latency_comparable and row.delta_latency_ms > 0 else "muted" }}">{% if row.latency_comparable %}{{ "%+.1f"|format(row.delta_latency_ms / 1000.0) }} s{% else %}<span class="faint" title="One side was a cache hit, so latency isn't comparable">—</span>{% endif %}</td>
+              <td class="num {{ "bad" if row.delta_cost_usd > 0 else "muted" }}">{% if row.delta_cost_usd >= 0 %}+${{ "%.4f"|format(row.delta_cost_usd) }}{% else %}-${{ "%.4f"|format(-row.delta_cost_usd) }}{% endif %}</td>
+              <td>
+                {%- if row.worst_delta_score is none %}<span class="faint mono">—</span>
+                {%- elif row.worst_delta_score == 0 %}<span class="delta-value ok">±0.00</span>
+                {%- else %}
+                <div class="delta-cell">
+                  <div class="meter-track delta-track"><div class="meter {{ "meter-bad" if row.worst_delta_score < 0 else "" }}" style="width:{{ "%.1f"|format((row.worst_delta_score|abs) / scale * 100 if scale else 0) }}%"></div></div>
+                  <span class="delta-value {{ "bad" if row.worst_delta_score < 0 else "ok" }}">{{ "%+.2f"|format(row.worst_delta_score) }}</span>
+                </div>
+                {%- endif %}
+              </td>
+              <td>{% if row.tool_match is none %}<span class="faint">—</span>{% elif row.tool_match %}<span class="ok">✓</span>{% else %}<span class="bad">✗</span>{% endif %}</td>
+              <td class="tool-change">
+                {%- if row.tool_change is none %}<span class="faint">—</span>
+                {%- else %}<code>{{ tool_list(row.tool_change.source_names) }}</code> <span class="tool-arrow">→</span> <code class="{{ "tool-diverged" if row.tool_change.diverged else "tool-same" }}">{{ tool_list(row.tool_change.target_names) }}</code>
+                {%- endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="panel"><p class="empty">No examples available.</p></div>
+      {% endif %}
+    </div>
+
+    <div class="block">
+      <h3>Overall, by evaluator</h3>
+      <p class="sub">Each evaluator measures quality a different way, so they can disagree. Hover any row for the statistical test and exact p-values.</p>
+      {% if section.aggregate_rows %}
+      <div class="panel scroll">
+        <table>
+          <thead><tr>
+            <th>Evaluator</th>
+            <th class="num">n</th>
+            <th class="num" title="Change in average score, target minus source, on a 0–1 scale">Score Δ</th>
+            <th class="num" title="Cohen's d — how big the change is in standard-deviation units">Effect</th>
+            <th class="num" title="95% confidence interval for the effect size">95% range</th>
+            <th class="num" title="How sure we are the change is real, not noise — from the corrected p-value">Conf.</th>
+            <th>Result</th>
+          </tr></thead>
+          <tbody>
+          {% for row in section.aggregate_rows %}
+            {% set conf = confidence_label(row.severity, row.p_value_corrected) %}
+            {% set axis = axis_of(row.notes) %}
+            {% set head, blurb = verdict(row.severity, row.notes) %}
+            {% set unmeasured = row.n == 0 %}
+            <tr class="sev-{{ row.severity }}" title="{{ test_label(row.test) }} · p (raw) {{ "%.3f"|format(row.p_value) }} · p (corrected) {{ "%.3f"|format(row.p_value_corrected) }}">
+              <td>
+                <span class="stack">
+                  <span class="eval-name">{{ evaluator_label(row.evaluator_name, axis) }}</span>
+                  <code class="eval-id">{{ row.evaluator_name }}{% if axis %} · {{ axis }}{% endif %}</code>
+                  {% if axis_blurb(axis) %}<span class="eval-axis">{{ axis_blurb(axis) }}</span>{% endif %}
+                </span>
+              </td>
+              <td class="num {{ "warn" if unmeasured else "" }}">{{ row.n }}</td>
+              {% if unmeasured %}
+              <td class="num faint">—</td>
+              <td class="num faint">—</td>
+              <td class="num faint">—</td>
+              <td class="num faint">—</td>
+              {% else %}
+              <td class="num {{ "bad" if row.delta_avg_score < 0 else "ok" if row.delta_avg_score > 0 else "" }}">{{ "%+.3f"|format(row.delta_avg_score) }}</td>
+              <td class="num">{{ "%.2f"|format(row.effect_size|abs) }} <span class="magnitude">{{ effect_magnitude(row.effect_size) }}</span></td>
+              <td class="num muted ci">[{{ "%.2f"|format(row.effect_size_ci_low) }}, {{ "%.2f"|format(row.effect_size_ci_high) }}]</td>
+              <td class="num">{% if conf == "—" %}<span class="faint">—</span>{% else %}<span class="badge conf conf-{{ conf|lower }}">{{ conf }}</span>{% endif %}</td>
+              {% endif %}
+              <td>
+                <span class="stack">
+                  <span class="verdict-head">{{ verdict_glyph(row.severity, row.notes) }} {{ head }}</span>
+                  <span class="verdict-blurb">{{ blurb }}</span>
+                </span>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="panel"><p class="empty">No aggregate comparisons.</p></div>
+      {% endif %}
+    </div>
+
+    <div class="block">
+      <h3>Changes within specific slices</h3>
+      <p class="sub">Slices are subsets of your examples (grouped by tag). Only slices with a statistically significant change are listed. Hover a row for the test and exact p-values.</p>
+      {% set significant = section.slice_rows|selectattr("severity", "in", ["critical", "high", "medium", "low", "improved"])|list %}
+      {% if significant %}
+      <div class="panel scroll">
+        <table>
+          <thead><tr>
+            <th>Slice</th>
+            <th>Evaluator</th>
+            <th class="num">n</th>
+            <th class="num" title="Change in average score, target minus source, on a 0–1 scale">Score Δ</th>
+            <th class="num" title="Cohen's d — how big the change is in standard-deviation units">Effect</th>
+            <th class="num" title="How sure we are the change is real, not noise — from the corrected p-value">Conf.</th>
+            <th>Result</th>
+          </tr></thead>
+          <tbody>
+          {% for row in significant %}
+            {% set conf = confidence_label(row.severity, row.p_value_corrected) %}
+            {% set axis = axis_of(row.notes) %}
+            <tr class="sev-{{ row.severity }}" title="{{ test_label(row.test) }} · p (raw) {{ "%.3f"|format(row.p_value) }} · p (corrected) {{ "%.3f"|format(row.p_value_corrected) }}">
+              <td>{{ row.slice_name }}</td>
+              <td>
+                <span class="stack">
+                  <span class="eval-name">{{ evaluator_label(row.evaluator_name, axis) }}</span>
+                  <code class="eval-id">{{ row.evaluator_name }}{% if axis %} · {{ axis }}{% endif %}</code>
+                </span>
+              </td>
+              <td class="num">{{ row.n }}</td>
+              <td class="num {{ "bad" if row.delta_avg_score < 0 else "ok" if row.delta_avg_score > 0 else "" }}">{{ "%+.3f"|format(row.delta_avg_score) }}</td>
+              <td class="num">{{ "%.2f"|format(row.effect_size|abs) }} <span class="magnitude">{{ effect_magnitude(row.effect_size) }}</span></td>
+              <td class="num">{% if conf == "—" %}<span class="faint">—</span>{% else %}<span class="badge conf conf-{{ conf|lower }}">{{ conf }}</span>{% endif %}</td>
+              <td><span class="verdict-head">{{ severity_glyph(row.severity) }} {{ verdict(row.severity, row.notes)[0] }}</span></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="panel"><p class="empty">No slices reached significance after correction.</p></div>
+      {% endif %}
+    </div>
+
+    <div class="block">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <h3>Top regressions</h3>
+        {% if section.top_regressions %}<span class="mono muted count-note">{{ section.top_regressions|length }} of {{ section.example_rows|length }} examples</span>{% endif %}
+      </div>
+      {% if section.top_regressions %}
+      {% for tr in section.top_regressions %}
+      {% set reason = regression_reason(tr) %}
+      <details class="panel regression">
+        <summary class="reg-head">
+          <span class="caret"></span>
+          <span class="reg-id">{{ tr.example_id }}</span>
+          {% if tr.turn_index is not none %}<span class="badge">turn {{ tr.turn_index }}</span>{% endif %}
+          <span class="reg-what">{{ evaluator_label(tr.evaluator_name, tr.kind) }}</span>
+          {% if tr.truncated %}<span class="badge badge-warn trunc-flag">truncated (token cap)</span>{% endif %}
+          {% if tr.target_empty_output %}<span class="badge badge-warn empty-output-flag" title="The model returned no visible text despite spending tokens (often thinking-only responses).">empty output</span>{% endif %}
+          <span class="delta">{{ "%+.3f"|format(tr.delta) }}</span>
+        </summary>
+        <div class="reg-body">
+          <div class="notice notice-bad reg-why">
+            <div class="reg-why-line">
+              <span class="eyebrow">Why flagged</span>
+              <span class="reg-scores">source {{ "%.2f"|format(tr.source_score) }} → target {{ "%.2f"|format(tr.target_score) }} (0–1)</span>
+              {#- The evaluator's own failure category when it wrote one: it names
+                  what went wrong, where the axis slug only names what was scored. -#}
+              {%- set categories = tr.metadata.get("failure_categories") or [] %}
+              {% for category in categories %}<span class="badge badge-bad">{{ category_label(category) }}</span>{% endfor %}
+              {% if not categories and tr.kind %}<span class="badge badge-bad">{{ kind_label(tr.kind) }}</span>{% endif %}
+            </div>
+            {% if reason %}<p>{{ reason }}</p>{% endif %}
+          </div>
+
+          {% if tr.tool_change %}
+          <div class="tool-change">
+            <span class="eyebrow">Tools called</span>
+            <code>{{ tool_list(tr.tool_change.source_names) }}</code>
+            <span class="tool-arrow">→</span>
+            <code class="{{ "tool-diverged" if tr.tool_change.diverged else "tool-same" }}">{{ tool_list(tr.tool_change.target_names) }}</code>
+          </div>
+          {% endif %}
+
+          {% if tr.source_agent_trace or tr.target_agent_trace %}
+          <div class="reg-grid">
+            <div class="reg-col">
+              <div class="reg-col-head"><span class="eyebrow">Source agent trace</span><span class="reg-col-score ok">score {{ "%.3f"|format(tr.source_score) }}</span></div>
+              {% if tr.source_agent_trace and tr.source_agent_trace.tool_calls %}
+              <ol class="trace-list">
+                {% for c in tr.source_agent_trace.tool_calls %}
+                <li class="trace-call">{{ c.name }} <span class="trace-args">({{ c.arguments|tojson }})</span></li>
+                {% endfor %}
+              </ol>
+              {% else %}
+              <p class="trace-empty">(no tool calls)</p>
+              {% endif %}
+            </div>
+            <div class="reg-col">
+              <div class="reg-col-head"><span class="eyebrow">Target agent trace</span><span class="reg-col-score bad">score {{ "%.3f"|format(tr.target_score) }}</span></div>
+              {% if tr.target_agent_trace and tr.target_agent_trace.tool_calls %}
+              {% set source_names = (tr.source_agent_trace.tool_calls if tr.source_agent_trace else []) | map(attribute='name') | list %}
+              <ol class="trace-list trace-target">
+                {% for c in tr.target_agent_trace.tool_calls %}
+                <li class="trace-call {{ "" if c.name in source_names else "trace-extra" }}">{{ c.name }} <span class="trace-args">({{ c.arguments|tojson }})</span></li>
+                {% endfor %}
+              </ol>
+              {% else %}
+              <p class="trace-empty trace-missing">(no tool calls)</p>
+              {% endif %}
+            </div>
+          </div>
+          {% if tr.trace_diff and tr.trace_diff.items %}
+          <div class="reg-col">
+            <span class="eyebrow">Tool diffs</span>
+            <ul class="tool-diffs">
+              {% for diff in tr.trace_diff.items %}
+              <li><strong>{{ category_label(diff.category) }}</strong>: {{ diff.kind|replace("_", " ") }}
+                {% if diff.field %} · {{ diff.field }}: {{ diff.source_value|tojson }} → {{ diff.target_value|tojson }}{% endif %}
+                {% if diff.source_name or diff.target_name %} · {{ diff.source_name or "-" }} → {{ diff.target_name or "-" }}{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% elif tr.source_trace or tr.target_trace %}
+          {# v0.2 — tool regression: render the trace diff in place of text. #}
+          <div class="reg-grid">
+            <div class="reg-col">
+              <div class="reg-col-head"><span class="eyebrow">Source trace</span><span class="reg-col-score ok">score {{ "%.3f"|format(tr.source_score) }}</span></div>
+              {% if tr.source_trace and tr.source_trace.calls %}
+              <ol class="trace-list">
+                {% for c in tr.source_trace.calls %}
+                <li class="trace-call">{{ c.tool_name }} <span class="trace-args">({{ c.arguments|tojson }})</span></li>
+                {% endfor %}
+              </ol>
+              {% else %}
+              <p class="trace-empty">(no tool calls)</p>
+              {% endif %}
+              {% if tr.source_trace and tr.source_trace.final_text %}
+              <p class="trace-final"><em>final text:</em> {{ tr.source_trace.final_text }}</p>
+              {% endif %}
+            </div>
+            <div class="reg-col">
+              <div class="reg-col-head"><span class="eyebrow">Target trace</span><span class="reg-col-score bad">score {{ "%.3f"|format(tr.target_score) }}</span></div>
+              {% if tr.target_trace and tr.target_trace.calls %}
+              {% set source_names = (tr.source_trace.calls if tr.source_trace else []) | map(attribute='tool_name') | list %}
+              <ol class="trace-list trace-target">
+                {% for c in tr.target_trace.calls %}
+                <li class="trace-call {{ "" if c.tool_name in source_names else "trace-extra" }}">{{ c.tool_name }} <span class="trace-args">({{ c.arguments|tojson }})</span></li>
+                {% endfor %}
+              </ol>
+              {% else %}
+              <p class="trace-empty trace-missing">(no tool calls)</p>
+              {% endif %}
+              {% if tr.target_trace and tr.target_trace.final_text %}
+              <p class="trace-final"><em>final text:</em> {{ tr.target_trace.final_text }}</p>
+              {% endif %}
+            </div>
+          </div>
+          {% if tr.tool_diffs %}
+          <div class="reg-col">
+            <span class="eyebrow">Tool diffs</span>
+            <ul class="tool-diffs">
+              {% for diff in tr.tool_diffs %}
+              <li><strong>{{ diff.kind|replace("_", " ") }}</strong>: {{ diff.message }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% else %}
+          <div class="reg-grid">
+            <div class="reg-col">
+              <div class="reg-col-head"><span class="eyebrow">Source</span><span class="reg-col-score ok">score {{ "%.3f"|format(tr.source_score) }}</span></div>
+              <pre>{{ tr.source_text }}</pre>
+            </div>
+            <div class="reg-col">
+              <div class="reg-col-head"><span class="eyebrow">Target</span><span class="reg-col-score bad">score {{ "%.3f"|format(tr.target_score) }}</span></div>
+              <pre>{{ tr.target_text }}</pre>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if tr.history %}
+          <details class="transcript">
+            <summary><span class="caret"></span>Conversation context ({{ tr.history|length }} messages)</summary>
+            <ol class="transcript-body">
+              {% for msg in tr.history %}
+              <li class="transcript-turn"><span class="transcript-role">[{{ msg.role }}]</span> {{ msg.content }}{% for call in msg.tool_calls or [] %} <span class="transcript-tool-call">→ {{ call.name }}({{ call.arguments | tojson }})</span>{% endfor %}</li>
+              {% endfor %}
+            </ol>
+          </details>
+          {% endif %}
+          {% if tr.input_text %}
+          <details class="reg-input">
+            <summary><span class="caret"></span>Input ({{ tr.input_text|length }} chars)</summary>
+            <pre class="reg-input-body">{{ tr.input_text }}</pre>
+          </details>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+      {% else %}
+      <div class="panel"><p class="empty">No specific regressions to surface.</p></div>
+      {% endif %}
+    </div>
+  </section>
+{% endfor %}
+
+  <section>
+    <h2 class="ruled">Methodology</h2>
+    <div class="split split-even">
+      <ul class="panel method-list">
+      {% for note in methodology_notes %}
+        <li>{{ note }}</li>
+      {% endfor %}
+      </ul>
+      <div class="panel method-meta">
+        <div>
+          <span class="eyebrow">Source model</span>
+          <span class="value">{{ source_model }}</span>
+        </div>
+        <div>
+          <span class="eyebrow">Target model</span>
+          <span class="value">{{ target_model }}</span>
+        </div>
+        <div>
+          <span class="eyebrow">Suite</span>
+          <span class="value">{{ suite_path }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Generated by <a href="https://github.com/babaliauskas/EvalShift">EvalShift</a> · {{ run_id }}</p>
+  </footer>
+
+</div>
+</body>
+</html>

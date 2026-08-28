@@ -1,0 +1,52 @@
+site_name: EvalShift
+site_description: Open-source LLM migration and regression testing for AI agents. Compare two models, detect tool-call regressions, and gate model changes in CI.
+site_url: https://babaliauskas.github.io/evalshift-cli/
+repo_url: https://github.com/babaliauskas/evalshift-cli
+repo_name: babaliauskas/evalshift-cli
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Capture SDK: sdk.md
+  - Hosted alpha: hosted.md
+  - GitHub Action: github-action.md
+  - Configuration: configuration.md
+  - Evaluators: evaluators.md
+  - Agent migrations: agents.md
+  - Multi-turn conversations: conversations.md
+  - Agent traces: traces.md
+  - Methodology: methodology.md
+  - FAQ: faq.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

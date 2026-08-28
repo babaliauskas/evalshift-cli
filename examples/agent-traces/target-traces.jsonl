@@ -1,0 +1,1 @@
+{"run_id":"r_replace_with_run_id","prompt_id":"support_agent","example_id":"refund_017","role":"target","events":[{"type":"tool_call","sequence_index":0,"timestamp":"2026-06-09T12:00:00Z","metadata":{},"name":"issue_refund","arguments":{"ticket_id":"T-1023"}}]}

@@ -1,0 +1,2 @@
+{"id": "ex1", "inputs": {"name": "Alex", "tone": "formal"}, "tools": []}
+{"id": "ex2", "inputs": {"name": "Sam"}, "tools": []}

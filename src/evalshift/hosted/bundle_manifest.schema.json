@@ -1,0 +1,1955 @@
+{
+  "bundle": {
+    "$defs": {
+      "Aggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_usd_delta": {
+            "title": "Cost Usd Delta",
+            "type": "number"
+          },
+          "cost_usd_source": {
+            "title": "Cost Usd Source",
+            "type": "number"
+          },
+          "cost_usd_target": {
+            "title": "Cost Usd Target",
+            "type": "number"
+          },
+          "duration_seconds": {
+            "minimum": 0.0,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "failed": {
+            "minimum": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "latency_ms_p50_delta": {
+            "title": "Latency Ms P50 Delta",
+            "type": "number"
+          },
+          "latency_ms_p95_delta": {
+            "title": "Latency Ms P95 Delta",
+            "type": "number"
+          },
+          "latency_ms_source_p50": {
+            "title": "Latency Ms Source P50",
+            "type": "number"
+          },
+          "latency_ms_source_p95": {
+            "title": "Latency Ms Source P95",
+            "type": "number"
+          },
+          "latency_ms_target_p50": {
+            "title": "Latency Ms Target P50",
+            "type": "number"
+          },
+          "latency_ms_target_p95": {
+            "title": "Latency Ms Target P95",
+            "type": "number"
+          },
+          "pass_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pass Rate",
+            "type": "number"
+          },
+          "passed": {
+            "minimum": 0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "slices": {
+            "items": {
+              "$ref": "#/$defs/SliceAggregate"
+            },
+            "title": "Slices",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "passed",
+          "failed",
+          "pass_rate",
+          "duration_seconds",
+          "slices",
+          "cost_usd_source",
+          "cost_usd_target",
+          "cost_usd_delta",
+          "latency_ms_source_p50",
+          "latency_ms_source_p95",
+          "latency_ms_target_p50",
+          "latency_ms_target_p95",
+          "latency_ms_p50_delta",
+          "latency_ms_p95_delta"
+        ],
+        "title": "Aggregate",
+        "type": "object"
+      },
+      "Analysis": {
+        "additionalProperties": false,
+        "description": "The ``analysis`` block: statistics computed by the CLI, never recomputed here.",
+        "properties": {
+          "comparisons": {
+            "items": {
+              "$ref": "#/$defs/Comparison"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
+          "n_examples": {
+            "minimum": 0,
+            "title": "N Examples",
+            "type": "integer"
+          },
+          "n_records": {
+            "minimum": 0,
+            "title": "N Records",
+            "type": "integer"
+          },
+          "slice_aggregates": {
+            "additionalProperties": {
+              "$ref": "#/$defs/SliceStat"
+            },
+            "title": "Slice Aggregates",
+            "type": "object"
+          }
+        },
+        "required": [
+          "n_records",
+          "n_examples"
+        ],
+        "title": "Analysis",
+        "type": "object"
+      },
+      "BlockingRegression": {
+        "additionalProperties": false,
+        "properties": {
+          "delta_avg_score": {
+            "title": "Delta Avg Score",
+            "type": "number"
+          },
+          "effect_size": {
+            "title": "Effect Size",
+            "type": "number"
+          },
+          "evaluator_name": {
+            "title": "Evaluator Name",
+            "type": "string"
+          },
+          "prompt_id": {
+            "title": "Prompt Id",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "slice_name": {
+            "title": "Slice Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt_id",
+          "evaluator_name",
+          "slice_name",
+          "severity",
+          "delta_avg_score",
+          "effect_size"
+        ],
+        "title": "BlockingRegression",
+        "type": "object"
+      },
+      "BudgetResult": {
+        "additionalProperties": false,
+        "description": "One policy budget's outcome within one scope.\n\n``denominator`` is what separates \"0/0, nothing was ever counted\" from\n\"measured, and the answer is 0%\". Both store ``observed = 0.0``, and both\nclear a ceiling budget, so without it an unmeasured budget is indistinguish-\nable from a clean one. See ``BUNDLE_SPEC.md`` for the field-by-field\ncontract and the compatibility rule for bundles that omit it.",
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "number"
+          },
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ci Low"
+          },
+          "conclusive": {
+            "default": true,
+            "description": "Whether `passed` is a conclusion rather than a coin flip. False when the budget had nothing to measure (an empty sample, or a quantity this run could not observe at all, such as a cost ratio where both models reported zero cost), or when a breach landed on too small a sample to separate `observed` from `allowed`. The interval test is asymmetric: only a breached budget is asked to defend itself (a ceiling breach needs `ci_low > allowed`, a floor breach `ci_high < allowed`), so a budget that held is conclusive whenever it was measured at all. An inconclusive budget is not a pass and not a failure: it is a check that did not reach a verdict, and consumers must not round it up to either. Defaults to true, which is also how a bundle that omits it is read.",
+            "title": "Conclusive",
+            "type": "boolean"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "How many units `observed` was computed over \u2014 records for the rate budgets, tool-bearing records for tool drift, paired calls for the cost and latency ratios. 0 means the budget was evaluated against an empty sample, so `observed` is a default and not a measurement. Null means no sample size was reported, which is NOT the same as zero: bundles written before this field existed omit it, and consumers must treat its absence as 'unknown' and fall back to `conclusive`.",
+            "title": "Denominator"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "number"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "scope": {
+            "default": "overall",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "observed",
+          "allowed",
+          "passed"
+        ],
+        "title": "BudgetResult",
+        "type": "object"
+      },
+      "BundleManifest": {
+        "additionalProperties": false,
+        "description": "The `manifest` block inside a bundle.",
+        "properties": {
+          "branch": {
+            "minLength": 1,
+            "title": "Branch",
+            "type": "string"
+          },
+          "cli_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cli Version"
+          },
+          "created_at": {
+            "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_hash": {
+            "description": "SHA-256 hex digest, `sha256:` prefixed",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Dataset Hash",
+            "type": "string"
+          },
+          "eval_config_hash": {
+            "description": "SHA-256 hex digest, `sha256:` prefixed",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Eval Config Hash",
+            "type": "string"
+          },
+          "git_sha": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Git Sha",
+            "type": "string"
+          },
+          "pr_number": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pr Number"
+          },
+          "project_slug": {
+            "pattern": "^[a-z0-9-]+/[a-z0-9-]+$",
+            "title": "Project Slug",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_model": {
+            "minLength": 1,
+            "title": "Source Model",
+            "type": "string"
+          },
+          "suite_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Suite Name",
+            "type": "string"
+          },
+          "suite_path": {
+            "minLength": 1,
+            "title": "Suite Path",
+            "type": "string"
+          },
+          "target_model": {
+            "minLength": 1,
+            "title": "Target Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "project_slug",
+          "source_model",
+          "target_model",
+          "suite_name",
+          "suite_path",
+          "git_sha",
+          "branch",
+          "eval_config_hash",
+          "dataset_hash",
+          "created_at"
+        ],
+        "title": "BundleManifest",
+        "type": "object"
+      },
+      "Comparison": {
+        "additionalProperties": false,
+        "description": "One (prompt, evaluator-axis, slice) statistical verdict, as emitted by the CLI.\n\n``kind`` is the evaluator's stable type slug, same as ``ExampleScore.kind``:\nan evaluator measuring two axes emits one comparison per axis under the same\nuser-chosen name. Blank on bundles from CLIs predating the field.",
+        "properties": {
+          "delta_avg_score": {
+            "title": "Delta Avg Score",
+            "type": "number"
+          },
+          "effect_size": {
+            "title": "Effect Size",
+            "type": "number"
+          },
+          "effect_size_ci_high": {
+            "title": "Effect Size Ci High",
+            "type": "number"
+          },
+          "effect_size_ci_low": {
+            "title": "Effect Size Ci Low",
+            "type": "number"
+          },
+          "evaluator_name": {
+            "title": "Evaluator Name",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "n": {
+            "minimum": 0,
+            "title": "N",
+            "type": "integer"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "p_value": {
+            "title": "P Value",
+            "type": "number"
+          },
+          "p_value_corrected": {
+            "title": "P Value Corrected",
+            "type": "number"
+          },
+          "prompt_id": {
+            "title": "Prompt Id",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "slice_name": {
+            "title": "Slice Name",
+            "type": "string"
+          },
+          "statistic": {
+            "title": "Statistic",
+            "type": "number"
+          },
+          "test": {
+            "title": "Test",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt_id",
+          "evaluator_name",
+          "slice_name",
+          "n",
+          "test",
+          "statistic",
+          "p_value",
+          "p_value_corrected",
+          "effect_size",
+          "effect_size_ci_low",
+          "effect_size_ci_high",
+          "delta_avg_score",
+          "severity"
+        ],
+        "title": "Comparison",
+        "type": "object"
+      },
+      "Decision": {
+        "additionalProperties": false,
+        "description": "The ``decision`` block: the migration verdict, mirroring the CLI ``MigrationDecision``.",
+        "properties": {
+          "advisory": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PolicyMetricSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "advisory_regressions": {
+            "items": {
+              "$ref": "#/$defs/BlockingRegression"
+            },
+            "title": "Advisory Regressions",
+            "type": "array"
+          },
+          "blocking_regressions": {
+            "items": {
+              "$ref": "#/$defs/BlockingRegression"
+            },
+            "title": "Blocking Regressions",
+            "type": "array"
+          },
+          "budget_results": {
+            "items": {
+              "$ref": "#/$defs/BudgetResult"
+            },
+            "title": "Budget Results",
+            "type": "array"
+          },
+          "failure_categories": {
+            "items": {
+              "$ref": "#/$defs/FailureCategoryCount"
+            },
+            "title": "Failure Categories",
+            "type": "array"
+          },
+          "overall": {
+            "$ref": "#/$defs/PolicyMetricSummary"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "slices": {
+            "additionalProperties": {
+              "$ref": "#/$defs/SliceDecision"
+            },
+            "propertyNames": {
+              "not": {
+                "const": "overall"
+              }
+            },
+            "title": "Slices",
+            "type": "object"
+          },
+          "source_model": {
+            "title": "Source Model",
+            "type": "string"
+          },
+          "target_model": {
+            "title": "Target Model",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "conditional_pass",
+              "fail",
+              "inconclusive"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "source_model",
+          "target_model",
+          "verdict",
+          "overall",
+          "slices",
+          "budget_results",
+          "blocking_regressions",
+          "failure_categories",
+          "recommendations"
+        ],
+        "title": "Decision",
+        "type": "object"
+      },
+      "Economics": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "$ref": "#/$defs/RoleEconomics"
+          },
+          "target": {
+            "$ref": "#/$defs/RoleEconomics"
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "Economics",
+        "type": "object"
+      },
+      "Example": {
+        "additionalProperties": false,
+        "description": "One evaluated example, as emitted by the CLI.\n\nCarries no per-example ``severity``: ``_classify_severity`` in the CLI\nclassifies a comparison *across* examples from a corrected p-value, Cohen's d\nand n, and is undefined for a single row. Consumers rank on\n``worst_delta_score`` instead.",
+        "properties": {
+          "cost_usd_source": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cost Usd Source"
+          },
+          "cost_usd_target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cost Usd Target"
+          },
+          "delta_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta Cost Usd"
+          },
+          "delta_latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Delta Latency Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "example_id": {
+            "title": "Example Id",
+            "type": "string"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expected"
+          },
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "latency_comparable": {
+            "title": "Latency Comparable",
+            "type": "boolean"
+          },
+          "latency_ms_source": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Latency Ms Source"
+          },
+          "latency_ms_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Latency Ms Target"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "prompt_id": {
+            "title": "Prompt Id",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Score"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/$defs/ExampleScore"
+            },
+            "title": "Scores",
+            "type": "array"
+          },
+          "slice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Slice"
+          },
+          "source_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Output"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "target_empty_output": {
+            "title": "Target Empty Output",
+            "type": "boolean"
+          },
+          "target_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Output"
+          },
+          "tool_match": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Match"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/$defs/ExampleTrace"
+            },
+            "title": "Traces",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "turn_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Index"
+          },
+          "worst_delta_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Worst Delta Score"
+          }
+        },
+        "required": [
+          "prompt_id",
+          "example_id",
+          "input",
+          "passed",
+          "latency_comparable",
+          "truncated",
+          "target_empty_output"
+        ],
+        "title": "Example",
+        "type": "object"
+      },
+      "ExampleScore": {
+        "additionalProperties": false,
+        "description": "One evaluator's paired verdict on one example, on one axis.\n\n``kind`` is the evaluator's stable type slug (``tool_selection.divergence``),\nas opposed to ``evaluator_name`` which is whatever the user called it in\n``evalshift.yaml``. One evaluator can measure more than one axis \u2014 a\ntool_selection evaluator with divergence on emits a conformance row and a\ndivergence row under the same name \u2014 so ``(evaluator_name, kind)`` is the\nrow's identity, not the name alone. Blank on bundles from CLIs predating\nthe field.",
+        "properties": {
+          "delta": {
+            "title": "Delta",
+            "type": "number"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "evaluator_name": {
+            "title": "Evaluator Name",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "title": "Kind",
+            "type": "string"
+          },
+          "source_score": {
+            "title": "Source Score",
+            "type": "number"
+          },
+          "target_score": {
+            "title": "Target Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "evaluator_name",
+          "source_score",
+          "target_score",
+          "delta"
+        ],
+        "title": "ExampleScore",
+        "type": "object"
+      },
+      "ExampleTrace": {
+        "additionalProperties": false,
+        "description": "What one model side actually did on one example.\n\n``side`` admits ``\"expected\"`` so shipping golden-case events later needs no\nmigration; nothing emits it today.",
+        "properties": {
+          "events": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "error": "#/$defs/TraceErrorEvent",
+                  "final_output": "#/$defs/FinalOutputEvent",
+                  "guardrail": "#/$defs/GuardrailEvent",
+                  "model_call": "#/$defs/ModelCallEvent",
+                  "retrieval": "#/$defs/RetrievalEvent",
+                  "tool_call": "#/$defs/ToolCallEvent",
+                  "tool_result": "#/$defs/ToolResultEvent"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ModelCallEvent"
+                },
+                {
+                  "$ref": "#/$defs/ToolCallEvent"
+                },
+                {
+                  "$ref": "#/$defs/ToolResultEvent"
+                },
+                {
+                  "$ref": "#/$defs/FinalOutputEvent"
+                },
+                {
+                  "$ref": "#/$defs/TraceErrorEvent"
+                },
+                {
+                  "$ref": "#/$defs/RetrievalEvent"
+                },
+                {
+                  "$ref": "#/$defs/GuardrailEvent"
+                }
+              ]
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "side": {
+            "enum": [
+              "expected",
+              "source",
+              "target"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "side"
+        ],
+        "title": "ExampleTrace",
+        "type": "object"
+      },
+      "FailureCategoryCount": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "count": {
+            "minimum": 0,
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "count"
+        ],
+        "title": "FailureCategoryCount",
+        "type": "object"
+      },
+      "FinalOutputEvent": {
+        "additionalProperties": false,
+        "description": "Free-form text the model produced after or instead of tool calls.",
+        "properties": {
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "type": {
+            "const": "final_output",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type"
+        ],
+        "title": "FinalOutputEvent",
+        "type": "object"
+      },
+      "GuardrailEvent": {
+        "additionalProperties": false,
+        "description": "A guardrail or policy check. Imported agent traces only.",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason"
+          },
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "type": {
+            "const": "guardrail",
+            "title": "Type",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "fail",
+              "warn",
+              "skipped"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type",
+          "name",
+          "verdict"
+        ],
+        "title": "GuardrailEvent",
+        "type": "object"
+      },
+      "InsightFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "positive",
+              "negative",
+              "warning"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "detail"
+        ],
+        "title": "InsightFinding",
+        "type": "object"
+      },
+      "Insights": {
+        "additionalProperties": false,
+        "description": "Machine-written narrative explaining the run.\n\nEvery headline figure on the page is rendered from data; this block is prose\nonly. The CLI validates that the generating model copied figures verbatim\nfrom its facts block rather than deriving them.\n\nThe length caps are load-bearing: this text is model-generated, reaches a\nrendered page, and must not be able to blow up a response or a table row.",
+        "properties": {
+          "advisory_summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Advisory Summary",
+            "type": "string"
+          },
+          "economics_summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Economics Summary",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/$defs/InsightFinding"
+            },
+            "maxItems": 10,
+            "title": "Findings",
+            "type": "array"
+          },
+          "generated_at": {
+            "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "recommendation": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Recommendation",
+            "type": "string"
+          },
+          "verdict_summary": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Verdict Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "generated_at",
+          "verdict_summary",
+          "advisory_summary",
+          "economics_summary",
+          "recommendation"
+        ],
+        "title": "Insights",
+        "type": "object"
+      },
+      "ModelCallEvent": {
+        "additionalProperties": false,
+        "description": "A model invocation. Marks a round boundary.\n\nCarries metrics only \u2014 the CLI drops ``input`` and ``output`` payloads,\nwhich are ~95% of a capture's bytes and duplicate ``Example.input``.",
+        "properties": {
+          "cost_usd": {
+            "default": 0.0,
+            "minimum": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "input_tokens": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model_id": {
+            "default": "",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "output_tokens": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "type": {
+            "const": "model_call",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type"
+        ],
+        "title": "ModelCallEvent",
+        "type": "object"
+      },
+      "PolicyMetricSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_increase_rate": {
+            "title": "Cost Increase Rate",
+            "type": "number"
+          },
+          "critical_regressions": {
+            "minimum": 0,
+            "title": "Critical Regressions",
+            "type": "integer"
+          },
+          "equivalent_rate": {
+            "title": "Equivalent Rate",
+            "type": "number"
+          },
+          "improved_rate": {
+            "title": "Improved Rate",
+            "type": "number"
+          },
+          "latency_increase_rate": {
+            "title": "Latency Increase Rate",
+            "type": "number"
+          },
+          "n_records": {
+            "minimum": 0,
+            "title": "N Records",
+            "type": "integer"
+          },
+          "regression_rate": {
+            "title": "Regression Rate",
+            "type": "number"
+          },
+          "tool_argument_drift_rate": {
+            "title": "Tool Argument Drift Rate",
+            "type": "number"
+          }
+        },
+        "required": [
+          "n_records",
+          "improved_rate",
+          "equivalent_rate",
+          "regression_rate",
+          "critical_regressions",
+          "tool_argument_drift_rate",
+          "cost_increase_rate",
+          "latency_increase_rate"
+        ],
+        "title": "PolicyMetricSummary",
+        "type": "object"
+      },
+      "RetrievalEvent": {
+        "additionalProperties": false,
+        "description": "A retrieval step. Imported agent traces only.",
+        "properties": {
+          "documents": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "query": {
+            "default": "",
+            "title": "Query",
+            "type": "string"
+          },
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "source": {
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "type": {
+            "const": "retrieval",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type",
+          "source"
+        ],
+        "title": "RetrievalEvent",
+        "type": "object"
+      },
+      "RoleEconomics": {
+        "additionalProperties": false,
+        "description": "Per-role call and token rollup, computed by the CLI.",
+        "properties": {
+          "cached_calls": {
+            "minimum": 0,
+            "title": "Cached Calls",
+            "type": "integer"
+          },
+          "calls": {
+            "minimum": 0,
+            "title": "Calls",
+            "type": "integer"
+          },
+          "empty_output_calls": {
+            "minimum": 0,
+            "title": "Empty Output Calls",
+            "type": "integer"
+          },
+          "failed_calls": {
+            "minimum": 0,
+            "title": "Failed Calls",
+            "type": "integer"
+          },
+          "latency_ms_avg": {
+            "title": "Latency Ms Avg",
+            "type": "number"
+          },
+          "latency_ms_p95": {
+            "title": "Latency Ms P95",
+            "type": "number"
+          },
+          "live_calls": {
+            "minimum": 0,
+            "title": "Live Calls",
+            "type": "integer"
+          },
+          "total_cost_usd": {
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_input_tokens": {
+            "minimum": 0,
+            "title": "Total Input Tokens",
+            "type": "integer"
+          },
+          "total_output_tokens": {
+            "minimum": 0,
+            "title": "Total Output Tokens",
+            "type": "integer"
+          },
+          "truncated_calls": {
+            "minimum": 0,
+            "title": "Truncated Calls",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "live_calls",
+          "cached_calls",
+          "failed_calls",
+          "truncated_calls",
+          "empty_output_calls",
+          "total_cost_usd",
+          "total_input_tokens",
+          "total_output_tokens",
+          "latency_ms_avg",
+          "latency_ms_p95"
+        ],
+        "title": "RoleEconomics",
+        "type": "object"
+      },
+      "SliceAggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pass_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pass Rate",
+            "type": "number"
+          },
+          "passed": {
+            "minimum": 0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "total",
+          "passed",
+          "pass_rate"
+        ],
+        "title": "SliceAggregate",
+        "type": "object"
+      },
+      "SliceDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "budget_results": {
+            "items": {
+              "$ref": "#/$defs/BudgetResult"
+            },
+            "title": "Budget Results",
+            "type": "array"
+          },
+          "metrics": {
+            "$ref": "#/$defs/PolicyMetricSummary"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "conditional_pass",
+              "fail",
+              "inconclusive"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "verdict",
+          "metrics"
+        ],
+        "title": "SliceDecision",
+        "type": "object"
+      },
+      "SliceStat": {
+        "additionalProperties": false,
+        "description": "Per-slice descriptive aggregate (mirrors the CLI ``SliceAggregate``).",
+        "properties": {
+          "delta_avg_score": {
+            "title": "Delta Avg Score",
+            "type": "number"
+          },
+          "delta_max_score": {
+            "title": "Delta Max Score",
+            "type": "number"
+          },
+          "delta_min_score": {
+            "title": "Delta Min Score",
+            "type": "number"
+          },
+          "n": {
+            "minimum": 0,
+            "title": "N",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_avg_score": {
+            "title": "Source Avg Score",
+            "type": "number"
+          },
+          "source_score_stdev": {
+            "title": "Source Score Stdev",
+            "type": "number"
+          },
+          "target_avg_score": {
+            "title": "Target Avg Score",
+            "type": "number"
+          },
+          "target_score_stdev": {
+            "title": "Target Score Stdev",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "n",
+          "source_avg_score",
+          "target_avg_score",
+          "delta_avg_score",
+          "delta_min_score",
+          "delta_max_score",
+          "source_score_stdev",
+          "target_score_stdev"
+        ],
+        "title": "SliceStat",
+        "type": "object"
+      },
+      "ToolCallEvent": {
+        "additionalProperties": false,
+        "description": "A tool invocation emitted by the model.",
+        "properties": {
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Call Id"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Call Id"
+          },
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "type": {
+            "const": "tool_call",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type",
+          "name"
+        ],
+        "title": "ToolCallEvent",
+        "type": "object"
+      },
+      "ToolResultEvent": {
+        "additionalProperties": false,
+        "description": "The value a tool returned.\n\n``truncated`` is set by the CLI when ``result`` exceeded the per-result cap;\nthe value is shortened, never dropped.",
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Call Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "result": {
+            "default": null,
+            "title": "Result"
+          },
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "tool_result",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type",
+          "name"
+        ],
+        "title": "ToolResultEvent",
+        "type": "object"
+      },
+      "TraceErrorEvent": {
+        "additionalProperties": false,
+        "description": "An error or refusal recorded in the stream.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Category"
+          },
+          "message": {
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "round": {
+            "minimum": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "sequence_index": {
+            "minimum": 0,
+            "title": "Sequence Index",
+            "type": "integer"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timestamp"
+          },
+          "type": {
+            "const": "error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_index",
+          "round",
+          "type",
+          "message"
+        ],
+        "title": "TraceErrorEvent",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Full bundle payload (manifest + run data).",
+    "properties": {
+      "aggregate": {
+        "$ref": "#/$defs/Aggregate"
+      },
+      "analysis": {
+        "$ref": "#/$defs/Analysis"
+      },
+      "dataset_snapshot": {
+        "additionalProperties": true,
+        "title": "Dataset Snapshot",
+        "type": "object"
+      },
+      "decision": {
+        "$ref": "#/$defs/Decision"
+      },
+      "economics": {
+        "$ref": "#/$defs/Economics"
+      },
+      "evaluator_config": {
+        "additionalProperties": true,
+        "title": "Evaluator Config",
+        "type": "object"
+      },
+      "examples": {
+        "items": {
+          "$ref": "#/$defs/Example"
+        },
+        "title": "Examples",
+        "type": "array"
+      },
+      "insights": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Insights"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "manifest": {
+        "$ref": "#/$defs/BundleManifest"
+      },
+      "methodology_notes": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Methodology Notes",
+        "type": "array"
+      }
+    },
+    "required": [
+      "manifest",
+      "aggregate",
+      "examples",
+      "analysis",
+      "decision",
+      "economics",
+      "methodology_notes",
+      "evaluator_config",
+      "dataset_snapshot"
+    ],
+    "title": "Bundle",
+    "type": "object"
+  },
+  "manifest": {
+    "additionalProperties": false,
+    "description": "The `manifest` block inside a bundle.",
+    "properties": {
+      "branch": {
+        "minLength": 1,
+        "title": "Branch",
+        "type": "string"
+      },
+      "cli_version": {
+        "anyOf": [
+          {
+            "maxLength": 32,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Cli Version"
+      },
+      "created_at": {
+        "description": "RFC 3339 timestamp with a zero UTC offset (`Z` or `+00:00`).",
+        "format": "date-time",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]00:00)$",
+        "title": "Created At",
+        "type": "string"
+      },
+      "dataset_hash": {
+        "description": "SHA-256 hex digest, `sha256:` prefixed",
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "title": "Dataset Hash",
+        "type": "string"
+      },
+      "eval_config_hash": {
+        "description": "SHA-256 hex digest, `sha256:` prefixed",
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "title": "Eval Config Hash",
+        "type": "string"
+      },
+      "git_sha": {
+        "pattern": "^[0-9a-f]{40}$",
+        "title": "Git Sha",
+        "type": "string"
+      },
+      "pr_number": {
+        "anyOf": [
+          {
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Pr Number"
+      },
+      "project_slug": {
+        "pattern": "^[a-z0-9-]+/[a-z0-9-]+$",
+        "title": "Project Slug",
+        "type": "string"
+      },
+      "run_id": {
+        "maxLength": 64,
+        "minLength": 1,
+        "title": "Run Id",
+        "type": "string"
+      },
+      "source_model": {
+        "minLength": 1,
+        "title": "Source Model",
+        "type": "string"
+      },
+      "suite_name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Suite Name",
+        "type": "string"
+      },
+      "suite_path": {
+        "minLength": 1,
+        "title": "Suite Path",
+        "type": "string"
+      },
+      "target_model": {
+        "minLength": 1,
+        "title": "Target Model",
+        "type": "string"
+      }
+    },
+    "required": [
+      "run_id",
+      "project_slug",
+      "source_model",
+      "target_model",
+      "suite_name",
+      "suite_path",
+      "git_sha",
+      "branch",
+      "eval_config_hash",
+      "dataset_hash",
+      "created_at"
+    ],
+    "title": "BundleManifest",
+    "type": "object"
+  }
+}

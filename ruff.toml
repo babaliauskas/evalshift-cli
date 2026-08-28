@@ -1,0 +1,36 @@
+# Keep in sync with requires-python in pyproject.toml. Pinned explicitly rather
+# than inferred so the floor guard is visible where the lint rules live.
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+# Stats/UI text legitimately uses these unicode glyphs; they're not typos.
+allowed-confusables = ["×", "−", "Δ"]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["N802", "N803", "B011"]
+
+[lint.isort]
+known-first-party = ["evalshift"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

@@ -1,0 +1,49 @@
+# EvalShift agent example: a customer-support routing agent with 6 tools.
+#
+# Run with mocked LLMs (CI / no API keys):
+#     pytest tests/integration/test_tool_pipeline.py
+#
+# Or with real Gemini keys:
+#     cd examples/agent
+#     export GOOGLE_API_KEY=<google-api-key>
+#     evalshift run --yes --from gemini-2.5-flash --to gemini-3.1-flash-lite-preview
+#     evalshift evaluate <run-id>
+#     evalshift analyze <run-id>
+#     evalshift report <run-id> --open
+version: 1
+
+prompts:
+  - id: customer_routing
+    detection: python_string
+    path: prompts.py
+    variable: AGENT_SYSTEM_PROMPT
+    variables: [query]
+
+defaults:
+  source_model: gemini-2.5-flash
+  target_model: gemini-3.1-flash-lite-preview
+  judge_model: gemini-2.5-pro
+  concurrency: 4
+  cache: true
+  max_cost_usd: 50.0
+
+evaluators:
+  # tool_selection is the most useful evaluator for migrations: it tells
+  # you whether the new model picks the same tools as ground truth.
+  tool_selection:
+    - name: routing
+      conformance: expected
+      divergence: set
+      severity_floor: high
+
+slices:
+  - name: security
+    filter: security
+  - name: routine
+    filter: routine
+  - name: refund
+    filter: refund
+  - name: customer_lookup
+    filter: customer_lookup
+  - name: text_only
+    filter: text_only

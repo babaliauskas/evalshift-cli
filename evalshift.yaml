@@ -1,0 +1,60 @@
+# migration_profile: model-upgrade
+# EvalShift configuration. See https://github.com/babaliauskas/EvalShift for docs.
+#
+# `init` writes only this file, set up for the capture-first flow: instrument
+# your agent with the evalshift-sdk, exercise it to record captures, then run
+# `evalshift capture sync` to promote them into suites and wire them in below.
+version: 1
+
+prompts:
+  # Passthrough replay: a promoted capture's example is
+  # {"input": "<full rendered prompt>"}, so we echo it back verbatim.
+  # Extracting a prompt from your source instead? Use detection: python_string
+  # with `path:` + `variable:` (see docs/configuration.md).
+  - id: replay
+    detection: manual
+    content: "{input}"
+    variables: [input]
+
+# Defaults applied to every run; CLI flags override these.
+defaults:
+  # Your CURRENT production model — the baseline you migrate FROM.
+  source_model: gemini-3.1-flash-lite-preview
+  # The candidate you migrate TO. Set it here or pass --to <model> per run.
+  # target_model: gemini-3.1-pro-preview
+  concurrency: 4
+  max_cost_usd: 50.0
+  # Completion length cap for every model call. Raise it (or set a
+  # per-prompt prompts[].max_tokens) if outputs are being truncated;
+  # truncated calls are excluded from the regression stats.
+  max_tokens: 4096
+
+evaluators:
+  # Works on JSON and prose; scores how far the target output drifts from the
+  # source output. `semantic` needs an embedding model — the gemini id below
+  # uses only your Google key (swap for an OpenAI id if you prefer).
+  semantic:
+    embedding_model: gemini/gemini-embedding-001
+  llm_judge:
+    - criterion_name: equivalence
+      criterion_prompt: >
+        Does the TARGET output preserve the same information, structure, and
+        correctness as the SOURCE output? Penalize missing fields, invalid
+        JSON, or changed conclusions.
+      judge_model: gemini-3.1-pro-preview
+  # Agent/tool migrations: enable tool_selection / tool_arguments here instead.
+  # Suite examples carry their own toolset (recorded automatically by
+  # `capture sync`/`capture promote`, or inlined by hand) — see docs/agents.md.
+
+# >>> evalshift suites (managed by `evalshift capture sync`) >>>
+suites: {}
+# <<< evalshift suites <<<
+
+migration_policy:
+  max_overall_regression_rate: 0.03
+  max_critical_regressions: 0
+  min_equivalence_rate: 0.95
+  max_tool_argument_drift: 0.01
+  max_tool_divergence: 0.03
+  max_cost_increase: 0.20
+  max_latency_increase: 0.30
