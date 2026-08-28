@@ -1,6 +1,8 @@
 # Contributing to EvalShift
 
-Thanks for your interest! EvalShift is open source under the MIT license.
+Thanks for your interest! EvalShift is open source under the
+[AGPL-3.0-or-later](LICENSE) license. By submitting a contribution you agree
+that it is provided under the same license.
 
 ## Development setup
 
