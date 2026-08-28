@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "evalshift"
-version = "0.13.0"
+version = "0.13.1"
 description = "Run your prompts on two LLMs and find out, with statistical confidence, what regressed."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
