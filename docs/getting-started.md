@@ -86,6 +86,10 @@ You'll see a short table:
 * Red ✗ — hard failure (e.g. an `evalshift.yaml` that doesn't validate).
   Doctor exits 1.
 
+If a workflow under `.github/workflows/` uses the GitHub Action, the table
+also has a `ci pin` row — yellow when CI pins an older CLI than yours (or
+none at all); see [Pin drift](github-action.md#pin-drift).
+
 If everything is green or yellow, you're ready to run.
 
 ## 5. Record what your agent actually does
@@ -122,7 +126,11 @@ evalshift capture sync
 `capture sync` promotes every recorded capture into
 `.evalshift/suites/<suite>/golden.jsonl` and injects the matching
 `suites:` block into `evalshift.yaml`. See
-[Configuration](configuration.md) for the full capture lifecycle.
+[Configuration](configuration.md) for the full capture lifecycle. If a
+workflow under `.github/workflows/` pins an older CLI than the one you just
+synced with, it ends with an advisory warning and the exact
+`evalshift-version` line to set — see
+[Pin drift](github-action.md#pin-drift).
 
 ## 7. Run the pipeline
 

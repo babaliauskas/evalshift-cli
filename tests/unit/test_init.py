@@ -384,3 +384,45 @@ class TestInitDirectoryFlag:
         result = runner.invoke(app, ["init", "-d", str(target)])
         assert result.exit_code == 0, result.stdout
         assert (target / CONFIG_FILENAME).is_file()
+
+
+class TestInitCiPin:
+    """``init`` warns about an old workflow it did not write; ``--ci`` never warns about its own."""
+
+    @staticmethod
+    def _stale_workflow(root: Path) -> None:
+        path = root / CI_WORKFLOW_PATH
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - uses: babaliauskas/evalshift-action@v0\n"
+            '        with:\n          evalshift-version: "0.0.1"\n',
+            encoding="utf-8",
+        )
+
+    def test_ci_flag_does_not_warn_about_the_workflow_it_wrote(
+        self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        result = runner.invoke(app, ["init", "--ci"])
+        assert result.exit_code == 0, result.stdout
+        assert "CI installs" not in result.stdout
+
+    def test_ci_flag_does_not_warn_when_overwriting_a_stale_workflow(
+        self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        self._stale_workflow(in_tmp)
+        result = runner.invoke(app, ["init", "--ci", "--force"])
+        assert result.exit_code == 0, result.stdout
+        assert "CI installs" not in result.stdout
+
+    def test_plain_init_warns_next_to_a_stale_workflow(
+        self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        self._stale_workflow(in_tmp)
+        result = runner.invoke(app, ["init"])
+        assert result.exit_code == 0, result.stdout
+        assert "CI installs evalshift 0.0.1" in result.stdout
+        assert 'evalshift-version: "1.2.3"' in result.stdout

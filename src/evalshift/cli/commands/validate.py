@@ -24,7 +24,9 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
+from evalshift import __version__
 from evalshift.cli.commands._suites import SUITE_FILENAME
 from evalshift.cli.commands.doctor import CONFIG_FILENAME
 from evalshift.config.loader import ConfigError, load_config
@@ -34,6 +36,7 @@ from evalshift.parsers.manual import ManualParser
 from evalshift.parsers.python_string import PythonStringParser
 from evalshift.suite.loader import SuiteError, load_jsonl
 from evalshift.suite.models import Suite
+from evalshift.utils.ci_pin import check_ci_pin
 from evalshift.utils.templating import (
     SuiteCompatibilityError,
     validate_suite_against_prompts,
@@ -123,6 +126,10 @@ def validate(
         f"{n_examples} example{'' if n_examples == 1 else 's'}; "
         "every example is compatible with every prompt."
     )
+    # Advisory: in CI the running CLI *is* the pin, so this is a no-op there.
+    finding = check_ci_pin(project_root, __version__)
+    if finding is not None:
+        console.print(f"[yellow]⚠[/yellow] {escape(finding.message)}")
 
 
 __all__ = ["validate"]

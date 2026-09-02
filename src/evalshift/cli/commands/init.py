@@ -22,6 +22,7 @@ from typing import Annotated, Final
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Prompt
 
 from evalshift import __version__
@@ -39,6 +40,7 @@ from evalshift.cli.commands._scaffold import (
 )
 from evalshift.cli.commands._suites import render_suites_region
 from evalshift.cli.commands.doctor import CONFIG_FILENAME
+from evalshift.utils.ci_pin import check_ci_pin
 
 PROVIDERS: Final = ("gemini", "openai", "anthropic")
 
@@ -309,6 +311,13 @@ def init(
             "[bold]evalshift gate[/bold] check in branch protection — the "
             "full checklist is documented at the top of the workflow file.",
         )
+    else:
+        # Re-initialising next to a hand-written or older scaffolded workflow:
+        # the config just written may carry keys that CI's pinned CLI rejects.
+        finding = check_ci_pin(target, __version__)
+        if finding is not None:
+            console.print()
+            console.print(f"[yellow]⚠[/yellow] {escape(finding.message)}")
 
 
 __all__ = ["init", "render_minimal_config"]

@@ -513,3 +513,53 @@ class TestSourceConformanceCheck:
         check = source_conformance_check([_conformance(f"e{i}", 0.0) for i in range(4)])
         assert check is not None
         assert "4 of 4" in check.detail
+
+
+# ---------------------------------------------------------------------------
+# ci pin — reader >= writer across .github/workflows
+# ---------------------------------------------------------------------------
+
+
+class TestCiPinCheck:
+    @staticmethod
+    def _workflow(root: Path, with_lines: str) -> None:
+        path = root / ".github" / "workflows" / "evalshift.yml"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - uses: babaliauskas/evalshift-action@v0\n"
+            "        with:\n" + with_lines,
+            encoding="utf-8",
+        )
+
+    def test_no_row_when_no_workflow_uses_the_action(self, tmp_path: Path) -> None:
+        results = run_checks(cwd=tmp_path, env=_empty_env())
+        assert [r for r in results if r.name == "ci pin"] == []
+
+    def test_stale_pin_warns_without_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        self._workflow(tmp_path, '          evalshift-version: "0.0.1"\n')
+        row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), "ci pin")
+        assert row.status == "warn"
+        assert "CI installs evalshift 0.0.1" in row.detail
+        assert 'evalshift-version: "1.2.3"' in row.detail
+
+    def test_matching_pin_is_ok(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        self._workflow(tmp_path, '          evalshift-version: "1.2.3"\n')
+        row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), "ci pin")
+        assert row.status == "ok"
+        assert row.detail == "pinned to 1.2.3"
+
+    def test_doctor_cli_renders_the_warning_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        self._workflow(tmp_path, "          token: x\n")
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0
+        assert "ci pin" in result.stdout
+        assert "default" in result.stdout

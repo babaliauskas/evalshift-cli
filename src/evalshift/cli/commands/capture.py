@@ -23,8 +23,10 @@ from typing import Annotated, Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
+from evalshift import __version__
 from evalshift.captures.models import CaptureEnvelope, PromotedCase
 from evalshift.captures.promote import (
     PromoteOptions,
@@ -61,6 +63,7 @@ from evalshift.config.models import SuiteEvaluatorsOverride
 from evalshift.suite.loader import SuiteError, load_jsonl
 from evalshift.traces.diff import diff_traces
 from evalshift.traces.models import ToolCallEvent
+from evalshift.utils.ci_pin import check_ci_pin
 
 capture_app = typer.Typer(
     name="capture",
@@ -75,6 +78,17 @@ _BaseOption = Annotated[
         "--base", help="Capture base dir (default: $EVALSHIFT_DIR or .evalshift).", hidden=True
     ),
 ]
+
+
+def _warn_ci_pin(console: Console, config_path: Path) -> None:
+    """Warn when a workflow next to ``config_path`` installs an older CLI than this one.
+
+    Advisory only — the config was (or is about to be) written by this CLI,
+    and a CI job pinned to an older release would reject any newer keys.
+    """
+    finding = check_ci_pin(config_path.resolve().parent, __version__)
+    if finding is not None:
+        console.print(f"[yellow]⚠[/yellow] {escape(finding.message)}")
 
 
 def _now_iso() -> str:
@@ -921,6 +935,7 @@ def capture_sync(
         console.print()
         console.print("[bold]Add this to evalshift.yaml:[/bold]")
         console.print(suites_yaml)
+        _warn_ci_pin(console, config_path)
         return
 
     if not config_exists:
@@ -929,6 +944,7 @@ def capture_sync(
             "or paste this block into your config:",
         )
         console.print(suites_yaml)
+        _warn_ci_pin(console, config_path)
         return
 
     updated = inject_suites_block(config_text, suites_yaml)
@@ -938,12 +954,14 @@ def capture_sync(
             "paste this block in yourself:",
         )
         console.print(suites_yaml)
+        _warn_ci_pin(console, config_path)
         return
 
     config_path.write_text(updated, encoding="utf-8")
     console.print(f"[green]✓[/green] wired {len(suite_paths)} suite(s) into {config_path}")
     first = sorted(suite_paths)[0]
     console.print(f"run: [cyan]evalshift all --suite-name {first} --to <candidate>[/cyan]")
+    _warn_ci_pin(console, config_path)
 
 
 __all__ = ["capture_app"]

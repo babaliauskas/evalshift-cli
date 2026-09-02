@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from evalshift.captures.models import CaptureEnvelope, PromotedCase
@@ -1867,3 +1868,67 @@ def test_sync_freezes_an_unmanaged_suite_and_prints_what_it_would_write(
     assert _suite_entry_text(config.read_text(encoding="utf-8"), "alpha") == entry_before
     assert "alpha" in result.stdout
     assert "managed" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# sync — CI pin drift warning
+# ---------------------------------------------------------------------------
+
+
+def _write_stale_workflow(root: Path, version: str = "0.0.1") -> Path:
+    path = root / ".github" / "workflows" / "evalshift.yml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - uses: babaliauskas/evalshift-action@v0\n"
+        f'        with:\n          evalshift-version: "{version}"\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_sync_warns_when_ci_pins_an_older_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("evalshift.cli.commands.capture.__version__", "1.2.3")
+    _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
+    config = tmp_path / "evalshift.yaml"
+    _write_min_config(config)
+    _write_stale_workflow(tmp_path)
+
+    result = _invoke(["sync", "--config", str(config)], tmp_path)
+
+    assert result.exit_code == 0, result.stdout
+    # The warning comes after the successful write, never instead of it.
+    wired = result.stdout.index("wired 1 suite(s)")
+    warned = result.stdout.index("CI installs evalshift 0.0.1")
+    assert wired < warned
+    assert ".github/workflows/evalshift.yml, job evalshift" in result.stdout
+    assert 'evalshift-version: "1.2.3"' in result.stdout
+    assert load_config(config).suites.keys() == {"alpha"}
+
+
+def test_sync_print_still_warns_about_a_stale_ci_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("evalshift.cli.commands.capture.__version__", "1.2.3")
+    _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
+    config = tmp_path / "evalshift.yaml"
+    _write_min_config(config)
+    _write_stale_workflow(tmp_path)
+
+    result = _invoke(["sync", "--config", str(config), "--print"], tmp_path)
+
+    assert result.exit_code == 0, result.stdout
+    assert "CI installs evalshift 0.0.1" in result.stdout
+
+
+def test_sync_is_silent_when_no_workflow_uses_the_action(tmp_path: Path) -> None:
+    _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
+    config = tmp_path / "evalshift.yaml"
+    _write_min_config(config)
+
+    result = _invoke(["sync", "--config", str(config)], tmp_path)
+
+    assert result.exit_code == 0, result.stdout
+    assert "CI installs" not in result.stdout

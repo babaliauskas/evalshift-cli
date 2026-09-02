@@ -24,7 +24,9 @@ checklist) with three jobs:
   evaluates one suite per invocation). Runs `fail-on: policy`, so the verdict
   is the hosted re-score against the `migration_policy` block in
   `evalshift.yaml`. `evalshift-version` is pinned to the CLI that scaffolded
-  the project so CI and local runs agree. `max-parallel` defaults to 1 —
+  the project: the CLI that *reads* the config in CI must be at least as new
+  as the CLI that *wrote* it locally (`extra: forbid` rejects newer keys), and
+  the CLI warns when the pin falls behind — see [Pin drift](#pin-drift). `max-parallel` defaults to 1 —
   raise it toward your hosted plan's in-flight-run ceiling (Free 1, Pro 5,
   Team 10). The PR comment is posted by the first matrix job only: the
   comment marker is a constant, so multiple suites would overwrite one
@@ -127,11 +129,44 @@ Common inputs:
 | `config` | `evalshift.yaml` | Config path. |
 | `suite` | `golden.jsonl` | Suite path (one suite per invocation). |
 | `fail-on` | `policy` | Gate mode — see the table above. |
-| `evalshift-version` | pinned by the action | Exact CLI version installed from PyPI. The scaffold pins this to the CLI that generated the project. |
+| `evalshift-version` | action default (may lag) | Exact CLI version installed from PyPI. Always set it: it must be at least as new as the CLI that writes your `evalshift.yaml` (reader ≥ writer). `init --ci` pins it to the scaffolding CLI. |
 | `create-project` | `true` | Allow project auto-create when permissions allow it. |
 | `comment` | `true` | Post or update the PR comment on pull requests. |
 
 See the action repository README for the full input list.
+
+## Pin drift
+
+`evalshift.yaml` rejects unknown keys (`extra: forbid`), so a config written by a
+newer CLI can fail outright on an older one. The rule is **reader ≥ writer**:
+the version the action installs in CI must be at least as new as the CLI you
+run `capture sync` and `init` with locally. Upgrading locally without bumping
+`evalshift-version` is the common way to break this.
+
+The CLI checks for it wherever it writes or validates config — `capture sync`,
+`init` (without `--ci`, next to a workflow it did not write; `init --ci` pins
+the scaffolding CLI itself and does not warn about the file it just wrote),
+`doctor` (a `ci pin` row), and `validate`. It parses every `.github/workflows/*.yml` for
+`babaliauskas/evalshift-action` steps and compares their `evalshift-version`
+with its own:
+
+```text
+⚠ CI installs evalshift 0.12.1 (.github/workflows/evalshift.yml, job evalshift) but the local CLI is 0.13.1 — an older CLI rejects config keys a newer one writes.
+  Fix: set `evalshift-version: "0.13.1"` on the babaliauskas/evalshift-action step.
+```
+
+| Status | Trigger | Fix |
+| --- | --- | --- |
+| stale | a literal pin is older than the local CLI | set `evalshift-version: "<local>"` |
+| unpinned | a step has no `evalshift-version` (action default applies and may lag) | add the pin |
+| ahead | every pin is newer than the local CLI | `pip install -U evalshift` |
+
+Equal pins, `${{ }}` expressions, unparseable values, and an editable install
+without metadata are silent. The check is advisory only: the CLI never edits
+your workflow and never changes an exit code, and in CI it is a no-op by
+construction — the running CLI *is* the pin. Config `version: 1` is not
+bumped for additive fields; see the
+[config version policy](configuration.md#config-version-policy).
 
 ## Troubleshooting
 
