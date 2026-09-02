@@ -94,3 +94,32 @@ class TestValidateFailures:
         result = runner.invoke(app, ["validate"])
         assert result.exit_code == 1
         assert "Invalid suite" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# CI pin drift (advisory — never changes the exit code)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateCiPin:
+    def test_warns_after_the_success_line_when_ci_pins_an_older_cli(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import shutil
+
+        shutil.copytree(FIXTURES_DIR / "validate_ok", tmp_path, dirs_exist_ok=True)
+        workflow = tmp_path / ".github" / "workflows" / "evalshift.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text(
+            "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - uses: babaliauskas/evalshift-action@v0\n"
+            '        with:\n          evalshift-version: "0.0.1"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("evalshift.cli.commands.validate.__version__", "1.2.3")
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["validate"])
+        assert result.exit_code == 0, result.stdout
+        assert result.stdout.index("compatible") < result.stdout.index(
+            "CI installs evalshift 0.0.1"
+        )

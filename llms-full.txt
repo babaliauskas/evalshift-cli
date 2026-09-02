@@ -105,6 +105,9 @@ evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire
   EVALSHIFT.md and points AGENTS.md/CLAUDE.md/GEMINI.md/.cursorrules/copilot-instructions at it;
   creates AGENTS.md when none of those files exist. Idempotent.
   --provider prompted on TTY, else gemini. Does NOT write prompts.py/tools.yaml/golden.jsonl.
+  Without --ci, warns after writing when an existing .github/workflows/*.yml pins an older
+  evalshift-version than this CLI, or none (advisory, exit 0; see CI pin drift). --ci writes
+  the pin itself and does not warn about the file it just wrote.
   PROFILE budgets (regression/critical/equivalence/arg-drift/cost/latency):
     model-upgrade (default): .03/0/.95/.01/.20/.30 | cost-reduction: .02/0/.97/.01/.05/.30
     local-model: .05/0/.90/.02/.00/.50 | quantization: .02/0/.97/.005/.00/.20
@@ -115,6 +118,11 @@ evalshift doctor
   Reports the toolset each configured suite carries (name, or the flat golden.jsonl); warns
   (warn-level, exit 0) when a suite's examples carry more than one distinct toolset -- legal
   (each example dispatches its own), but also the shape a wiring mistake takes.
+  Adds a `ci pin` row when any .github/workflows/*.yml uses babaliauskas/evalshift-action:
+  ok ("pinned to <v>"; "not pinned (version unknown)" when every pin is a ${{ }} expression)
+  when nothing drifts; warn (exit 0) on pin drift --
+  stale (pin < local), unpinned (input absent -> action default may lag), ahead (all pins >
+  local). Fix line names the exact `evalshift-version: "<local>"` to set. See CI pin drift.
 evalshift run [-f/--from MODEL] [-t/--to MODEL] [-c CONFIG] [-s/--suite FILE]
     [--suite-name NAME] [--resume] [-y/--yes]
   Paired run over (prompt x example x {source,target}). --from/--to override
@@ -220,6 +228,11 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   default (duplicates inflate n, corrupt paired stats); --keep-duplicates opts out. Dedup is
   seeded from cases already promoted in the suite dir, so it spans sync runs.
   Reports "wired generation config for N case(s)" when promoted captures carried one.
+  After writing (or printing the block to paste) warns on CI pin drift: a workflow step
+  `uses: babaliauskas/evalshift-action@...` whose evalshift-version is older than this CLI or
+  absent gets a warning naming workflow + job and the `evalshift-version: "<v>"` to set.
+  Advisory only: never edits the workflow, exit code unchanged. `init` (without --ci) warns
+  the same way next to an existing workflow; `validate` prints it after its success line.
   Each suite's entry is DERIVED from its own rows, evaluators included:
     no row offered a toolset -> no evaluators: block (suite inherits the top level; a tool
       evaluator on a tool-free suite would score an empty denominator = inconclusive gate)
@@ -275,7 +288,9 @@ evalshift runs clean [--keep N] [--older-than DAYS] [--suite SLUG] [--dry-run] [
 evalshift cache clear
 
 Hidden debug commands:
-evalshift validate [-s SUITE=golden.jsonl] [-c CONFIG]   (config+suite+prompt cross-check)
+evalshift validate [-s SUITE=golden.jsonl] [-c CONFIG]   (config+suite+prompt cross-check;
+    after the success line prints the CI pin drift warning if any -- advisory, exit unchanged,
+    no-op in CI where the running CLI is the pin)
 evalshift test-call -m/--model MODEL [-p/--prompt TEXT] [-t/--temperature 0..2=0]
     [--max-tokens 1..8192=256] [--tools FILE]   (single live call; --tools prints a ToolTrace)
 
@@ -959,7 +974,7 @@ evalshift all --suite-name <suite> --to gemini-3.1-pro-preview --gate critical,h
 #     ignored, un-ignore `!.evalshift/suites/` and `!.evalshift/toolsets/`.
 #   eval <suite> -> matrix job per suite (action evaluates ONE suite per invocation);
 #     fail-on: policy; evalshift-version pinned to the scaffolding CLI (extra="forbid" config
-#     from a newer CLI fails loudly on an older one); max-parallel: 1 by default — raise
+#     from a newer CLI fails loudly on an older one -- reader >= writer; see CI pin drift); max-parallel: 1 by default — raise
 #     toward the hosted plan's in-flight ceiling (Free 1, Pro 5, Team 10); PR comment only
 #     from the first matrix job (constant comment marker, multiple suites would overwrite);
 #     provider key env matches init's --provider; skips on fork PRs (no secret access) and
@@ -986,6 +1001,15 @@ with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", config: evalshift.yaml,
 # comment=true.
 # Behavior: pushes candidate run, finds latest compatible base-branch run, fetches hosted diff,
 # maintains one marked PR comment, sets `evalshift/regression` commit status.
+# CI pin drift: the CLI that READS evalshift.yaml in CI must be >= the CLI that WROTE it
+# locally (extra="forbid": newer keys are rejected by older releases). capture sync, init
+# (no --ci), doctor (`ci pin` row) and validate parse .github/workflows/*.yml and compare
+# every evalshift-action step's evalshift-version with the local CLI: stale (pin < local) ->
+# set `evalshift-version: "<local>"`; unpinned (input absent, action default may lag) -> add
+# it; ahead (all pins > local) -> pip install -U evalshift. Equal, `${{ }}` expressions, and
+# 0.0.0+unknown are silent. Advisory only: never edits the workflow, never changes exit codes;
+# a no-op in CI (the running CLI is the pin). Config `version: 1` bumps only for breaking
+# changes; additive fields ride on the CLI version and this check is the mechanism.
 
 ## Troubleshooting checklist
 

@@ -172,4 +172,6 @@ deliberately not supported — it breaks the paired-comparison contract.
 ## Where is `evalshift validate` / `evalshift test-call` in `--help`?
 
 They're hidden — they're development aids, not part of the supported
-user pipeline. Both still run if you invoke them by name.
+user pipeline. Both still run if you invoke them by name. `validate` also
+prints the [CI pin drift](github-action.md#pin-drift) warning after its
+success line (advisory; the exit code is unchanged).

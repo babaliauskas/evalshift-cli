@@ -27,6 +27,21 @@ retention: {...}          # optional run-history pruning policy
 Unknown keys are rejected (`extra: forbid` everywhere) so typos fail
 fast instead of silently dropping.
 
+## Config version policy
+
+`version: 1` changes **only for breaking changes** — a field renamed, removed,
+or given a different meaning. Additive fields (a new evaluator option, a new
+top-level block) do *not* bump it; they ride on the CLI version instead.
+
+Because unknown keys are rejected, that puts one rule on you: the CLI that
+*reads* a config must be at least as new as the CLI that *wrote* it. In
+practice that means the `evalshift-version` your CI workflow installs must be
+at least the version you run `capture sync` and `init` with locally. The CI
+pin check is the mechanism that enforces it: `capture sync`, `init`, `doctor`,
+and `validate` warn when a workflow under `.github/workflows/` pins an older
+CLI, or none at all, and print the exact line to set. See
+[Pin drift](github-action.md#pin-drift).
+
 ## `project` and `thresholds`
 
 These fields are used only by hosted commands. Local `run`, `evaluate`,

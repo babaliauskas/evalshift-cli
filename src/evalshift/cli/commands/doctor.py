@@ -45,6 +45,7 @@ from evalshift.evaluators.base import EvalRecord
 from evalshift.evaluators.failures import BROKEN_HARNESS_CAUSES
 from evalshift.models.registry import PROVIDER_ENV_VARS
 from evalshift.suite.models import SuiteExample
+from evalshift.utils.ci_pin import check_ci_pin, find_action_pins
 
 CheckStatus = Literal["ok", "warn", "fail"]
 
@@ -97,6 +98,7 @@ def run_checks(cwd: Path, env: Mapping[str, str]) -> list[CheckResult]:
     results.extend(_api_key_check(env, aliases) for aliases in PROVIDER_KEYS)
     results.append(_config_check(cwd))
     results.extend(_tool_consistency_checks(cwd))
+    results.extend(_ci_pin_check(cwd))
     return results
 
 
@@ -261,6 +263,25 @@ def _tool_consistency_checks(cwd: Path) -> list[CheckResult]:
             continue
         out.append(_suite_toolset_check(name, suite.examples))
     return out
+
+
+def _ci_pin_check(cwd: Path) -> list[CheckResult]:
+    """Report whether CI installs a CLI at least as new as this one.
+
+    One ``ci pin`` row when a workflow under ``cwd/.github/workflows`` uses
+    the EvalShift action: ``warn`` with the finding from
+    :func:`~evalshift.utils.ci_pin.check_ci_pin`, else ``ok`` naming the pin.
+    No row at all when no workflow uses the action.
+    """
+    pins = find_action_pins(cwd)
+    if not pins:
+        return []
+    finding = check_ci_pin(cwd, __version__)
+    if finding is not None:
+        return [CheckResult(name="ci pin", status="warn", detail=finding.message)]
+    versions = sorted({pin.version for pin in pins if pin.version is not None})
+    detail = f"pinned to {', '.join(versions)}" if versions else "not pinned (version unknown)"
+    return [CheckResult(name="ci pin", status="ok", detail=detail)]
 
 
 #: The fraction of a suite's conformance rows the source model has to fail

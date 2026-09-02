@@ -39,6 +39,7 @@ dependencies = [
     "aiosqlite>=0.19",
     "greenlet>=3.0",  # required by SQLAlchemy's async API
     "pyyaml>=6.0",
+    "packaging>=23",
     "tiktoken>=0.7",
     "jsonschema>=4.22",
     "pygments>=2.18",

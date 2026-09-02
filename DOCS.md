@@ -170,6 +170,7 @@ evalshift capture clean                # delete promoted capture files + sweep o
 5. Skips captures whose turn recorded an `error` event — a turn that died before the agent acted is not ground truth, and promoting it would assert `expected_no_tools: true` on a question that needed a tool. `--allow-errored` promotes it anyway (still never asserting `expected_no_tools`). `capture promote` exits non-zero on the same condition. Separately and unconditionally — `--allow-errored` does not help — a capture whose first `model_call` has no `toolset_ref` is refused: the SDK did not record what tools were offered, so there is nothing to carry, and re-capturing with a current `evalshift-sdk` is the only fix.
 6. Warns when two captures claim the same `(conversation_id, turn_index)` (a retried turn), and when a promoted turn contains a failed tool result (`error`, or `{"success": false}`). Both stay warnings — see [Agent evals → What does not belong in a golden suite](docs/agents.md).
 7. Writes `.evalshift/suites/<suite>/golden.jsonl` and rewrites the managed `suites:` block in `evalshift.yaml` (between the `>>> evalshift suites` markers).
+8. After the write (or after printing the block for you to paste), checks the CI pin: if a workflow under `.github/workflows/` uses `babaliauskas/evalshift-action` with an `evalshift-version` older than this CLI, or with no pin at all, it prints a warning naming the workflow and job plus the exact `evalshift-version: "<this version>"` line to set. Advisory only — sync never edits a workflow and the exit code is unchanged. See [Pin drift](#pin-drift).
 
 Strictness knobs for the derived tool expectations: `--strict-args` (exact argument matches), `--names-only` (ignore arguments), `--tool-count` (also pin the call count, scoped the same way as `expected_tools`), `--rounds {first,all}` (which agent rounds become ground truth, default `first`). `--tag` attaches extra slice tags; `--print` previews the `suites:` block without writing.
 
@@ -200,7 +201,7 @@ init          →   doctor   →   run          →   evaluate       →   analy
                                                                    .json (if policy)
 ```
 
-- **`doctor`** validates local config and shows which provider keys are visible. Exit 1 only when an existing `evalshift.yaml` fails validation; missing keys are soft warnings. It also reports the toolset each configured suite carries (or the flat `golden.jsonl`) and flags a suite whose examples carry more than one distinct toolset — legal (each example dispatches its own), but also the shape a wiring mistake takes.
+- **`doctor`** validates local config and shows which provider keys are visible. Exit 1 only when an existing `evalshift.yaml` fails validation; missing keys are soft warnings. It also reports the toolset each configured suite carries (or the flat `golden.jsonl`) and flags a suite whose examples carry more than one distinct toolset — legal (each example dispatches its own), but also the shape a wiring mistake takes. When a workflow under `.github/workflows/` uses the GitHub Action it adds a `ci pin` row: `ok` (`pinned to <v>`) when CI installs this CLI version, `warn` when the pin is older, absent, or newer than the local CLI (see [Pin drift](#pin-drift)).
 - **`run`** parses prompts, validates every example against every prompt, estimates cost, then dispatches `(prompt × example × {source, target})` calls through an async orchestrator under a concurrency semaphore. Responses are cached; progress is checkpointed every 50 completions.
 - **`evaluate`** scores each (source, target) pair with the configured evaluators, one `EvalRecord` per pair × evaluator. Scoring runs under the same `defaults.concurrency` semaphore as `run`, and the embedding/judge calls it makes go through the same response cache.
 - **`analyze`** runs paired statistics per `(prompt, evaluator, slice)`, applies Benjamini–Hochberg FDR correction, classifies severities, and — when a `migration_policy` is configured — computes a pass/fail verdict.
@@ -744,12 +745,24 @@ Exit code is 1 and nothing is uploaded. The CLI never decides entitlements itsel
 `evalshift init --ci` scaffolds `.github/workflows/evalshift.yml` — a production-shaped, self-documenting workflow (the setup checklist lives in its header comment) with three jobs:
 
 - `discover` lists committed suites under `.evalshift/suites/*/golden.jsonl` — a suite added by `capture sync` is evaluated on the next run with no workflow edit, and a project with no suites yet skips green. Suites must be committed for CI to see them: keep `.evalshift/*` ignored but un-ignore `.evalshift/suites/` and `.evalshift/toolsets/`.
-- `eval <suite>` is a matrix job per suite (the action evaluates one suite per invocation) with `fail-on: policy` and `evalshift-version` pinned to the scaffolding CLI. `max-parallel` defaults to 1; raise it toward the hosted plan's in-flight ceiling (Free 1, Pro 5, Team 10). Only the first matrix job posts the PR comment — the comment marker is a constant, so multiple suites would overwrite one another.
+- `eval <suite>` is a matrix job per suite (the action evaluates one suite per invocation) with `fail-on: policy` and `evalshift-version` pinned to the CLI that scaffolded the project. `max-parallel` defaults to 1; raise it toward the hosted plan's in-flight ceiling (Free 1, Pro 5, Team 10). Only the first matrix job posts the PR comment — the comment marker is a constant, so multiple suites would overwrite one another.
 - `evalshift gate` is the single check to require in branch protection: it fails if any suite failed and passes when evaluation was skipped (fork PR, no suites, or `EVALSHIFT_TOKEN` not yet set). Don't require the per-suite jobs (dynamic names) or the `evalshift/regression` commit status (last writer wins across suites).
 
 Runs on pushes to main create the base-branch baselines PRs diff against, so the workflow cancels superseded runs on PRs only, never on main.
 
 The action runs the pipeline, pushes the candidate run, finds the latest compatible base-branch run, fetches the hosted diff, maintains a single marked PR comment, and sets the `evalshift/regression` commit status. Inputs: `token` (required), `host`, `config` (default `evalshift.yaml`), `suite` (default `golden.jsonl`), `fail-on` (`policy` (default — hosted migration-policy verdict, falling back to regression gating when unreachable) | `never` | `regression` | `any-slice-regression`), `evalshift-version` (exact CLI version from PyPI), `create-project` (default `true`), `comment` (default `true`). With no baseline yet, the comment notes the push and gating passes.
+
+### Pin drift
+
+`evalshift.yaml` is `extra="forbid"` everywhere, so the CLI that *reads* the config in CI must be at least as new as the CLI that *wrote* it locally — a newer `capture sync` or `init` can add keys an older release rejects outright. The action installs an exact version (`evalshift-version`, or its own default when the input is absent), which is where drift creeps in: you upgrade locally, re-sync, and CI still installs last month's release.
+
+The CLI checks for this wherever it writes or validates config — `capture sync`, `init` (without `--ci`, next to a workflow it didn't write — `init --ci` pins the scaffolding CLI itself and does not warn about the file it just wrote), `doctor` (a `ci pin` row), and `validate` — by parsing every `.github/workflows/*.yml` for `babaliauskas/evalshift-action` steps and comparing their `evalshift-version` with its own:
+
+- **stale** — a literal pin is older than the local CLI. Fix: set `evalshift-version: "<local version>"` on the step.
+- **unpinned** — a step has no `evalshift-version`, so the action default applies and may lag. Fix: add the pin.
+- **ahead** — every pin is newer than the local CLI. Fix: `pip install -U evalshift`.
+
+Equal pins, `${{ }}` expressions, unparseable versions, and an editable install without metadata (`0.0.0+unknown`) are silent. The check is advisory: it never edits a workflow and never changes an exit code, and in CI it is a no-op by construction (the running CLI *is* the pin). Config `version: 1` is not bumped for additive fields — see [Configuration](docs/configuration.md#config-version-policy).
 
 Secrets needed: a provider API key matching your config's models, and `EVALSHIFT_TOKEN` — a service account key from Settings → API tokens → Service accounts, scoped to `run:create` + `run:read`, stored as an encrypted repository or environment secret. Not a personal token, never a literal in the workflow YAML, and never reachable from `pull_request_target`. Rotate by minting the successor first (24h grace), updating the secret, confirming a green run, then letting the old key expire. Two things a scoped key can't do, by design: auto-create the project (`project:create` is owner-only — pre-create it and set `create-project: false`) and rewrite gating thresholds (`policy:configure` is owner-only — keep `thresholds:` out of the config the CI job runs). Full guidance: the action's [README](https://github.com/babaliauskas/evalshift-action#readme).
 
@@ -763,8 +776,9 @@ Common conventions: `-c/--config` defaults to `./evalshift.yaml`; run artefacts 
 
 **`evalshift init`** — scaffold a minimal capture-first `evalshift.yaml`.
 `-f/--force` · `-d/--directory <dir>` · `--ci` · `--wire-agents/--no-wire-agents` (default on) · `--provider gemini|openai|anthropic` · `--profile model-upgrade|cost-reduction|local-model|quantization|provider-switch` (default `model-upgrade`)
+Without `--ci`, warns after writing when an existing workflow under `.github/workflows/` pins an older CLI than this one, or none at all (see [Pin drift](#pin-drift)); `init --ci` writes the pin itself and does not warn about the file it just wrote.
 
-**`evalshift doctor`** — environment/config check. Exit 1 only on an invalid existing config. Reports the toolset each configured suite carries and flags a suite whose examples carry more than one distinct toolset. The suite-side checks cover every suite in the config's `suites:` block, falling back to `./golden.jsonl` when none are wired.
+**`evalshift doctor`** — environment/config check. Exit 1 only on an invalid existing config. Reports the toolset each configured suite carries and flags a suite whose examples carry more than one distinct toolset. The suite-side checks cover every suite in the config's `suites:` block, falling back to `./golden.jsonl` when none are wired. Adds a `ci pin` row when a workflow uses the GitHub Action (`warn` on pin drift, never a failure).
 
 **`evalshift run`** — paired evaluation run (costs money — calls real models).
 `-f/--from <model>` · `-t/--to <model>` · `-c/--config` · `-s/--suite <file>` · `--suite-name <name>` · `--resume` · `-y/--yes`
@@ -810,7 +824,7 @@ All `run` flags, plus `--gate` · `--policy-gate` · `--open` · `--push` · `--
 
 ### Hidden debug commands
 
-**`evalshift validate`** — load config + suite + prompts, cross-check compatibility. `-s/--suite` · `-c/--config`
+**`evalshift validate`** — load config + suite + prompts, cross-check compatibility. `-s/--suite` · `-c/--config`. After the success line, prints the [Pin drift](#pin-drift) warning if a workflow pins an older CLI (advisory; exit code unchanged, and a no-op in CI where the running CLI is the pin).
 **`evalshift test-call`** — one live smoke-test call. `-m/--model` (required) · `-p/--prompt` · `-t/--temperature` (0–2, default 0) · `--max-tokens` (1–8192, default 256) · `--tools <file>` (prints a ToolTrace)
 
 ---
