@@ -53,6 +53,36 @@ pre-commit run --all-files              # everything pre-commit runs
 4. Ensure CI is green (lint + type-check + tests).
 5. Request review.
 
+## Releasing (maintainers)
+
+A release is a commit, a tag, and nothing else — CI does the publishing.
+
+1. On `main`, bump `version` in `pyproject.toml` and rename the CHANGELOG's
+   `## [Unreleased]` section to `## [X.Y.Z] - YYYY-MM-DD` (leave a fresh empty
+   `[Unreleased]` above it), in a single commit titled `chore(release): X.Y.Z`.
+2. Tag that commit and push the tag:
+
+   ```bash
+   git tag -a vX.Y.Z -m "vX.Y.Z — <one-line headline from the CHANGELOG>"
+   git push origin vX.Y.Z
+   ```
+
+3. The tag push triggers [release.yml](.github/workflows/release.yml), which
+   asserts the tag matches `pyproject.toml`, builds with `uv build`, publishes
+   to PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
+   (no token secret), and sends a `repository_dispatch` to
+   `babaliauskas/evalshift-action` so its `bump-cli-pin` workflow opens the
+   pin-bump PR immediately.
+
+One-time setup, held outside the repo:
+
+- **PyPI trusted publisher** on the `evalshift` project: repository
+  `babaliauskas/evalshift-cli`, workflow `release.yml`, environment `pypi`.
+- **`EVALSHIFT_ACTION_DISPATCH_TOKEN`** (optional repo secret): fine-grained
+  PAT with contents: write on `babaliauskas/evalshift-action`. Without it the
+  dispatch is skipped and the action repo's daily PyPI poll picks the release
+  up within a day.
+
 ## Code of conduct
 
 This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
