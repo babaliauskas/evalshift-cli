@@ -1,0 +1,100 @@
+name: release
+
+# Publishes evalshift to PyPI whenever a release tag (`vX.Y.Z`) is pushed,
+# then tells the action repo so its bump-cli-pin workflow can open the pin
+# PR immediately instead of waiting for the daily PyPI poll.
+#
+# The release procedure (bump + CHANGELOG + tag) is documented in
+# CONTRIBUTING.md under "Releasing". Two pieces of one-time setup live
+# outside this file:
+#
+# - PyPI trusted publishing: the evalshift project on PyPI must list this
+#   repo, this workflow file, and the `pypi` environment as a trusted
+#   publisher. No token secret is stored anywhere.
+# - `EVALSHIFT_ACTION_DISPATCH_TOKEN` (optional): a fine-grained PAT with
+#   contents: write on babaliauskas/evalshift-action. Without it the
+#   dispatch step is skipped and the action repo's daily poll picks the
+#   release up within a day.
+#
+# Tags whose commit predates this file do not trigger it (GitHub reads the
+# workflow from the tagged commit), so backfilled historical tags are inert.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert the tag matches pyproject.toml
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$TAG' is not vX.Y.Z"
+            exit 1
+          fi
+          pinned="$(sed -n -E 's/^version = "([^"]+)"[[:space:]]*$/\1/p' pyproject.toml | head -n 1)"
+          if [ "$version" != "$pinned" ]; then
+            echo "::error file=pyproject.toml::tag $TAG does not match pyproject.toml version $pinned — tag the chore(release) commit."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/evalshift/${{ needs.build.outputs.version }}/
+    permissions:
+      # Trusted publishing exchanges this OIDC token for a short-lived PyPI
+      # token; there is no long-lived secret to leak or rotate.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  notify-action-repo:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch evalshift-cli-release to babaliauskas/evalshift-action
+        env:
+          GH_TOKEN: ${{ secrets.EVALSHIFT_ACTION_DISPATCH_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::EVALSHIFT_ACTION_DISPATCH_TOKEN is not set; skipping the dispatch. The action repo's daily PyPI poll will pick up ${VERSION} within a day."
+            exit 0
+          fi
+          gh api "repos/babaliauskas/evalshift-action/dispatches" \
+            -f event_type=evalshift-cli-release \
+            -f "client_payload[version]=${VERSION}"
+          echo "Dispatched evalshift-cli-release for ${VERSION}; bump-cli-pin will open the pin PR."
