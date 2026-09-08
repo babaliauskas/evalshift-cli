@@ -24,7 +24,7 @@ The killer scenario it catches:
   for tool-evaluator regressions.
 * **Hosted run-detail**: the same trace — tool calls, arguments, final text,
   round markers — is visible on the hosted run-detail page after `evalshift
-  push`, not just in the local HTML report. See [Hosted alpha](hosted.md).
+  push`, not just in the local HTML report. See [Hosted EvalShift](hosted.md).
 
 ## Walkthrough
 

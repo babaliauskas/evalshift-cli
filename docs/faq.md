@@ -10,7 +10,7 @@ using your own API keys.
 The local SQLite cache at `~/.evalshift/cache.db` only contains
 provider responses for *your* prompts and inputs.
 
-Hosted private-alpha uploads are explicit. `bundle` packages the completed
+Hosted uploads are explicit. `bundle` packages the completed
 local run artifacts into `run_bundle.json.gz` without uploading them. `push`
 and `all --push` upload that bundle to the hosted backend for your project.
 
@@ -81,7 +81,7 @@ Set `project: org-slug/project-slug` in `evalshift.yaml` or pass
 evalshift all --yes --push
 ```
 
-See [Hosted alpha](hosted.md) for credential precedence, bundle contents,
+See [Hosted EvalShift](hosted.md) for credential precedence, bundle contents,
 and troubleshooting.
 
 ## Why does the `max cost` row in `evalshift all` look so much higher than the actual `Total cost` in the report?

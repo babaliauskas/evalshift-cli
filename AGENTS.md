@@ -9,7 +9,7 @@ start at [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 prompts on two models against a golden JSONL suite, scores each pair with
 structural / semantic / LLM-judge / tool-call evaluators, runs paired statistics
 over the deltas, and renders a single-file HTML report. Python 3.11+,
-`mypy --strict` clean, alpha.
+`mypy --strict` clean.
 
 Data flow: **SDK captures → CLI runs & bundles → server stores/diffs → web app displays.**
 
