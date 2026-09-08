@@ -56,13 +56,30 @@ class TestLateBoundStderr:
 
 
 class TestInstallation:
-    def test_the_litellm_stream_handler_is_late_bound(self) -> None:
+    def test_the_litellm_stream_handler_is_late_bound(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A warning follows a *later* ``sys.stderr``, whoever binds the stream.
+
+        Asserted behaviourally rather than by checking for
+        :class:`_LateBoundStderr`: on litellm < 1.100 our proxy resolves the
+        stream per write, while from 1.100 ``LevelRoutingStreamHandler.emit``
+        re-points the handler per record and discards the proxy. Both give the
+        late binding Rich needs, so the property is what the test pins.
+        """
         import evalshift.models.client  # noqa: F401  (import for its side effect)
 
-        handlers = logging.getLogger("LiteLLM").handlers
-        streams = [h.stream for h in handlers if isinstance(h, logging.StreamHandler)]
-        assert streams, "LiteLLM is expected to install a StreamHandler"
-        assert all(isinstance(s, _LateBoundStderr) for s in streams)
+        litellm_log = logging.getLogger("LiteLLM")
+        handlers = litellm_log.handlers
+        assert [h for h in handlers if isinstance(h, logging.StreamHandler)], (
+            "LiteLLM is expected to install a StreamHandler"
+        )
+
+        redirected = io.StringIO()
+        monkeypatch.setattr(sys, "stderr", redirected)
+        litellm_log.warning("late-bound: after the redirect")
+        assert "late-bound: after the redirect" in redirected.getvalue()
 
     def test_installing_twice_does_not_nest_proxies(self) -> None:
         litellm_log = logging.getLogger("LiteLLM")
