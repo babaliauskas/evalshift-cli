@@ -363,12 +363,18 @@ Options already named by the author:
 - **B. Rename the SDK import** to `evalshift_sdk` and keep a deprecated `evalshift` shim for one minor version. Pro: clean separation, no cross-repo package root. Con: every existing `from evalshift import capture` breaks after the shim window.
 - **C. Single distribution, `[cli]` extra.** Merge repos; `pip install evalshift` is the SDK, `pip install "evalshift[cli]"` adds the CLI. Pro: simplest for users. Con: repo merge, AGPL (CLI) vs MIT (SDK) licensing has to be reconciled per subpackage.
 
-- [ ] **Step 1:** Pick one (recommendation: **A**, because it honours the spec's `import evalshift` and matches the author's first-listed follow-up; licensing stays per-repo).
-- [ ] **Step 2:** Write the spec including the deprecation timeline, the `evalshift doctor` check that detects a clashing install, and the docs to rewrite (four two-venv mentions listed in Findings #1).
+- [x] **Step 1:** Picked **A** in its second form: CLI import package `evalshift_cli`, distribution name and console script unchanged, `evalshift-sdk>=0.3.0` declared as a runtime dependency. The first form (CLI code under the SDK's `evalshift` root) needs a PEP 420 namespace package, which the SDK's re-exporting `__init__.py` rules out; editable co-installs would need it too.
+- [x] **Step 2:** Spec: `docs/superpowers/specs/2026-09-09-namespace-collision-design.md` (3dbf245). No shim is possible — any `evalshift/` file shipped by the CLI recreates the clash — so the window is the CHANGELOG entry plus a minor bump. Found seven two-venv passages in the CLI and three in the SDK (Findings #1 listed four).
 
 ### Task 6.2 Implement per the chosen spec
 
-- [ ] Checkboxes to be written once 6.1 is decided; at minimum: package move, console-script entry point, `doctor` collision check, docs rewrite, CHANGELOG entries in both repos, version bumps.
+- [x] `[cli]` Package move `src/evalshift` → `src/evalshift_cli`; imports rewritten in `src/`, `tests/`, `scripts/`; tooling paths (mypy, ruff first-party, coverage, Makefile, CI, pre-commit); `evalshift-sdk` dependency; console script → `evalshift_cli.cli.main:app`; deferred-warnings printer matches its own records under the new root (1e1de65).
+- [x] `[cli]` `doctor` row `evalshift-sdk`: ok with the SDK version; warn when missing, when the import fails, or when an older CLI's files or a local `evalshift/` directory shadow it; never fails the command (5da36c1).
+- [x] `[cli]` Docs: README, getting-started, sdk.md, DOCS.md, AGENTS.md, llms-full.txt, faq.md, examples/capture-first; CHANGELOG Breaking + Added entries (d9c4eba, 1e1de65, 5da36c1).
+- [x] `[sdk]` DECISIONS.md D-pkg and D1-followup marked resolved; README, DOCS.md, support_agent example; vendored-mirror header path; CHANGELOG. No code change (ea54c0a).
+- [ ] `[cli]` Version bump to 0.14.0 — left for the maintainer's `chore(release): 0.14.0` commit, since CONTRIBUTING makes that bump the release itself. The CHANGELOG entry already names 0.14.0.
+
+  Verified: ruff, format, `mypy --strict`, and 1893 tests green with `evalshift-sdk` 0.3.0 installed from PyPI; the built wheel ships 103 `evalshift_cli/` files, no `evalshift/` entry, and `Requires-Dist: evalshift-sdk>=0.3.0`; `evalshift doctor` shows the row; the capture-first agent and `capture sync` run from the single CLI venv; SDK tests 510 green.
 
 ---
 
@@ -415,3 +421,4 @@ Options already named by the author:
 |---|---|---|
 | 2026-09-08 | — | Plan written from verified findings. |
 | 2026-09-08 | 0.1–0.6 | Phase 0 complete. cli: a2c8f24, cef4c85, 1861439, 54ff55f. sdk: 647e09f, 7853167. Found and logged Task 0.7 (validate lacks --suite-name). |
+| 2026-09-09 | 6.1–6.2 | Phase 6 done out of order (before 2–4, at the maintainer's request). cli: 3dbf245, 1e1de65, 5da36c1, d9c4eba. sdk: ea54c0a. Version bump deferred to the 0.14.0 release commit. |
