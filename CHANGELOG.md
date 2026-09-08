@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `doctor` row `evalshift-sdk`: reports the SDK version the `evalshift` import
+  name resolves to in this environment; `warn` (never a failure) when the SDK
+  is missing, fails to import, or is shadowed by an older CLI's leftover files
+  or a local `evalshift/` directory.
 - CI pin-drift check (`evalshift_cli.utils.ci_pin`): `capture sync`, `init` (without
   `--ci`), `doctor` (new `ci pin` row), and `validate` now parse
   `.github/workflows/*.yml` for `babaliauskas/evalshift-action` steps and warn

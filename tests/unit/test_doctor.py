@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from typer.testing import CliRunner
@@ -21,7 +23,9 @@ from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.cli.commands.doctor import (
     CONFIG_FILENAME,
     PROVIDER_KEYS,
+    SDK_DISTRIBUTION,
     CheckResult,
+    _sdk_check,
     _tool_consistency_checks,
     run_checks,
     source_conformance_check,
@@ -563,3 +567,93 @@ class TestCiPinCheck:
         assert result.exit_code == 0
         assert "ci pin" in result.stdout
         assert "default" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# evalshift-sdk row — which package the ``evalshift`` import name resolves to
+# ---------------------------------------------------------------------------
+
+
+def _no_dist(name: str) -> str:
+    raise PackageNotFoundError(name)
+
+
+def _sdk_module(**attrs: object) -> ModuleType:
+    """A stand-in for whatever ``import evalshift`` returns, with the given attributes."""
+    module = ModuleType("evalshift")
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    return module
+
+
+class TestSdkCheck:
+    def test_row_is_second_and_ok_in_this_environment(self, tmp_path: Path) -> None:
+        # Runs against the real interpreter: the SDK is a declared dependency, so
+        # the dev venv has it. This is the test that pins that declaration.
+        import evalshift
+
+        results = run_checks(cwd=tmp_path, env=_empty_env())
+        row = results[1]
+        assert row.name == SDK_DISTRIBUTION == "evalshift-sdk"
+        assert row.status == "ok"
+        assert evalshift.__version__ in row.detail
+        assert "import name `evalshift`" in row.detail
+
+    def test_missing_distribution_and_module_warns_with_the_install_hint(self) -> None:
+        def no_module(name: str) -> ModuleType:
+            raise ModuleNotFoundError(f"No module named {name!r}")
+
+        row = _sdk_check(import_module=no_module, dist_version=_no_dist)
+        assert row.status == "warn"
+        assert "not installed" in row.detail
+        assert "pip install evalshift-sdk" in row.detail
+
+    def test_metadata_less_install_is_ok_using_the_module_version(self) -> None:
+        # An editable checkout or a vendored copy: the package imports and is the
+        # SDK, but importlib.metadata knows no distribution.
+        module = _sdk_module(capture=object(), SCHEMA_VERSION="2.0.0", __version__="9.9.9")
+        row = _sdk_check(import_module=lambda _: module, dist_version=_no_dist)
+        assert row.status == "ok"
+        assert row.detail == "9.9.9 (import name `evalshift`)"
+
+    def test_distribution_version_wins_over_the_module_attribute(self) -> None:
+        module = _sdk_module(capture=object(), SCHEMA_VERSION="2.0.0", __version__="9.9.9")
+        row = _sdk_check(import_module=lambda _: module, dist_version=lambda _: "0.3.0")
+        assert row.status == "ok"
+        assert row.detail == "0.3.0 (import name `evalshift`)"
+
+    def test_older_cli_package_shadowing_the_sdk_warns_naming_its_location(self) -> None:
+        # A pre-rename evalshift CLI also imported as ``evalshift``: it carries a
+        # __version__ but neither ``capture`` nor ``SCHEMA_VERSION``.
+        module = _sdk_module(
+            __version__="0.13.1", __file__="/venv/site-packages/evalshift/__init__.py"
+        )
+        row = _sdk_check(import_module=lambda _: module, dist_version=lambda _: "0.3.0")
+        assert row.status == "warn"
+        assert "/venv/site-packages/evalshift" in row.detail
+        assert "not the SDK" in row.detail
+
+    def test_stray_directory_shadowing_the_sdk_reports_its_path(self) -> None:
+        # A bare ``evalshift/`` directory on sys.path imports as a namespace
+        # package: no __file__, and __path__ lists the directory.
+        module = _sdk_module(__path__=["/proj/evalshift"])
+        row = _sdk_check(import_module=lambda _: module, dist_version=_no_dist)
+        assert row.status == "warn"
+        assert "/proj/evalshift" in row.detail
+
+    def test_import_error_with_the_distribution_installed_warns_with_the_error(self) -> None:
+        def broken(name: str) -> ModuleType:
+            raise ImportError("boom")
+
+        row = _sdk_check(import_module=broken, dist_version=lambda _: "0.3.0")
+        assert row.status == "warn"
+        assert "0.3.0" in row.detail
+        assert "boom" in row.detail
+
+    def test_doctor_cli_renders_the_row(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0
+        assert "evalshift-sdk" in result.stdout

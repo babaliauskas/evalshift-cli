@@ -24,11 +24,14 @@ and ``evaluate`` renders it with this module's own :func:`render_results`.
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from types import ModuleType
 from typing import Final, Literal
 
 import typer
@@ -50,6 +53,14 @@ from evalshift_cli.utils.ci_pin import check_ci_pin, find_action_pins
 CheckStatus = Literal["ok", "warn", "fail"]
 
 CONFIG_FILENAME: Final = "evalshift.yaml"
+# The capture SDK: a declared dependency of this package, and the owner of the
+# import name ``evalshift`` (this package imports as ``evalshift_cli``).
+SDK_DISTRIBUTION: Final = "evalshift-sdk"
+SDK_IMPORT_NAME: Final = "evalshift"
+# Attributes only the SDK's package exposes. An evalshift CLI from before the
+# import rename also imported as ``evalshift`` and has neither, and nor does a
+# stray ``evalshift/`` directory on ``sys.path``.
+_SDK_MARKERS: Final = ("capture", "SCHEMA_VERSION")
 # One entry per provider, primary env var first then accepted aliases. Sourced
 # from the model registry so doctor and the client agree on what authenticates.
 PROVIDER_KEYS: Final[tuple[tuple[str, ...], ...]] = tuple(PROVIDER_ENV_VARS.values())
@@ -94,7 +105,7 @@ def run_checks(cwd: Path, env: Mapping[str, str]) -> list[CheckResult]:
     Returns:
         One :class:`CheckResult` per row in the doctor table, in display order.
     """
-    results = [_python_check()]
+    results = [_python_check(), _sdk_check()]
     results.extend(_api_key_check(env, aliases) for aliases in PROVIDER_KEYS)
     results.append(_config_check(cwd))
     results.extend(_tool_consistency_checks(cwd))
@@ -108,6 +119,75 @@ def _python_check() -> CheckResult:
         name=f"Python {v.major}.{v.minor}.{v.micro}",
         status="ok",
         detail=f"EvalShift {__version__}",
+    )
+
+
+def _module_location(module: ModuleType) -> str:
+    """Where ``module`` was imported from: its package directory, for the shadowing message."""
+    file = getattr(module, "__file__", None)
+    if file:
+        return str(Path(file).parent)
+    paths = list(getattr(module, "__path__", []))  # a namespace package has no __file__
+    return ", ".join(str(p) for p in paths) if paths else "an unknown location"
+
+
+def _sdk_check(
+    *,
+    import_module: Callable[[str], ModuleType] = importlib.import_module,
+    dist_version: Callable[[str], str] = version,
+) -> CheckResult:
+    """Report which package the ``evalshift`` import name resolves to.
+
+    The CLI depends on :data:`SDK_DISTRIBUTION` so that one install serves both
+    instrumenting an agent and running evaluations, and so that ``import
+    evalshift`` is always the SDK. This row confirms that from inside the
+    interpreter that will run the agent: ``ok`` when the SDK imports and carries
+    its markers (:data:`_SDK_MARKERS`), ``warn`` when it is missing, when the
+    import fails, or when something else answers to the name — an evalshift
+    CLI from before the import rename, or a local ``evalshift/`` directory.
+
+    Never ``fail``: the CLI itself does not need the SDK to run.
+
+    Args:
+        import_module: Importer to use; injectable for tests.
+        dist_version: Distribution-version lookup; injectable for tests.
+    """
+    try:
+        installed: str | None = dist_version(SDK_DISTRIBUTION)
+    except PackageNotFoundError:
+        installed = None
+    try:
+        module = import_module(SDK_IMPORT_NAME)
+    except Exception as exc:
+        if installed is None:
+            return CheckResult(
+                name=SDK_DISTRIBUTION,
+                status="warn",
+                detail=(
+                    f"not installed (`from {SDK_IMPORT_NAME} import capture` fails in this "
+                    f"environment; run `pip install {SDK_DISTRIBUTION}`)"
+                ),
+            )
+        return CheckResult(
+            name=SDK_DISTRIBUTION,
+            status="warn",
+            detail=f"{installed} is installed but `import {SDK_IMPORT_NAME}` failed: {exc}",
+        )
+    if not all(hasattr(module, marker) for marker in _SDK_MARKERS):
+        return CheckResult(
+            name=SDK_DISTRIBUTION,
+            status="warn",
+            detail=(
+                f"`import {SDK_IMPORT_NAME}` resolves to {_module_location(module)}, not the "
+                f"SDK — an older evalshift CLI's leftover files or a local "
+                f"{SDK_IMPORT_NAME}/ directory shadow it; remove them"
+            ),
+        )
+    shown = installed or getattr(module, "__version__", None) or "unknown version"
+    return CheckResult(
+        name=SDK_DISTRIBUTION,
+        status="ok",
+        detail=f"{shown} (import name `{SDK_IMPORT_NAME}`)",
     )
 
 
@@ -378,6 +458,8 @@ __all__ = [
     "BROKEN_HARNESS_RATE",
     "CONFIG_FILENAME",
     "PROVIDER_KEYS",
+    "SDK_DISTRIBUTION",
+    "SDK_IMPORT_NAME",
     "CheckResult",
     "CheckStatus",
     "doctor",
