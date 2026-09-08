@@ -17,7 +17,7 @@ import sys
 
 import pytest
 
-from evalshift.models.client import _LateBoundStderr, deferred_console_warnings
+from evalshift.models.client import deferred_console_warnings
 
 _LITELLM_LOG = logging.getLogger("LiteLLM")
 
@@ -112,12 +112,12 @@ class TestRestoration:
     ) -> None:
         stderr = io.StringIO()
         monkeypatch.setattr(sys, "stderr", stderr)
+        handlers_before = list(_LITELLM_LOG.handlers)
 
         with deferred_console_warnings():
             pass
 
-        streams = [h.stream for h in _LITELLM_LOG.handlers if isinstance(h, logging.StreamHandler)]
-        assert any(isinstance(s, _LateBoundStderr) for s in streams)
+        assert list(_LITELLM_LOG.handlers) == handlers_before
 
         _LITELLM_LOG.warning("deferred-test: emitted after restore")
         assert "deferred-test: emitted after restore" in stderr.getvalue()
@@ -130,10 +130,42 @@ class TestRestoration:
         monkeypatch.setattr(sys, "stderr", stderr)
         root = logging.getLogger()
         handlers_before = list(root.handlers)
+        litellm_handlers_before = list(_LITELLM_LOG.handlers)
 
         with pytest.raises(RuntimeError), deferred_console_warnings():
             raise RuntimeError("stage failed")
 
         assert list(root.handlers) == handlers_before
-        streams = [h.stream for h in _LITELLM_LOG.handlers if isinstance(h, logging.StreamHandler)]
-        assert any(isinstance(s, _LateBoundStderr) for s in streams)
+        assert list(_LITELLM_LOG.handlers) == litellm_handlers_before
+
+        _LITELLM_LOG.warning("deferred-test: emitted after a failed block")
+        assert "deferred-test: emitted after a failed block" in stderr.getvalue()
+
+
+class TestLevelRoutedHandler:
+    def test_a_sub_warning_record_does_not_break_deferral(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An INFO record must not cost us the handler.
+
+        litellm >= 1.100 routes records below WARNING to ``sys.stdout`` by
+        re-pointing the handler's stream. When only the stderr pair counted as
+        a console stream, one INFO record left the handler unrecognised, so
+        :func:`deferred_console_warnings` detached nothing and the warning
+        printed mid-pipeline as well as landing in the buffer.
+        """
+        stderr = io.StringIO()
+        stdout = io.StringIO()
+        monkeypatch.setattr(sys, "stderr", stderr)
+        monkeypatch.setattr(sys, "stdout", stdout)
+        monkeypatch.setattr(_LITELLM_LOG, "level", logging.DEBUG)
+
+        _LITELLM_LOG.info("deferred-test: routes the handler at stdout")
+
+        with deferred_console_warnings() as deferred:
+            _LITELLM_LOG.warning("deferred-test: must not reach the console")
+
+        assert any("deferred-test: must not reach the console" in r.getMessage() for r in deferred)
+        assert "deferred-test: must not reach the console" not in stderr.getvalue()
+        assert "deferred-test: must not reach the console" not in stdout.getvalue()

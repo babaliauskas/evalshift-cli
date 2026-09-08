@@ -20,7 +20,7 @@ disclosure timeline.
 
 ## Scope
 
-EvalShift is a local-first CLI with optional hosted private-alpha upload
+EvalShift is a local-first CLI with optional hosted upload
 commands. The local threat model is centred on:
 
 * **Untrusted project files.** `evalshift.yaml`, `prompts.py`, and

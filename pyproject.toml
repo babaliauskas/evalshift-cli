@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [{ name = "Lukas Babaliauskas" }]
 keywords = ["llm", "evaluation", "regression-testing", "anthropic", "openai", "gemini", "migration"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",

@@ -1,4 +1,4 @@
-# Hosted alpha
+# Hosted EvalShift
 
 Hosted EvalShift is optional. Local commands stay local until you explicitly
 package and push a completed run.

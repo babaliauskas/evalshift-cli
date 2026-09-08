@@ -13,7 +13,7 @@ hosted (opt-in)  run history, diffs, PR gates
 The suite is the crux, so the capture SDK is the recommended way to build one: it records real production runs to disk and `evalshift capture sync` promotes them into golden suites. Hand-written suites are fully supported — see [The golden suite](#the-golden-suite).
 
 - **Package name:** `evalshift` · **CLI entry point:** `evalshift` · **version:** 0.13.1
-- **Python:** >= 3.11 · **License:** AGPL-3.0-or-later · **Status:** alpha
+- **Python:** >= 3.11 · **License:** AGPL-3.0-or-later · **Status:** stable
 - **Local-first.** Runs, scores, stats, and reports all happen on your machine under `.evalshift/`. The only network calls are the model API calls you asked for — and, if you opt in, pushes to the hosted service.
 - **Four pieces:** CLI (this doc), SDK, GitHub Action, hosted server — each with its own machine-readable reference for AI tools. See [Ecosystem and AI-tool references](#ecosystem-and-ai-tool-references).
 
@@ -37,7 +37,7 @@ The suite is the crux, so the capture SDK is the recommended way to build one: i
 14. [Statistical methodology](#statistical-methodology)
 15. [Migration policy and CI gating](#migration-policy-and-ci-gating)
 16. [Run insights](#run-insights)
-17. [Hosted EvalShift (alpha)](#hosted-evalshift-alpha)
+17. [Hosted EvalShift](#hosted-evalshift)
 18. [GitHub Action](#github-action)
 19. [Command reference](#command-reference)
 20. [Environment variables](#environment-variables)
@@ -502,7 +502,7 @@ Structural and tool-call evaluators are free (pure computation over recorded out
 
 ## Agent evaluation
 
-Each golden-suite example carries its own toolset — a `toolset_ref` pointing at a content-addressed sidecar (what `capture promote`/`sync` write) or an inline `tools` list (`[]` is a real, valid "no tools offered" value). `run` resolves it per example and, for any example whose toolset is non-empty, sends the provider the tool definitions and records the response as a provider-agnostic `ToolTrace` (ordered `ToolCall`s with `tool_name`, `arguments`, `call_id`, `parent_call_id`, `sequence_index`, plus `final_text` and refusal info); the tool-call evaluators then score the trace against that example's ground truth. Two examples under the same prompt can carry different toolsets — or none — so one suite freely mixes agent and text-only rows. The same trace is visible in the local HTML report's side-by-side trace diffs, and — once the run is bundled and pushed — on the hosted run-detail page; see [Hosted EvalShift](#hosted-evalshift-alpha).
+Each golden-suite example carries its own toolset — a `toolset_ref` pointing at a content-addressed sidecar (what `capture promote`/`sync` write) or an inline `tools` list (`[]` is a real, valid "no tools offered" value). `run` resolves it per example and, for any example whose toolset is non-empty, sends the provider the tool definitions and records the response as a provider-agnostic `ToolTrace` (ordered `ToolCall`s with `tool_name`, `arguments`, `call_id`, `parent_call_id`, `sequence_index`, plus `final_text` and refusal info); the tool-call evaluators then score the trace against that example's ground truth. Two examples under the same prompt can carry different toolsets — or none — so one suite freely mixes agent and text-only rows. The same trace is visible in the local HTML report's side-by-side trace diffs, and — once the run is bundled and pushed — on the hosted run-detail page; see [Hosted EvalShift](#hosted-evalshift).
 
 The canonical agent-migration failure this catches: the candidate model silently **stops calling `notify_security_team`** on security-sensitive tickets. `tool_selection` with `severity_floor: high` turns that into an unmissable red row.
 
@@ -697,7 +697,7 @@ defaults:
 
 ---
 
-## Hosted EvalShift (alpha)
+## Hosted EvalShift
 
 The hosted service ([evalshift.dev](https://evalshift.dev), API at `https://api.evalshift.dev`) stores pushed runs, diffs them across branches, and comments on PRs. Strictly opt-in: nothing leaves your machine unless you run `push` (or `all --push`). Provider API keys are never uploaded.
 

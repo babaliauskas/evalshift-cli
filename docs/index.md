@@ -25,7 +25,7 @@ produces a single-file HTML report with **defensible statistics**:
 paired tests, Cohen's d, 95% CIs, and Benjamini-Hochberg correction
 across every comparison.
 
-Hosted private-alpha commands are available when you explicitly log in
+Hosted commands are available when you explicitly log in
 and push a run. Local runs remain local by default.
 
 ## The four pieces
@@ -35,7 +35,7 @@ and push a run. Local runs remain local by default.
 | **SDK** (`evalshift-sdk`) | Records what your agent actually did in production — model, tool, and final-output calls — to `.evalshift/captures/`. The CLI promotes those into golden suites. | [Capture SDK](sdk.md) |
 | **CLI** (`evalshift`) | Runs the suite on two models, scores, analyses, reports. | this site |
 | **GitHub Action** | Runs the pipeline on pull requests, comments, gates the check. | [GitHub Action](github-action.md) |
-| **Hosted server** | Optional. Stores pushed runs, diffs branches, drives PR comments. | [Hosted alpha](hosted.md) |
+| **Hosted server** | Optional. Stores pushed runs, diffs branches, drives PR comments. | [Hosted EvalShift](hosted.md) |
 
 Data flow: SDK captures → CLI runs and bundles → hosted server stores and diffs
 → web app displays.
@@ -112,6 +112,6 @@ Each piece publishes a dense, single-file, machine-readable reference:
 * [Multi-turn conversations](conversations.md) — teacher-forced replay.
 * [Agent traces](traces.md) — bring-your-own agent timelines.
 * [Methodology](methodology.md) — the statistical machinery.
-* [Hosted alpha](hosted.md) — login, bundle, push, thresholds, privacy.
+* [Hosted EvalShift](hosted.md) — login, bundle, push, thresholds, privacy.
 * [GitHub Action](github-action.md) — PR comments and hosted gates.
 * [FAQ](faq.md) — common questions.

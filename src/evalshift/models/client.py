@@ -113,11 +113,19 @@ def _console_stream_handlers(logger: logging.Logger) -> list[logging.StreamHandl
     """The logger's handlers that write to the console, and only those.
 
     A ``FileHandler`` is a ``StreamHandler`` too, and a log file must keep
-    receiving its records — so only handlers currently pointed at
-    ``sys.stderr``, the interpreter's original ``sys.__stderr__``, or our own
-    :class:`_LateBoundStderr` proxy count as console handlers.
+    receiving its records — so only handlers currently pointed at one of the
+    interpreter's console streams, or at our own :class:`_LateBoundStderr`
+    proxy, count as console handlers.
+
+    ``sys.stdout`` is in that set because of LiteLLM's
+    ``LevelRoutingStreamHandler`` (litellm >= 1.100), whose ``emit`` re-points
+    the handler at ``sys.stdout`` for records below WARNING and ``sys.stderr``
+    above it, once per record. Matching only the stderr pair meant a single
+    INFO record left the handler unrecognised, and
+    :func:`deferred_console_warnings` then failed to detach it — LiteLLM
+    warnings printed mid-pipeline *and* were replayed in the summary.
     """
-    console_streams = {sys.stderr, sys.__stderr__}
+    console_streams = {sys.stderr, sys.__stderr__, sys.stdout, sys.__stdout__}
     return [
         handler
         for handler in logger.handlers
@@ -127,7 +135,15 @@ def _console_stream_handlers(logger: logging.Logger) -> list[logging.StreamHandl
 
 
 def _late_bind_stderr_handlers(litellm_log: logging.Logger) -> None:
-    """Repoint LiteLLM's console handlers at :class:`_LateBoundStderr`."""
+    """Repoint LiteLLM's console handlers at :class:`_LateBoundStderr`.
+
+    The proxy is what keeps the stream late-bound on litellm < 1.100. From
+    1.100 the library resolves ``sys.stdout``/``sys.stderr`` itself on every
+    record, which is the same late binding by another route, and drops the
+    proxy the first time it emits — so nothing here assumes the proxy is
+    still installed later. Both paths are covered by the supported range
+    (``litellm>=1.77,<2``).
+    """
     for handler in _console_stream_handlers(litellm_log):
         if not isinstance(handler.stream, _LateBoundStderr):
             handler.setStream(_LateBoundStderr())

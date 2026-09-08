@@ -10,7 +10,7 @@ into this file.
 
 EvalShift: local-first CLI for safe LLM model migrations — runs two models against a golden
 suite, scores with structural/semantic/judge/tool-call evaluators, emits an HTML report with
-paired stats. Alpha, published on PyPI as `evalshift`. Python **3.11+**, `mypy --strict` clean.
+paired stats. Published on PyPI as `evalshift`. Python **3.11+**, `mypy --strict` clean.
 
 ## Sibling pieces and their references
 

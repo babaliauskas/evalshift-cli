@@ -5,7 +5,7 @@ Open-source LLM migration and regression testing for AI agents.
 [![CI](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#status)
+[![PyPI](https://img.shields.io/pypi/v/evalshift.svg)](https://pypi.org/project/evalshift/)
 
 **The SDK captures what your agent really did. The CLI replays it against a
 candidate model and tells you what broke. The hosted app keeps the history.**
@@ -33,8 +33,8 @@ tool calls, final outputs — to disk, and `evalshift capture sync` promotes the
 into golden suites. Hand-written suites are fully supported too, but captured
 traffic is the recommended starting point.
 
-Local runs stay on your machine by default. Hosted private-alpha commands are
-available when you explicitly log in and push a run.
+Local runs stay on your machine by default. Hosted commands are available when
+you explicitly log in and push a run.
 
 ## How EvalShift fits together
 
@@ -64,8 +64,14 @@ working on:
 
 ## Status
 
-**Alpha.** Every command in the pipeline is shipped and the test suite covers
-92% of the source. APIs may still change as feedback comes in.
+**Stable and in production use.** Every command in the pipeline is shipped and
+the test suite covers 92% of the source. The CLI is published on PyPI as
+`evalshift`, the capture SDK as `evalshift-sdk`, and the hosted service runs at
+`api.evalshift.dev`.
+
+The `evalshift.yaml` schema is versioned: `version: 1` changes only for a
+breaking change — a field renamed, removed, or given new semantics — so configs
+and CI pipelines keep working across releases.
 
 ## Install
 
@@ -165,7 +171,7 @@ the config sets a `migration_policy`), `report.json`, `report.html`, and
 `insights.json` (when insights ran). None of it leaves your machine unless you
 opt in to hosted upload commands.
 
-## Hosted private alpha
+## Hosted EvalShift
 
 Hosted EvalShift adds shared run history, web viewing, diffs, and GitHub PR
 comments. It is optional: local CLI usage does not require an account.
@@ -308,7 +314,7 @@ wires these links into your project automatically: it writes
 * [Agent traces](docs/traces.md) — bring-your-own agent timelines
 * [Capture SDK](docs/sdk.md) — instrument your agent, promote captures to suites
 * [Methodology](docs/methodology.md) — the statistical machinery
-* [Hosted alpha](docs/hosted.md) — login, bundle, push, thresholds, and the
+* [Hosted EvalShift](docs/hosted.md) — login, bundle, push, thresholds, and the
   privacy model: exactly what data uploads and what never leaves your machine
 * [GitHub Action](docs/github-action.md) — PR comments + hosted regression gate
 * [FAQ](docs/faq.md) — common questions
@@ -317,7 +323,6 @@ wires these links into your project automatically: it writes
 
 ## Non-goals
 
-* General-availability hosted service or billing
 * Hosted provider-key storage
 * Multi-criterion judge in a single call
 * Custom evaluator plugin system

@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writer locally.
 - `packaging>=23` is now a declared dependency (version comparison).
 
+### Fixed
+
+- LiteLLM warnings no longer print in the middle of the `evalshift all`
+  pipeline block (and again in the deferred-warnings section) on
+  litellm >= 1.100. That release routes records below WARNING to `sys.stdout`
+  by re-pointing its handler's stream per record; because only `sys.stderr`
+  and `sys.__stderr__` counted as console streams, a single INFO record left
+  the handler unrecognised and `deferred_console_warnings()` stopped
+  detaching it. `sys.stdout`/`sys.__stdout__` now count too.
+
 ### Changed
 
 - Documented the config version policy: `version: 1` bumps only for breaking

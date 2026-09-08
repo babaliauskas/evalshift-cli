@@ -2,7 +2,7 @@
 
 Canonical hosted copy: https://www.evalshift.dev/cli-llms-full.txt
 Package: evalshift (PyPI) | CLI entry point: evalshift | version: 0.13.1
-Python: >=3.11 | license: AGPL-3.0-or-later | status: alpha
+Python: >=3.11 | license: AGPL-3.0-or-later | status: stable
 Install: pip install evalshift   (or: uv pip install evalshift)
 
 Product flow: evalshift-sdk captures real agent behavior in production -> this CLI replays those

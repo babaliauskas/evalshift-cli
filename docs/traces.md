@@ -114,4 +114,4 @@ Not everything travels verbatim. `model_call` `input` and `output` payloads are
 excluded, and oversized content is shortened rather than dropped: a serialized
 `tool_result.result` over 16 KB becomes a truncated preview, and a stream over
 256 KB keeps its leading events and is flagged `truncated`. The full bundle
-contract is in [Hosted alpha](hosted.md#bundle-and-push).
+contract is in [Hosted EvalShift](hosted.md#bundle-and-push).

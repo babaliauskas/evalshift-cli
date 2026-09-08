@@ -182,7 +182,7 @@ drift, extra dangerous actions, and missing verification steps. See
 
 ## 9. Optional: push to hosted EvalShift
 
-Hosted private alpha adds shared run history, web viewing, diffs, and
+Hosted EvalShift adds shared run history, web viewing, diffs, and
 GitHub PR comments. Sign in through the hosted web app, then approve CLI login
 in the browser:
 
@@ -212,7 +212,7 @@ evalshift bundle <run-id>
 evalshift push <run-id>
 ```
 
-See [Hosted alpha](hosted.md) and [GitHub Action](github-action.md) for CI
+See [Hosted EvalShift](hosted.md) and [GitHub Action](github-action.md) for CI
 setup and privacy details.
 
 [uv]: https://docs.astral.sh/uv/
