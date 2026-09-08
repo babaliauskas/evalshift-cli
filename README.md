@@ -121,7 +121,7 @@ from evalshift import capture
 def issue_refund(order_id: str) -> dict: ...
 
 
-@capture.agent(suite="support_agent", redact=True)
+@capture.agent(suite="support_agent", redact=True, tools=[])
 def handle(message: str) -> str: ...
 ```
 
@@ -131,7 +131,8 @@ def handle(message: str) -> str: ...
 API keys and bearer tokens before anything reaches disk, `False` records
 verbatim, or pass your own `(value) -> value` callable. `@capture.tool` takes no
 `redact` of its own — tool spans are masked by the redactor of the agent session
-they run inside.
+they run inside. `tools=` is required at the same entry points: the toolset the
+agent was offered, or `[]` if it never calls tools.
 
 Nothing is recorded unless `EVALSHIFT_CAPTURE=1` is set, so the decorators are
 safe to leave in production permanently:

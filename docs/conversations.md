@@ -28,6 +28,7 @@ from evalshift import capture, record_model_call
 with capture.agent_session(
     suite="support_agent",
     redact=True,  # required — mask PII before it reaches disk
+    tools=[],  # required — the toolset offered this turn
     agent_input=messages,  # the full messages list — see below
     conversation_id="conv_abc123",
     turn_index=2,

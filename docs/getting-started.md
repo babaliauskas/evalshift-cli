@@ -102,7 +102,7 @@ dispatch against. Instrument your agent with [evalshift-sdk][sdk]
 from evalshift import capture
 
 
-@capture.agent(suite="support_agent", redact=True)
+@capture.agent(suite="support_agent", redact=True, tools=[])
 def handle(message: str) -> str: ...
 ```
 
