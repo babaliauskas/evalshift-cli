@@ -1,0 +1,96 @@
+{
+  "name": "cap_7ca7d4f3a9e94b73bb8960451c1ba07b",
+  "suite": "oncall_triage",
+  "from_capture": "cap_7ca7d4f3a9e94b73bb8960451c1ba07b",
+  "promoted_at": "2026-09-08T21:42:43.230915+00:00",
+  "source_input_hash": "c46a3ad6b99405eed54341baa177112a5cd619336f02cd3c90d0201ee13166e7",
+  "code_version": "",
+  "conversation_id": null,
+  "turn_index": null,
+  "example": {
+    "id": "cap_7ca7d4f3a9e94b73bb8960451c1ba07b",
+    "inputs": {
+      "input": "You are the on-call triage assistant for a payments platform.\n\nGiven an alert, decide what to do and act:\n  - Always check service health before drawing a conclusion.\n  - Open an incident for anything customer-visible.\n  - Page the owning team only for sev1 and sev2.\n  - Answer ownership and policy questions directly, without calling tools.\n\nBe concise. Reply with what you did and why, in at most three sentences.\n\nAlert: checkout-api 5xx error rate has been above 15 percent for the last 6 minutes."
+    },
+    "tags": [
+      "captured",
+      "oncall_triage"
+    ],
+    "expected": {
+      "final_output": "Health checks confirm checkout-api is failing about 18 percent of requests since a deploy 11 minutes ago. I opened INC-4471 at sev1 and paged the payments on-call."
+    },
+    "expected_tools": [
+      {
+        "tool_name": "get_service_health",
+        "arguments": {
+          "service": "checkout-api"
+        },
+        "match_strategy": "subset",
+        "provenance": "captured"
+      },
+      {
+        "tool_name": "open_incident",
+        "arguments": {
+          "title": "checkout-api 5xx spike after deploy",
+          "service": "checkout-api",
+          "severity": "sev1"
+        },
+        "match_strategy": "subset",
+        "provenance": "captured"
+      },
+      {
+        "tool_name": "page_oncall",
+        "arguments": {
+          "team": "payments",
+          "severity": "sev1",
+          "summary": "checkout-api is returning 5xx for roughly a fifth of requests."
+        },
+        "match_strategy": "subset",
+        "provenance": "captured"
+      }
+    ],
+    "expected_tool_rounds": [
+      [
+        {
+          "tool_name": "get_service_health",
+          "arguments": {
+            "service": "checkout-api"
+          },
+          "match_strategy": "subset",
+          "provenance": "captured"
+        },
+        {
+          "tool_name": "open_incident",
+          "arguments": {
+            "title": "checkout-api 5xx spike after deploy",
+            "service": "checkout-api",
+            "severity": "sev1"
+          },
+          "match_strategy": "subset",
+          "provenance": "captured"
+        },
+        {
+          "tool_name": "page_oncall",
+          "arguments": {
+            "team": "payments",
+            "severity": "sev1",
+            "summary": "checkout-api is returning 5xx for roughly a fifth of requests."
+          },
+          "match_strategy": "subset",
+          "provenance": "captured"
+        }
+      ]
+    ],
+    "expected_tool_count": null,
+    "expected_no_tools": false,
+    "expected_parallel": null,
+    "history": null,
+    "conversation_id": null,
+    "turn_index": null,
+    "generation_config": {
+      "temperature": 0.0
+    },
+    "toolset_ref": "sha256:56503f6dc1f33019cdd841f6213646bae2ab8ea9dd858d54713effa881b5ff94",
+    "tools": null
+  }
+}

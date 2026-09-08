@@ -1,0 +1,98 @@
+# migration_profile: model-upgrade
+# EvalShift configuration. See https://github.com/babaliauskas/EvalShift for docs.
+#
+# `init` writes only this file, set up for the capture-first flow: instrument
+# your agent with the evalshift-sdk, exercise it to record captures, then run
+# `evalshift capture sync` to promote them into suites and wire them in below.
+version: 1
+
+# Hosted only (https://www.evalshift.dev): the project runs are pushed to, in
+# `org/project` form — lowercase letters, digits and hyphens on both sides.
+# Local runs never need it and nothing leaves this machine without an explicit
+# `evalshift push` / `evalshift all --push`; `push --project` overrides it for
+# one invocation. Uncomment and set it to save typing that flag.
+# project: your-org/your-project
+
+prompts:
+  # Passthrough replay: a promoted capture's example is
+  # {"input": "<full rendered prompt>"}, so we echo it back verbatim.
+  # Extracting a prompt from your source instead? Use detection: python_string
+  # with `path:` + `variable:` (see docs/configuration.md).
+  - id: replay
+    detection: manual
+    content: "{input}"
+    variables: [input]
+
+# Defaults applied to every run; CLI flags override these.
+defaults:
+  # Your CURRENT production model — the baseline you migrate FROM.
+  source_model: gemini-3.1-flash-lite-preview
+  # The candidate you migrate TO. Set it here or pass --to <model> per run.
+  # target_model: gemini-3.1-pro-preview
+  concurrency: 4
+  max_cost_usd: 50.0
+  # Completion length cap for every model call. Raise it (or set a
+  # per-prompt prompts[].max_tokens) if outputs are being truncated;
+  # truncated calls are excluded from the regression stats.
+  max_tokens: 4096
+
+evaluators:
+  # Embedding-based drift score between source and target outputs. Advisory
+  # (blocking: false): it reports and ranks drift but never fails a run by
+  # itself — cosine distance can't tell "reworded" from "wrong".
+  semantic:
+    embedding_model: gemini/gemini-embedding-001
+    # Cosine similarity below which a target output is flagged as a
+    # semantic regression. Defaults to 0.9; lower it to tolerate more drift.
+    min_similarity: 0.9
+    blocking: false
+  # Pairwise LLM judge. Advisory (blocking: false) by default: at the small
+  # suite sizes fresh captures start with, judge noise would gate the verdict.
+  # Flip to true once your suite is large enough that you trust its calls.
+  # The judge sees the two outputs as anonymous "A" and "B" — keep the
+  # criterion symmetric (never mention source/target) and keep an explicit
+  # tie instruction, or the judge degenerates to picking a side at random.
+  # When you set target_model, prefer a judge from a third model family —
+  # judging its own family's outputs biases the result.
+  llm_judge:
+    - criterion_name: equivalence
+      criterion_prompt: >
+        Which output is more complete and correct? Prefer valid JSON over
+        fenced or malformed JSON, no dropped or invented fields or entity
+        ids, and conclusions grounded in the input. Answer "tie" when both
+        are equivalent in substance and differ only in wording.
+      judge_model: gemini-3.1-pro-preview
+      blocking: false
+  # Nothing to uncomment for agent/tool migrations: `evalshift capture sync`
+  # reads what each suite's captures actually contain and writes that suite's
+  # own tool_selection / tool_arguments block into the managed suites: region
+  # below — so a tool-free suite is never scored on an empty tool denominator.
+  # See docs/agents.md.
+
+migration_policy:
+  max_overall_regression_rate: 0.30
+  max_critical_regressions: 1
+  min_equivalence_rate: 0.75
+  max_tool_argument_drift: 0.20
+  max_tool_divergence: 0.20
+  max_cost_increase: 0.30
+  max_latency_increase: 0.30
+
+# >>> evalshift suites (managed by `evalshift capture sync`) >>>
+# Regenerated on every sync, evaluators included: each suite is scored with what
+# its own captures contain, so a tool-free suite gets no tool evaluators. Hand
+# edits inside this region are overwritten -- set `managed: false` on a suite to
+# freeze its entry (sync then prints what it would have written instead).
+suites:
+  oncall_triage:
+    source: captured
+    path: .evalshift/suites/oncall_triage/golden.jsonl
+    evaluators:
+      tool_selection:
+        - name: routing
+          conformance: expected
+          divergence: set
+      tool_arguments:
+        - name: routing_args
+          against: expected
+# <<< evalshift suites <<<

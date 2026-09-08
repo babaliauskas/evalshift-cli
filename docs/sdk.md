@@ -118,6 +118,10 @@ from production traffic rather than hand-written examples.
 
 ## Related
 
+- [`examples/capture-first/`](https://github.com/babaliauskas/evalshift-cli/tree/main/examples/capture-first)
+  — every step above checked in: the instrumented agent, the captures and
+  toolset sidecar it wrote, the promoted suite, and the `evalshift.yaml` whose
+  managed `suites:` block `capture sync` filled in.
 - [Getting started](getting-started.md) — the capture-first `evalshift init` flow.
 - [Multi-turn conversations](conversations.md) — how history is recovered.
 - **LangChain** needs no decorators: the SDK ships an `EvalShiftCallbackHandler`

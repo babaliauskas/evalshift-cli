@@ -143,8 +143,11 @@ evalshift capture sync                     # captures → golden suites + wired 
 evalshift all --suite-name support_agent --to <candidate-model>
 ```
 
-See [docs/sdk.md](docs/sdk.md) for the full capture contract. Can't instrument
-the agent? A hand-written `golden.jsonl` works just as well — see
+See [docs/sdk.md](docs/sdk.md) for the full capture contract, and
+[`examples/capture-first/`](examples/capture-first/) for those three commands
+checked in end to end — the instrumented agent, the captures it wrote, the
+promoted suite, and the `suites:` block `capture sync` filled in. Can't
+instrument the agent? A hand-written `golden.jsonl` works just as well — see
 [Getting started](docs/getting-started.md).
 
 ### Driving the pipeline
@@ -321,6 +324,15 @@ wires these links into your project automatically: it writes
 * [FAQ](docs/faq.md) — common questions
 * [llms-full.txt](llms-full.txt) — dense single-file reference for AI coding
   tools, hosted at <https://www.evalshift.dev/cli-llms-full.txt>
+
+Runnable projects under [`examples/`](examples/):
+
+| Example | Shows |
+| --- | --- |
+| [`capture-first/`](examples/capture-first/) | The recommended flow: an SDK-instrumented agent, its captures, and the golden suite + managed `suites:` block `evalshift capture sync` produced from them. |
+| [`simple/`](examples/simple/) | The smallest hand-authored project — one `python_string` prompt, one length evaluator. |
+| [`agent/`](examples/agent/) | A hand-authored agent suite: six tools, per-example `toolset_ref`, `tool_selection` scoring, slices. |
+| [`agent-traces/`](examples/agent-traces/) | Bring-your-own agent timelines scored with the `agent_trace` evaluator, for agents the SDK cannot instrument. |
 
 ## Non-goals
 

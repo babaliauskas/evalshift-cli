@@ -1,0 +1,19 @@
+# The repo root ignores `.evalshift/` wholesale — it is generated runtime data.
+# This example is the one place that has to commit part of it: the captures,
+# the toolset sidecar and the promoted suite ARE the example. So un-ignore the
+# directory, re-ignore everything in it, then re-admit exactly the three
+# subtrees the capture flow reads and writes. Runs, checkpoints and the response
+# cache stay ignored.
+#
+# A real project commits the same way, minus `captures/` — raw captures hold
+# production payloads. `evalshift init --ci` scaffolds a workflow whose header
+# spells out that shorter version:
+#
+#     .evalshift/*
+#     !.evalshift/suites/
+#     !.evalshift/toolsets/
+!.evalshift/
+.evalshift/*
+!.evalshift/captures/
+!.evalshift/suites/
+!.evalshift/toolsets/

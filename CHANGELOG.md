@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `extra="forbid"` config means the reader in CI must be at least as new as the
   writer locally.
 - `packaging>=23` is now a declared dependency (version comparison).
+- `examples/capture-first/` — the first example to use the managed `suites:`
+  block. It checks in the whole capture-first flow: an SDK-instrumented agent,
+  the three captures and the toolset sidecar it recorded, the promoted cases and
+  `golden.jsonl` that `evalshift capture sync` wrote, and the unedited
+  `evalshift.yaml` from `init` with sync's derived `tool_selection` /
+  `tool_arguments` block filled in. Its own `.gitignore` shows how a project
+  commits `.evalshift/suites/` and `.evalshift/toolsets/` while keeping runs and
+  the cache ignored.
 
 ### Fixed
 
