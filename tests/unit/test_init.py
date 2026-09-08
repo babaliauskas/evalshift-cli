@@ -1,4 +1,4 @@
-"""Tests for ``evalshift init`` (:mod:`evalshift.cli.commands.init`).
+"""Tests for ``evalshift init`` (:mod:`evalshift_cli.cli.commands.init`).
 
 ``init`` writes a single, minimal, capture-ready ``evalshift.yaml`` — no demo
 data. The invariant we care about: the file parses cleanly via
@@ -16,17 +16,21 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-import evalshift
-from evalshift.cli.commands._agents import (
+import evalshift_cli
+from evalshift_cli.cli.commands._agents import (
     AGENT_INSTRUCTIONS_FILENAME,
     DEFAULT_AGENT_CONTEXT_FILE,
     POINTER_MARKER_BEGIN,
 )
-from evalshift.cli.commands._scaffold import CI_WORKFLOW_PATH, INIT_PROFILE_POLICIES
-from evalshift.cli.commands._suites import SUITE_FILENAME, SUITES_MARKER_BEGIN, SUITES_MARKER_END
-from evalshift.cli.commands.doctor import CONFIG_FILENAME
-from evalshift.cli.main import app
-from evalshift.config.loader import load_config
+from evalshift_cli.cli.commands._scaffold import CI_WORKFLOW_PATH, INIT_PROFILE_POLICIES
+from evalshift_cli.cli.commands._suites import (
+    SUITE_FILENAME,
+    SUITES_MARKER_BEGIN,
+    SUITES_MARKER_END,
+)
+from evalshift_cli.cli.commands.doctor import CONFIG_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.loader import load_config
 
 runner = CliRunner()
 
@@ -387,7 +391,7 @@ class TestInitCI:
 
     def test_pins_the_scaffolding_cli_version(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp)
-        assert f'evalshift-version: "{evalshift.__version__}"' in body
+        assert f'evalshift-version: "{evalshift_cli.__version__}"' in body
 
     def test_provider_key_matches_provider(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp, "--provider", "anthropic")
@@ -452,7 +456,7 @@ class TestInitCiPin:
     def test_ci_flag_does_not_warn_about_the_workflow_it_wrote(
         self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.init.__version__", "1.2.3")
         result = runner.invoke(app, ["init", "--ci"])
         assert result.exit_code == 0, result.stdout
         assert "CI installs" not in result.stdout
@@ -460,7 +464,7 @@ class TestInitCiPin:
     def test_ci_flag_does_not_warn_when_overwriting_a_stale_workflow(
         self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.init.__version__", "1.2.3")
         self._stale_workflow(in_tmp)
         result = runner.invoke(app, ["init", "--ci", "--force"])
         assert result.exit_code == 0, result.stdout
@@ -469,7 +473,7 @@ class TestInitCiPin:
     def test_plain_init_warns_next_to_a_stale_workflow(
         self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.init.__version__", "1.2.3")
         self._stale_workflow(in_tmp)
         result = runner.invoke(app, ["init"])
         assert result.exit_code == 0, result.stdout

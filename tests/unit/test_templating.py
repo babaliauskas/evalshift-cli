@@ -1,12 +1,12 @@
-"""Tests for :mod:`evalshift.utils.templating`."""
+"""Tests for :mod:`evalshift_cli.utils.templating`."""
 
 from __future__ import annotations
 
 import pytest
 
-from evalshift.parsers.base import PromptTemplate
-from evalshift.suite.models import Suite
-from evalshift.utils.templating import (
+from evalshift_cli.parsers.base import PromptTemplate
+from evalshift_cli.suite.models import Suite
+from evalshift_cli.utils.templating import (
     CompatibilityIssue,
     MissingTemplateVariableError,
     SuiteCompatibilityError,

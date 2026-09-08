@@ -12,17 +12,17 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from evalshift.captures.promote import PromoteOptions, build_example_from_capture
-from evalshift.captures.reader import iter_captures, toolset_path
-from evalshift.cli.commands._suites import resolve_suite_path
-from evalshift.config.loader import load_config
-from evalshift.config.models import (
+from evalshift_cli.captures.promote import PromoteOptions, build_example_from_capture
+from evalshift_cli.captures.reader import iter_captures, toolset_path
+from evalshift_cli.cli.commands._suites import resolve_suite_path
+from evalshift_cli.config.loader import load_config
+from evalshift_cli.config.models import (
     EvalShiftConfig,
     EvaluatorsConfig,
     SuiteEvaluatorsOverride,
     SuiteSource,
 )
-from evalshift.suite.loader import load_jsonl
+from evalshift_cli.suite.loader import load_jsonl
 
 
 def _base_config(**extra: Any) -> dict[str, Any]:

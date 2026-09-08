@@ -1,4 +1,4 @@
-"""Tests for the capture-file reader (``evalshift.captures.reader``).
+"""Tests for the capture-file reader (``evalshift_cli.captures.reader``).
 
 The reader consumes capture files written by the separate ``evalshift-sdk``
 package. The on-disk contract (frozen at SDK schema 1.0.0) is:
@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.captures.reader import (
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.captures.reader import (
     CaptureError,
     capture_base,
     capture_toolset_refs,
@@ -32,10 +32,10 @@ from evalshift.captures.reader import (
     toolset_path,
     toolsets_root,
 )
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.evaluators.tool_models import ToolSpec
-from evalshift.suite.models import SuiteExample
-from evalshift.traces.models import ModelCallEvent
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.evaluators.tool_models import ToolSpec
+from evalshift_cli.suite.models import SuiteExample
+from evalshift_cli.traces.models import ModelCallEvent
 
 _TOOLSET_REF = "sha256:" + "ab" * 32
 

@@ -17,7 +17,7 @@ import sys
 
 import pytest
 
-from evalshift.models.client import deferred_console_warnings
+from evalshift_cli.models.client import deferred_console_warnings
 
 _LITELLM_LOG = logging.getLogger("LiteLLM")
 
@@ -51,7 +51,7 @@ class TestBuffering:
         monkeypatch.setattr(sys, "stderr", stderr)
 
         with deferred_console_warnings() as deferred:
-            logging.getLogger("evalshift.insights.generator").warning(
+            logging.getLogger("evalshift_cli.insights.generator").warning(
                 "deferred-test: insights generation attempt 1 rejected",
             )
 
@@ -67,7 +67,7 @@ class TestBuffering:
 
         with deferred_console_warnings() as deferred:
             _LITELLM_LOG.warning("deferred-test: first")
-            logging.getLogger("evalshift.runner").warning("deferred-test: second")
+            logging.getLogger("evalshift_cli.runner").warning("deferred-test: second")
 
         assert [r.getMessage() for r in deferred] == [
             "deferred-test: first",
@@ -97,7 +97,7 @@ class TestErrorsAreNeverDeferred:
         monkeypatch.setattr(sys, "stderr", stderr)
 
         with deferred_console_warnings() as deferred:
-            logging.getLogger("evalshift.models.client").error(
+            logging.getLogger("evalshift_cli.models.client").error(
                 "deferred-test: retry budget exhausted",
             )
             assert "deferred-test: retry budget exhausted" in stderr.getvalue()

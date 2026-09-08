@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`evalshift.runner.models`.
+"""Unit tests for :mod:`evalshift_cli.runner.models`.
 
 The most important property: every model round-trips losslessly through
 ``model_dump_json`` / ``model_validate_json``. The orchestrator relies
@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from evalshift.runner.models import Call, EvaluatorCoverage, RunModels, RunState
+from evalshift_cli.runner.models import Call, EvaluatorCoverage, RunModels, RunState
 
 # ---------------------------------------------------------------------------
 # Call

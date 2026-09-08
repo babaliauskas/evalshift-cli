@@ -9,13 +9,13 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.captures.toolset import EMPTY_TOOLSET_FINGERPRINT, fingerprint_tools
-from evalshift.cli.commands.capture import _declared_tool_properties
-from evalshift.cli.commands.init import render_minimal_config
-from evalshift.cli.main import app
-from evalshift.config.loader import load_config
-from evalshift.suite.loader import load_jsonl
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.captures.toolset import EMPTY_TOOLSET_FINGERPRINT, fingerprint_tools
+from evalshift_cli.cli.commands.capture import _declared_tool_properties
+from evalshift_cli.cli.commands.init import render_minimal_config
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.loader import load_config
+from evalshift_cli.suite.loader import load_jsonl
 
 runner = CliRunner()
 
@@ -1890,7 +1890,7 @@ def _write_stale_workflow(root: Path, version: str = "0.0.1") -> Path:
 def test_sync_warns_when_ci_pins_an_older_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("evalshift.cli.commands.capture.__version__", "1.2.3")
+    monkeypatch.setattr("evalshift_cli.cli.commands.capture.__version__", "1.2.3")
     _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
     config = tmp_path / "evalshift.yaml"
     _write_min_config(config)
@@ -1911,7 +1911,7 @@ def test_sync_warns_when_ci_pins_an_older_cli(
 def test_sync_print_still_warns_about_a_stale_ci_pin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("evalshift.cli.commands.capture.__version__", "1.2.3")
+    monkeypatch.setattr("evalshift_cli.cli.commands.capture.__version__", "1.2.3")
     _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
     config = tmp_path / "evalshift.yaml"
     _write_min_config(config)

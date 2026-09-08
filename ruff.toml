@@ -28,7 +28,7 @@ allowed-confusables = ["×", "−", "Δ"]
 "tests/**/*.py" = ["N802", "N803", "B011"]
 
 [lint.isort]
-known-first-party = ["evalshift"]
+known-first-party = ["evalshift_cli"]
 
 [format]
 quote-style = "double"

@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalshift.analysis.policy import BlockingRegression, FailureCategoryCount
-from evalshift.insights.facts import build_facts
-from evalshift.insights.templates import fallback_insight
-from evalshift.reports.economics import PromptEconomics
+from evalshift_cli.analysis.policy import BlockingRegression, FailureCategoryCount
+from evalshift_cli.insights.facts import build_facts
+from evalshift_cli.insights.templates import fallback_insight
+from evalshift_cli.reports.economics import PromptEconomics
 from tests.unit.insights_factories import (
     COST_TARGET,
     budgets,
@@ -235,7 +235,7 @@ def test_rates_over_an_empty_denominator_are_not_rendered_as_figures(
     sample_run: dict[str, Any],
 ) -> None:
     """``0%`` is a default, not a measurement, and reads as "nothing regressed"."""
-    from evalshift.insights.facts import NOT_MEASURED
+    from evalshift_cli.insights.facts import NOT_MEASURED
 
     facts = build_facts(**_unmeasured_run(sample_run))
     for key in ("equivalence_rate_pct", "regression_rate_pct", "improved_rate_pct"):
@@ -245,7 +245,7 @@ def test_rates_over_an_empty_denominator_are_not_rendered_as_figures(
 
 def test_the_shipped_equivalence_claim_is_not_writable(sample_run: dict[str, Any]) -> None:
     """The permit-list is what stops the model restating an unmeasured rate."""
-    from evalshift.insights.generator import validate_numbers
+    from evalshift_cli.insights.generator import validate_numbers
 
     facts = build_facts(**_unmeasured_run(sample_run))
     assert "100%" not in facts.allowed_numbers

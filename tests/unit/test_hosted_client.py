@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import pytest
 
-from evalshift.hosted.client import HostedClient, HostedHTTPError
+from evalshift_cli.hosted.client import HostedClient, HostedHTTPError
 from tests.conftest import FakeHostedClient
 
 

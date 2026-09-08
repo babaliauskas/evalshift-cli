@@ -13,9 +13,9 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.commands import test_call as cmd
-from evalshift.cli.main import app
-from evalshift.models.client import (
+from evalshift_cli.cli.commands import test_call as cmd
+from evalshift_cli.cli.main import app
+from evalshift_cli.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
@@ -173,8 +173,8 @@ class TestHidden:
 # ---------------------------------------------------------------------------
 
 
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
-from evalshift.models.client import ToolCompletionResult  # noqa: E402
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+from evalshift_cli.models.client import ToolCompletionResult  # noqa: E402
 
 
 def _patch_tool_complete(

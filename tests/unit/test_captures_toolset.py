@@ -1,4 +1,4 @@
-"""Tests for toolset fingerprinting (``evalshift.captures.toolset``).
+"""Tests for toolset fingerprinting (``evalshift_cli.captures.toolset``).
 
 ``THREE_TOOL_FINGERPRINT`` and ``EMPTY_TOOLSET_FINGERPRINT`` below are the shared vector defined
 by ``evalshift-sdk``'s ``tests/test_toolset.py`` (Task 1 of the per-call-toolset-capture plan).
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalshift.captures.toolset import fingerprint_tools
+from evalshift_cli.captures.toolset import fingerprint_tools
 
 # --- The shared vector, copied verbatim from evalshift-sdk's tests/test_toolset.py -----------
 

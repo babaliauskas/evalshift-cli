@@ -1,10 +1,10 @@
-"""Tests for :mod:`evalshift.models.registry`."""
+"""Tests for :mod:`evalshift_cli.models.registry`."""
 
 from __future__ import annotations
 
 import pytest
 
-from evalshift.models.registry import (
+from evalshift_cli.models.registry import (
     ModelMetadata,
     UnknownModelError,
     get_model,

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalshift.evaluators import failures
-from evalshift.evaluators.failures import CATEGORY_LABELS, category_label
+from evalshift_cli.evaluators import failures
+from evalshift_cli.evaluators.failures import CATEGORY_LABELS, category_label
 
 
 class TestCategoryLabels:

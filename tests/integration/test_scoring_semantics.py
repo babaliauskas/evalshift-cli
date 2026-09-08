@@ -33,17 +33,17 @@ from unittest.mock import AsyncMock
 import pytest
 from rich.console import Console
 
-from evalshift.analysis.policy import BudgetResult, MigrationDecision
-from evalshift.analysis.statistics import UNMEASURED_NOTE_PREFIX, ComparisonResult
-from evalshift.cli.commands.analyze import run_analyze
-from evalshift.cli.commands.evaluate import SCORES_FILENAME, run_evaluate
-from evalshift.cli.commands.report import run_report
-from evalshift.evaluators import semantic as semantic_module
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import TOOL_GROUND_TRUTH_MISS
-from evalshift.models.client import ModelClient
-from evalshift.runner.checkpoint import append_call, read_state, write_state
-from evalshift.runner.models import Call, RunModels, RunState
+from evalshift_cli.analysis.policy import BudgetResult, MigrationDecision
+from evalshift_cli.analysis.statistics import UNMEASURED_NOTE_PREFIX, ComparisonResult
+from evalshift_cli.cli.commands.analyze import run_analyze
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME, run_evaluate
+from evalshift_cli.cli.commands.report import run_report
+from evalshift_cli.evaluators import semantic as semantic_module
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import TOOL_GROUND_TRUTH_MISS
+from evalshift_cli.models.client import ModelClient
+from evalshift_cli.runner.checkpoint import append_call, read_state, write_state
+from evalshift_cli.runner.models import Call, RunModels, RunState
 from tests.scoring_fixtures import (
     DIVERGENT_EXAMPLES,
     JUDGE_NAME,

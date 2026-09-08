@@ -50,14 +50,14 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.captures.toolset import EMPTY_TOOLSET_FINGERPRINT, fingerprint_tools
-from evalshift.cli.commands._suites import SUITES_MARKER_BEGIN, SUITES_MARKER_END
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.config.loader import load_config
-from evalshift.reports.html import REPORT_HTML_FILENAME
-from evalshift.runner.orchestrator import run_orchestrator
-from evalshift.suite.loader import load_jsonl
+from evalshift_cli.captures.toolset import EMPTY_TOOLSET_FINGERPRINT, fingerprint_tools
+from evalshift_cli.cli.commands._suites import SUITES_MARKER_BEGIN, SUITES_MARKER_END
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.loader import load_config
+from evalshift_cli.reports.html import REPORT_HTML_FILENAME
+from evalshift_cli.runner.orchestrator import run_orchestrator
+from evalshift_cli.suite.loader import load_jsonl
 from tests.integration.replay_client import ReplayClient
 
 runner = CliRunner()

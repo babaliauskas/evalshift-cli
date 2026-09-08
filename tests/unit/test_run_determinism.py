@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from evalshift.runner.models import RunModels, RunState
+from evalshift_cli.runner.models import RunModels, RunState
 
 
 def _state(**overrides: Any) -> RunState:
@@ -86,7 +86,7 @@ class TestDetectionAtRunStart:
         honoured: dict[str, bool],
         expected: list[str],
     ) -> None:
-        from evalshift.runner import orchestrator
+        from evalshift_cli.runner import orchestrator
 
         monkeypatch.setattr(orchestrator, "honors_temperature", lambda model_id: honoured[model_id])
         assert (
@@ -101,7 +101,7 @@ class TestDetectionAtRunStart:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A/A runs compare a model against itself; it must be listed once."""
-        from evalshift.runner import orchestrator
+        from evalshift_cli.runner import orchestrator
 
         monkeypatch.setattr(orchestrator, "honors_temperature", lambda model_id: False)
         assert orchestrator.detect_non_deterministic_models(

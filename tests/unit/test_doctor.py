@@ -1,4 +1,4 @@
-"""Tests for ``evalshift doctor`` (:mod:`evalshift.cli.commands.doctor`).
+"""Tests for ``evalshift doctor`` (:mod:`evalshift_cli.cli.commands.doctor`).
 
 Two layers of testing:
 
@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.cli.commands.doctor import (
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.cli.commands.doctor import (
     CONFIG_FILENAME,
     PROVIDER_KEYS,
     CheckResult,
@@ -26,10 +26,10 @@ from evalshift.cli.commands.doctor import (
     run_checks,
     source_conformance_check,
 )
-from evalshift.cli.main import app
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import BROKEN_HARNESS_CAUSES
-from evalshift.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
+from evalshift_cli.cli.main import app
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import BROKEN_HARNESS_CAUSES
+from evalshift_cli.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
 
 runner = CliRunner()
 
@@ -276,7 +276,7 @@ _TOOL_B: dict[str, object] = {
 class TestToolsetConsistencyCheck:
     """One report row per suite, naming the toolset its examples share, or
     flagging that they don't. Both inline ``tools`` and a ``toolset_ref``
-    fingerprint the same way (:func:`~evalshift.captures.toolset.fingerprint_tools`),
+    fingerprint the same way (:func:`~evalshift_cli.captures.toolset.fingerprint_tools`),
     so the two spellings of an identical toolset are never flagged as differing.
     """
 
@@ -539,7 +539,7 @@ class TestCiPinCheck:
     def test_stale_pin_warns_without_failing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.doctor.__version__", "1.2.3")
         self._workflow(tmp_path, '          evalshift-version: "0.0.1"\n')
         row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), "ci pin")
         assert row.status == "warn"
@@ -547,7 +547,7 @@ class TestCiPinCheck:
         assert 'evalshift-version: "1.2.3"' in row.detail
 
     def test_matching_pin_is_ok(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.doctor.__version__", "1.2.3")
         self._workflow(tmp_path, '          evalshift-version: "1.2.3"\n')
         row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), "ci pin")
         assert row.status == "ok"
@@ -557,7 +557,7 @@ class TestCiPinCheck:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.doctor.__version__", "1.2.3")
         self._workflow(tmp_path, "          token: x\n")
         result = runner.invoke(app, ["doctor"])
         assert result.exit_code == 0

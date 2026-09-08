@@ -1,7 +1,7 @@
 """Shared helper for constructing ``SuiteExample`` rows in tests that don't care about tools.
 
 ``SuiteExample.toolset_ref`` / ``.tools`` are exactly-one-of and required (see
-``evalshift.suite.models.SuiteExample._check_exactly_one_toolset_field`` and
+``evalshift_cli.suite.models.SuiteExample._check_exactly_one_toolset_field`` and
 ``PER_CALL_TOOLSET_CAPTURE_PLAN.md`` V7): every model call records the toolset it was
 offered, so a suite example -- promoted or hand-authored -- must carry it too.
 
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalshift.suite.models import SuiteExample
+from evalshift_cli.suite.models import SuiteExample
 
 #: Neutral, never-resolved placeholder -- see the module docstring's second paragraph.
 _PLACEHOLDER_TOOLSET_REF = "sha256:" + "00" * 32

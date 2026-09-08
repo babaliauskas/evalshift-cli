@@ -16,11 +16,11 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.runner.checkpoint import append_call
-from evalshift.runner.models import Call
-from evalshift.suite.models import Suite
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.runner.checkpoint import append_call
+from evalshift_cli.runner.models import Call
+from evalshift_cli.suite.models import Suite
 from tests.conftest import RunFixture
 
 
@@ -207,7 +207,7 @@ def test_built_bundle_validates_against_the_vendored_schema(built_bundle_path: P
     is removed — which is exactly the regression worth catching.
     """
     schema = json.loads(
-        resources.files("evalshift.hosted")
+        resources.files("evalshift_cli.hosted")
         .joinpath("bundle_manifest.schema.json")
         .read_text(encoding="utf-8")
     )
@@ -216,7 +216,7 @@ def test_built_bundle_validates_against_the_vendored_schema(built_bundle_path: P
 
 def _vendored_schema() -> dict[str, Any]:
     schema = json.loads(
-        resources.files("evalshift.hosted")
+        resources.files("evalshift_cli.hosted")
         .joinpath("bundle_manifest.schema.json")
         .read_text(encoding="utf-8")
     )
@@ -401,7 +401,7 @@ def _record(example_id: str, kind: str, source: float, target: float, **meta: An
 
 
 def _rows(scores: list[EvalRecord], example_ids: tuple[str, ...]) -> dict[str, dict[str, Any]]:
-    from evalshift.hosted.bundle import _build_examples
+    from evalshift_cli.hosted.bundle import _build_examples
 
     calls = [call for example_id in example_ids for call in _pair_calls(example_id)]
     rows = _build_examples(
@@ -545,7 +545,7 @@ class TestBundleResolvesPerSuiteEvaluators:
     """
 
     def _bundle(self, project: RunFixture, *, suite_name: str | None) -> dict[str, Any]:
-        from evalshift.runner.checkpoint import read_state, write_state
+        from evalshift_cli.runner.checkpoint import read_state, write_state
 
         project.config.write_text(self._CONFIG, encoding="utf-8")
         state = read_state(project.run_dir)
@@ -575,7 +575,7 @@ class TestBundleResolvesPerSuiteEvaluators:
         self, run_fixture: RunFixture
     ) -> None:
         """``tool_match`` keys on the resolved names, like the local report."""
-        from evalshift.hosted import bundle as bundle_module
+        from evalshift_cli.hosted import bundle as bundle_module
 
         seen: dict[str, frozenset[str]] = {}
         real = bundle_module._build_examples

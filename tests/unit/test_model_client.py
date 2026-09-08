@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.models.client`.
+"""Tests for :mod:`evalshift_cli.models.client`.
 
 We test the client by monkeypatching ``litellm.acompletion`` and
 ``litellm.completion_cost``. There are no live API calls in this suite —
@@ -23,9 +23,9 @@ from typing import Any
 
 import pytest
 
-from evalshift.evaluators.tool_models import ToolSpec
-from evalshift.models import client as client_module
-from evalshift.models.client import (
+from evalshift_cli.evaluators.tool_models import ToolSpec
+from evalshift_cli.models import client as client_module
+from evalshift_cli.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,

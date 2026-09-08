@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.models.capabilities`.
+"""Tests for :mod:`evalshift_cli.models.capabilities`.
 
 The registry is static data; this module asks LiteLLM at call time whether a
 model still honours ``temperature``. LiteLLM is the authority because the ids
@@ -13,7 +13,7 @@ from typing import Any
 import litellm
 import pytest
 
-from evalshift.models.capabilities import honors_temperature
+from evalshift_cli.models.capabilities import honors_temperature
 
 # A realistic slice of what LiteLLM returns for a chat model.
 _WITH_TEMPERATURE = ["max_tokens", "temperature", "top_p", "tools"]

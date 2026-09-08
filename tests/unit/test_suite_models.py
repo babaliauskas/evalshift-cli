@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`evalshift.suite.models`."""
+"""Unit tests for :mod:`evalshift_cli.suite.models`."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from evalshift.captures.toolset import EMPTY_TOOLSET_FINGERPRINT
-from evalshift.evaluators.tool_models import ToolSpec
-from evalshift.suite.models import (
+from evalshift_cli.captures.toolset import EMPTY_TOOLSET_FINGERPRINT
+from evalshift_cli.evaluators.tool_models import ToolSpec
+from evalshift_cli.suite.models import (
     ChatMessage,
     ExpectedToolCall,
     HistoryToolCall,
@@ -393,7 +393,7 @@ class TestEmptyToolsetRefRejectsToolGroundTruth:
     """The ``toolset_ref`` mirror of ``TestEmptyToolsetRejectsToolGroundTruth`` above.
 
     The empty toolset's fingerprint is a fixed, known constant (a property of
-    the hashing algorithm itself -- :data:`~evalshift.captures.toolset.EMPTY_TOOLSET_FINGERPRINT`),
+    the hashing algorithm itself -- :data:`~evalshift_cli.captures.toolset.EMPTY_TOOLSET_FINGERPRINT`),
     so a ``toolset_ref`` equal to it asserts exactly what inline ``tools=[]``
     asserts, with no sidecar I/O needed to know that. Before this fix, this
     spelling of "no tools offered" escaped `_check_tool_expectations_consistent`

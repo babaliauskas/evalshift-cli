@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.runner.checkpoint import (
+from evalshift_cli.runner.checkpoint import (
     prune_runs,
     resolve_max_runs,
     suite_of_run,
     write_state,
 )
-from evalshift.runner.models import RunModels, RunState
+from evalshift_cli.runner.models import RunModels, RunState
 
 # A fixed "now" so TTL tests are deterministic (no wall-clock dependency).
 NOW = 1_000_000_000.0

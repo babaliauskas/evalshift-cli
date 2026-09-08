@@ -43,12 +43,13 @@ pytest                                      # full suite (cov on by default)
 pytest -m "not integration"                 # unit tests only
 pytest tests/unit/test_orchestrator.py::test_name -x
 ruff check . && ruff format .
-mypy --strict src/evalshift
+mypy --strict src/evalshift_cli
 make ci                                     # exactly what CI runs (also the pre-push hook)
 pre-commit run --all-files                  # commit-stage hooks over the tree
 ```
 
-CLI entry point: `evalshift = "evalshift.cli.main:app"`. Pytest markers: `integration`, `slow`.
+CLI entry point: `evalshift = "evalshift_cli.cli.main:app"`. The import package is `evalshift_cli`; the
+import name `evalshift` is the capture SDK (`evalshift-sdk`, a declared dependency). Pytest markers: `integration`, `slow`.
 
 ## Workflow — which skills, when
 
@@ -67,7 +68,7 @@ Best practices that are always on:
 
 - **Read before you write.** Open the file you'll modify, its test file, and one existing
   example of the pattern you're about to add. Match the local idiom.
-- **Tests mirror source**: new module under `src/evalshift/...` → test file under
+- **Tests mirror source**: new module under `src/evalshift_cli/...` → test file under
   `tests/unit/...`. Integration tests in `tests/integration/`.
 - **Green means all four**: `ruff check`, `ruff format --check`, `mypy --strict`, `pytest` —
   CI runs them on every PR. Never claim success without running them.
@@ -78,7 +79,7 @@ Best practices that are always on:
 
 ## Repo map
 
-Modules under `src/evalshift/` — one-line orientation, read the module for detail:
+Modules under `src/evalshift_cli/` — one-line orientation, read the module for detail:
 
 | Module | What lives there |
 | --- | --- |

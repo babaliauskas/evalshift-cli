@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.captures.promote import (
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.captures.promote import (
     BuiltExample,
     PromoteOptions,
     _tool_rounds,
@@ -25,8 +25,8 @@ from evalshift.captures.promote import (
     rebuild_golden_jsonl,
     write_promoted_case,
 )
-from evalshift.captures.reader import CaptureRecord
-from evalshift.suite.loader import load_jsonl
+from evalshift_cli.captures.reader import CaptureRecord
+from evalshift_cli.suite.loader import load_jsonl
 
 FIXTURES = Path(__file__).parent / "fixtures" / "captures"
 MULTI_ROUND_CAPTURE = FIXTURES / "multi_round_tools.json"

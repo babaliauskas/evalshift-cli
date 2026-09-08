@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from evalshift.models.client import _configure_litellm, _LateBoundStderr
+from evalshift_cli.models.client import _configure_litellm, _LateBoundStderr
 
 
 class TestLateBoundStderr:
@@ -68,7 +68,7 @@ class TestInstallation:
         re-points the handler per record and discards the proxy. Both give the
         late binding Rich needs, so the property is what the test pins.
         """
-        import evalshift.models.client  # noqa: F401  (import for its side effect)
+        import evalshift_cli.models.client  # noqa: F401  (import for its side effect)
 
         litellm_log = logging.getLogger("LiteLLM")
         handlers = litellm_log.handlers

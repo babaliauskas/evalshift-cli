@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.main import app
+from evalshift_cli.cli.main import app
 
 runner = CliRunner()
 
@@ -116,7 +116,7 @@ class TestValidateCiPin:
             '        with:\n          evalshift-version: "0.0.1"\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr("evalshift.cli.commands.validate.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.validate.__version__", "1.2.3")
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["validate"])
         assert result.exit_code == 0, result.stdout

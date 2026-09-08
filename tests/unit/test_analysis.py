@@ -7,7 +7,7 @@ from dataclasses import asdict
 import numpy as np
 import pytest
 
-from evalshift.analysis.slicing import (
+from evalshift_cli.analysis.slicing import (
     ALL_SLICE,
     SliceAggregate,
     SlicedScore,
@@ -16,7 +16,7 @@ from evalshift.analysis.slicing import (
     build_unmeasured,
     dedupe_slices,
 )
-from evalshift.analysis.statistics import (
+from evalshift_cli.analysis.statistics import (
     ADVISORY_NOTE_PREFIX,
     AXIS_NOTE_PREFIX,
     UNMEASURED_NOTE_PREFIX,
@@ -26,9 +26,9 @@ from evalshift.analysis.statistics import (
     _cohens_d_paired,
     analyze,
 )
-from evalshift.evaluators.base import EvalRecord
-from evalshift.runner.models import EvaluatorCoverage, UnmeasuredPair
-from evalshift.suite.models import Suite
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.runner.models import EvaluatorCoverage, UnmeasuredPair
+from evalshift_cli.suite.models import Suite
 from tests.unit.suite_examples import suite_example
 
 # ---------------------------------------------------------------------------
@@ -454,7 +454,7 @@ class TestAnalyze:
     def test_bh_correction_changes_p_with_many_tests(self) -> None:
         # Use the helper directly with a spread of raw p-values; BH must
         # raise at least some of them for the multi-comparison case.
-        from evalshift.analysis.statistics import _benjamini_hochberg
+        from evalshift_cli.analysis.statistics import _benjamini_hochberg
 
         raw_ps = [
             0.001,

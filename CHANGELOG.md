@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- CI pin-drift check (`evalshift.utils.ci_pin`): `capture sync`, `init` (without
+- CI pin-drift check (`evalshift_cli.utils.ci_pin`): `capture sync`, `init` (without
   `--ci`), `doctor` (new `ci pin` row), and `validate` now parse
   `.github/workflows/*.yml` for `babaliauskas/evalshift-action` steps and warn
   when the `evalshift-version` pin is older than the local CLI (`stale`),
@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (packaging):** the CLI's import package is now `evalshift_cli`.
+  The distribution (`evalshift`) and the `evalshift` command are unchanged.
+  The import name `evalshift` belongs to the capture SDK, which the CLI now
+  declares as a dependency (`evalshift-sdk>=0.3.0`), so both install into one
+  environment and `pip install evalshift` brings the SDK with it — the
+  two-virtualenv rule is gone from every install page. What a user can
+  notice: `python -m evalshift` is now `python -m evalshift_cli`, and scripts
+  that imported CLI internals (`from evalshift.models.client import …`) must
+  import from `evalshift_cli`. No shim is possible — shipping any `evalshift/`
+  file would recreate the collision — so this ships as a minor bump (0.14.0).
+  Design: `docs/superpowers/specs/2026-09-09-namespace-collision-design.md`.
 - Documented the config version policy: `version: 1` bumps only for breaking
   changes; additive fields ride on the CLI version and the CI pin check is the
   mechanism that keeps CI's reader at least as new as the local writer.

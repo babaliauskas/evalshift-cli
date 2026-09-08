@@ -14,15 +14,15 @@ from typing import Any, cast
 
 import pytest
 
-from evalshift.analysis.policy import evaluate_migration_policy
-from evalshift.cli.commands.analyze import MIGRATION_DECISION_FILENAME
-from evalshift.cli.commands.report import run_report
-from evalshift.config.loader import load_config
-from evalshift.evaluators.base import EvalRecord
-from evalshift.insights.models import Insight, insight_from_dict
-from evalshift.insights.stage import INSIGHTS_FILENAME, build_run_facts, read_bundle_insight
-from evalshift.models.client import ModelClient, ModelError
-from evalshift.runner.checkpoint import iter_calls, read_state
+from evalshift_cli.analysis.policy import evaluate_migration_policy
+from evalshift_cli.cli.commands.analyze import MIGRATION_DECISION_FILENAME
+from evalshift_cli.cli.commands.report import run_report
+from evalshift_cli.config.loader import load_config
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.insights.models import Insight, insight_from_dict
+from evalshift_cli.insights.stage import INSIGHTS_FILENAME, build_run_facts, read_bundle_insight
+from evalshift_cli.models.client import ModelClient, ModelError
+from evalshift_cli.runner.checkpoint import iter_calls, read_state
 from tests.conftest import RunFixture
 from tests.unit.insights_factories import (
     FakeModelClient,

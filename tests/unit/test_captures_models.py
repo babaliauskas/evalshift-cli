@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`evalshift.captures.models`."""
+"""Unit tests for :mod:`evalshift_cli.captures.models`."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.suite.models import SuiteExample
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.suite.models import SuiteExample
 
 
 def _trace_payload() -> dict[str, Any]:

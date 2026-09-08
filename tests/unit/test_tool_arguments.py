@@ -1,4 +1,4 @@
-"""Tests for :class:`evalshift.evaluators.tool_arguments.ToolArgumentsEvaluator`."""
+"""Tests for :class:`evalshift_cli.evaluators.tool_arguments.ToolArgumentsEvaluator`."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from typing import Any
 
 import pytest
 
-from evalshift.config.models import ToolArgumentsEvaluatorConfig
-from evalshift.evaluators.failures import ARGUMENT_VALUE_DRIFT
-from evalshift.evaluators.tool_arguments import (
+from evalshift_cli.config.models import ToolArgumentsEvaluatorConfig
+from evalshift_cli.evaluators.failures import ARGUMENT_VALUE_DRIFT
+from evalshift_cli.evaluators.tool_arguments import (
     ToolArgumentsEvaluator,
     _is_subset,
     _match_calls,
     _schema_strategy,
 )
-from evalshift.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
-from evalshift.suite.models import ExpectedToolCall, SuiteExample
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
+from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 from tests.unit.suite_examples import suite_example
 
 

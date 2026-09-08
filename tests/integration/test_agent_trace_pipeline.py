@@ -8,13 +8,13 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.reports.html import REPORT_HTML_FILENAME
-from evalshift.runner.checkpoint import append_call, write_state
-from evalshift.runner.models import Call, RunModels, RunState
-from evalshift.traces.loader import TRACES_FILENAME
+from evalshift_cli.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.reports.html import REPORT_HTML_FILENAME
+from evalshift_cli.runner.checkpoint import append_call, write_state
+from evalshift_cli.runner.models import Call, RunModels, RunState
+from evalshift_cli.traces.loader import TRACES_FILENAME
 
 runner = CliRunner()
 

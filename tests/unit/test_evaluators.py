@@ -10,38 +10,38 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from evalshift.cache.store import CacheStore
-from evalshift.config.models import (
+from evalshift_cli.cache.store import CacheStore
+from evalshift_cli.config.models import (
     ToolArgumentsEvaluatorConfig,
     ToolSelectionEvaluatorConfig,
     ToolTraceStructureEvaluatorConfig,
 )
-from evalshift.evaluators import semantic as semantic_module
-from evalshift.evaluators.base import (
+from evalshift_cli.evaluators import semantic as semantic_module
+from evalshift_cli.evaluators.base import (
     EvalRecord,
     Evaluator,
     EvaluatorError,
     PairedScore,
 )
-from evalshift.evaluators.failures import SEMANTIC_REGRESSION
-from evalshift.evaluators.llm_judge import (
+from evalshift_cli.evaluators.failures import SEMANTIC_REGRESSION
+from evalshift_cli.evaluators.llm_judge import (
     MAX_TRANSCRIPT_CHARS,
     PairwiseJudgeEvaluator,
     _format_transcript,
     _parse_verdict,
 )
-from evalshift.evaluators.semantic import CosineSimilarityEvaluator, _cosine
-from evalshift.evaluators.structural import (
+from evalshift_cli.evaluators.semantic import CosineSimilarityEvaluator, _cosine
+from evalshift_cli.evaluators.structural import (
     JsonSchemaEvaluator,
     LengthEvaluator,
     RegexEvaluator,
 )
-from evalshift.evaluators.tool_arguments import ToolArgumentsEvaluator
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.evaluators.tool_selection import ToolSelectionEvaluator
-from evalshift.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
-from evalshift.models.client import CompletionResult, ModelClient
-from evalshift.suite.models import ExpectedToolCall
+from evalshift_cli.evaluators.tool_arguments import ToolArgumentsEvaluator
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.evaluators.tool_selection import ToolSelectionEvaluator
+from evalshift_cli.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
+from evalshift_cli.models.client import CompletionResult, ModelClient
+from evalshift_cli.suite.models import ExpectedToolCall
 from tests.scoring_fixtures import (
     PROMPT_ID,
     RUN_ID,
@@ -671,7 +671,7 @@ class TestPairwiseJudge:
         # and a blocking judge poisoned the gate.
         from types import SimpleNamespace
 
-        from evalshift.models import client as client_module
+        from evalshift_cli.models import client as client_module
 
         bad_request = type("BadRequestError", (Exception,), {})
         calls: list[dict[str, Any]] = []

@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.hosted.trace_events import (
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.hosted.trace_events import (
     MAX_RESULT_BYTES,
     MAX_STREAM_BYTES,
     from_agent_trace,
     from_tool_trace,
 )
-from evalshift.traces.models import AgentTrace
+from evalshift_cli.traces.models import AgentTrace
 
 
 def _ts(second: int) -> datetime:

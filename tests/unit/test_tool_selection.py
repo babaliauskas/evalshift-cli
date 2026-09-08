@@ -1,14 +1,14 @@
-"""Tests for :class:`evalshift.evaluators.tool_selection.ToolSelectionEvaluator`."""
+"""Tests for :class:`evalshift_cli.evaluators.tool_selection.ToolSelectionEvaluator`."""
 
 from __future__ import annotations
 
 import pytest
 
-from evalshift.config.models import ToolSelectionEvaluatorConfig
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.evaluators.tool_selection import (
+from evalshift_cli.config.models import ToolSelectionEvaluatorConfig
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.evaluators.tool_selection import (
     KIND_CONFORMANCE,
     KIND_DIVERGENCE,
     ToolSelectionEvaluator,
@@ -16,7 +16,7 @@ from evalshift.evaluators.tool_selection import (
     _multiset_match,
     _sequence_match,
 )
-from evalshift.suite.models import ExpectedToolCall, SuiteExample
+from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 from tests.scoring_fixtures import (
     DIVERGENT_EXAMPLES,
     PROMPT_ID,

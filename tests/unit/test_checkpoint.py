@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.runner.checkpoint`.
+"""Tests for :mod:`evalshift_cli.runner.checkpoint`.
 
 The two invariants we care about most:
 
@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.config.models import (
+from evalshift_cli.config.models import (
     EvalShiftConfig,
     PromptDefinition,
 )
-from evalshift.runner import checkpoint as cp
-from evalshift.runner.checkpoint import (
+from evalshift_cli.runner import checkpoint as cp
+from evalshift_cli.runner.checkpoint import (
     PUSH_STATE_FILENAME,
     CheckpointError,
     PushCheckpoint,
@@ -40,7 +40,7 @@ from evalshift.runner.checkpoint import (
     write_push_checkpoint,
     write_state,
 )
-from evalshift.runner.models import Call, RunModels, RunState
+from evalshift_cli.runner.models import Call, RunModels, RunState
 
 # ---------------------------------------------------------------------------
 # Helpers

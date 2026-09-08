@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalshift.cache.store import cache_key
-from evalshift.runner.generation import translate_generation_config
+from evalshift_cli.cache.store import cache_key
+from evalshift_cli.runner.generation import translate_generation_config
 
 
 class TestTranslateGenerationConfig:

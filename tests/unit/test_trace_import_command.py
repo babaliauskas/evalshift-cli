@@ -8,10 +8,10 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from evalshift.cli.main import app
-from evalshift.runner.checkpoint import append_call, write_state
-from evalshift.runner.models import Call, RunModels, RunState
-from evalshift.traces.loader import TRACES_FILENAME, load_traces_jsonl
+from evalshift_cli.cli.main import app
+from evalshift_cli.runner.checkpoint import append_call, write_state
+from evalshift_cli.runner.models import Call, RunModels, RunState
+from evalshift_cli.traces.loader import TRACES_FILENAME, load_traces_jsonl
 
 runner = CliRunner()
 

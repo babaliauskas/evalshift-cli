@@ -1,4 +1,4 @@
-"""Unit tests for the pydantic models in :mod:`evalshift.config.models`.
+"""Unit tests for the pydantic models in :mod:`evalshift_cli.config.models`.
 
 These tests are the primary contract test for ``evalshift.yaml``: any
 change to validation behaviour should land here first.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from evalshift.config.models import (
+from evalshift_cli.config.models import (
     DEFAULT_JUDGE_MODEL,
     AgentTraceEvaluatorConfig,
     Defaults,

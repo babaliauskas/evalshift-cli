@@ -58,8 +58,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from evalshift.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
-from evalshift.models.client import (
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
+from evalshift_cli.models.client import (
     CompletionResult,
     ModelClient,
     ModelClientError,

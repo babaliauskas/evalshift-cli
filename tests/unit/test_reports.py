@@ -9,22 +9,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.analysis.policy import evaluate_migration_policy
-from evalshift.analysis.statistics import UNMEASURED_NOTE_PREFIX
-from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.config.models import MigrationPolicy
-from evalshift.evaluators.base import EvalRecord
-from evalshift.reports.html import REPORT_HTML_FILENAME, render_html, write_html
-from evalshift.reports.json import (
+from evalshift_cli.analysis.policy import evaluate_migration_policy
+from evalshift_cli.analysis.statistics import UNMEASURED_NOTE_PREFIX
+from evalshift_cli.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.models import MigrationPolicy
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.reports.html import REPORT_HTML_FILENAME, render_html, write_html
+from evalshift_cli.reports.json import (
     REPORT_JSON_FILENAME,
     TopRegression,
     build_report_payload,
 )
-from evalshift.runner.checkpoint import append_call, write_state
-from evalshift.runner.models import Call, RunModels, RunState
-from evalshift.traces.loader import TRACES_FILENAME
+from evalshift_cli.runner.checkpoint import append_call, write_state
+from evalshift_cli.runner.models import Call, RunModels, RunState
+from evalshift_cli.traces.loader import TRACES_FILENAME
 
 runner = CliRunner()
 
@@ -297,7 +297,7 @@ class TestReportPayload:
             assert by_example["ex2"].input_text is None
 
     def test_top_regression_input_truncated_at_cap(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import INPUT_TEXT_MAX_CHARS, _render_input_text
+        from evalshift_cli.reports.json import INPUT_TEXT_MAX_CHARS, _render_input_text
 
         big = "x" * (INPUT_TEXT_MAX_CHARS + 500)
         rendered = _render_input_text({"input": big}, example_id="ex1")
@@ -307,7 +307,7 @@ class TestReportPayload:
         assert "ex1" in rendered
 
     def test_render_input_text_multi_var_is_json(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _render_input_text
+        from evalshift_cli.reports.json import _render_input_text
 
         rendered = _render_input_text({"a": 1, "b": "two"}, example_id="ex1")
         assert rendered is not None
@@ -563,7 +563,7 @@ class TestHtmlRender:
         assert "target minus source" in html
 
     def test_evaluator_labels_are_friendly(self) -> None:
-        from evalshift.reports.html import _evaluator_label, _test_label
+        from evalshift_cli.reports.html import _evaluator_label, _test_label
 
         assert _evaluator_label("semantic.cosine") == "Semantic similarity"
         assert _evaluator_label("llm_judge.equivalence") == "LLM judge: equivalence"
@@ -644,8 +644,8 @@ class TestHtmlRender:
         assert "gemini/gemini-3.5-flash-lite" in html
 
     def test_regression_reason_explains_why(self) -> None:
-        from evalshift.reports.html import _regression_reason
-        from evalshift.reports.json import ToolChange
+        from evalshift_cli.reports.html import _regression_reason
+        from evalshift_cli.reports.json import ToolChange
 
         def _reason(**overrides: object) -> str:
             defaults: dict[str, object] = {
@@ -703,7 +703,7 @@ class TestHtmlRender:
             assert "source 1.00 → target 0.00" in html
 
     def test_latency_uses_human_units(self, tmp_path: Path) -> None:
-        from evalshift.reports.html import _latency
+        from evalshift_cli.reports.html import _latency
 
         # No live calls (all cached) → em dash, never a misleading "0 ms".
         assert _latency(0.0, 0) == "—"
@@ -937,7 +937,7 @@ class TestReportCommand:
 # ---------------------------------------------------------------------------
 
 
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
 
 
 class TestTraceRendering:
@@ -946,8 +946,8 @@ class TestTraceRendering:
         run_dir = cwd / ".evalshift" / "runs" / run_id
         # Replace the calls in raw.jsonl with tool-bearing ones so the
         # trace plumbing shows up end-to-end.
-        from evalshift.runner.checkpoint import append_call
-        from evalshift.runner.models import Call
+        from evalshift_cli.runner.checkpoint import append_call
+        from evalshift_cli.runner.models import Call
 
         (run_dir / "raw.jsonl").unlink()
         for ex_id in ("ex1", "ex2"):
@@ -1076,7 +1076,7 @@ class TestMultiTurnTranscript:
         assert rows_by_id["ex2"].turn_index is None
 
     def test_serialised_payload_includes_history_and_turn_index(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _to_jsonable
+        from evalshift_cli.reports.json import _to_jsonable
 
         cwd, run_id = self._scaffold_multiturn_run(tmp_path)
         payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
@@ -1427,7 +1427,7 @@ class TestEmptyOutputTracking:
         assert by_example["ex1"].target_empty_output is False
 
     def test_serialised_payload_includes_empty_output_fields(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _to_jsonable
+        from evalshift_cli.reports.json import _to_jsonable
 
         cwd, run_id = _scaffold_full_run(tmp_path)
         run_dir = cwd / ".evalshift" / "runs" / run_id
@@ -1495,7 +1495,7 @@ class TestEmptyOutputTracking:
 
 
 def test_unmeasured_comparison_does_not_render_as_too_few_samples() -> None:
-    from evalshift.reports.html import _verdict
+    from evalshift_cli.reports.html import _verdict
 
     note = f"{UNMEASURED_NOTE_PREFIX} this evaluator scored no comparable pair"
     head, blurb = _verdict("insufficient", [note])
@@ -1744,7 +1744,7 @@ class TestADivergenceFindingNamesTheTools:
         assert "get_projects" in render_html(payload)
 
     def test_the_tool_change_reaches_report_json(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _to_jsonable
+        from evalshift_cli.reports.json import _to_jsonable
 
         run_dir, _ = _scaffold_two_axis_run(tmp_path)
         payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
@@ -1810,7 +1810,7 @@ class TestReportShell:
         assert "4 calls" in html
 
     def test_header_timestamp_is_human_readable(self) -> None:
-        from evalshift.reports.html import _display_timestamp
+        from evalshift_cli.reports.html import _display_timestamp
 
         assert _display_timestamp("2026-08-23T15:01:56.674222+00:00") == "2026-08-23 15:01:56 UTC"
         # An offset other than UTC is converted, not relabelled.
@@ -1821,7 +1821,7 @@ class TestReportShell:
         assert _display_timestamp("not a date") == "not a date"
 
     def test_suite_pill_prefers_the_suite_directory_name(self) -> None:
-        from evalshift.reports.html import _suite_name
+        from evalshift_cli.reports.html import _suite_name
 
         assert _suite_name("/tmp/p/.evalshift/suites/main_chat/golden.jsonl") == "main_chat"
         assert _suite_name("/tmp/golden.jsonl") == "golden"
@@ -1836,7 +1836,7 @@ class TestReportShell:
         assert "Avg score" in html
 
     def test_run_deltas_are_none_when_the_source_side_measured_nothing(self) -> None:
-        from evalshift.reports.html import _pct_delta
+        from evalshift_cli.reports.html import _pct_delta
 
         assert _pct_delta(0.0, 1.0) is None
         assert _pct_delta(1.0, 2.0) == pytest.approx(100.0)
@@ -1854,7 +1854,7 @@ class TestReportShell:
         Counting it as passed is the bug commit 4a83c40 fixed for the
         narrative; the verdict panel must not reintroduce it.
         """
-        from evalshift.reports.html import _budget_tally
+        from evalshift_cli.reports.html import _budget_tally
 
         budgets = [
             {"name": "a", "passed": True, "conclusive": True},
@@ -1899,8 +1899,8 @@ class TestReportResolvesPerSuiteEvaluators:
         *,
         suite_name: str | None,
     ) -> frozenset[str]:
-        from evalshift.cli.commands import report as report_module
-        from evalshift.runner.checkpoint import read_state
+        from evalshift_cli.cli.commands import report as report_module
+        from evalshift_cli.runner.checkpoint import read_state
 
         root, run_id = _scaffold_full_run(tmp_path)
         config_path = root / "evalshift.yaml"

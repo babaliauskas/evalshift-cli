@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.traces.loader import (
+from evalshift_cli.traces.loader import (
     TraceLoadError,
     index_traces,
     load_traces_jsonl,
     pairs_for_prompt_examples,
     write_traces_jsonl,
 )
-from evalshift.traces.models import AgentTrace, ToolCallEvent
+from evalshift_cli.traces.models import AgentTrace, ToolCallEvent
 
 
 def _trace(*, role: str = "source", example_id: str = "ex1") -> dict[str, object]:

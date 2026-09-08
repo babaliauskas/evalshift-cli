@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from evalshift.analysis.policy import (
+from evalshift_cli.analysis.policy import (
     BudgetResult,
     MigrationDecision,
     _metrics,
@@ -15,17 +15,17 @@ from evalshift.analysis.policy import (
     inconclusive_decision,
     unmeasured_gating_evaluators,
 )
-from evalshift.analysis.statistics import (
+from evalshift_cli.analysis.statistics import (
     ADVISORY_NOTE_PREFIX,
     UNMEASURED_NOTE_PREFIX,
     ComparisonResult,
 )
-from evalshift.config.models import MigrationPolicy, SliceMigrationPolicy
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
-from evalshift.evaluators.tool_arguments import KIND as KIND_ARGUMENTS
-from evalshift.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
-from evalshift.runner.models import Call
+from evalshift_cli.config.models import MigrationPolicy, SliceMigrationPolicy
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
+from evalshift_cli.evaluators.tool_arguments import KIND as KIND_ARGUMENTS
+from evalshift_cli.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
+from evalshift_cli.runner.models import Call
 
 
 def _comparison(
@@ -755,14 +755,14 @@ class TestToolArgumentDriftFloor:
 
     def test_a_slice_inherits_the_floor_from_the_top_level_policy(self) -> None:
         """A slice override must not silently reset the floor to its default."""
-        from evalshift.analysis.policy import _slice_policy
+        from evalshift_cli.analysis.policy import _slice_policy
 
         base = MigrationPolicy(tool_argument_drift_floor=0.4)
         resolved = _slice_policy(base, SliceMigrationPolicy(max_tool_argument_drift=0.5))
         assert resolved.tool_argument_drift_floor == pytest.approx(0.4)
 
     def test_a_slice_can_override_the_floor(self) -> None:
-        from evalshift.analysis.policy import _slice_policy
+        from evalshift_cli.analysis.policy import _slice_policy
 
         base = MigrationPolicy(tool_argument_drift_floor=0.4)
         resolved = _slice_policy(base, SliceMigrationPolicy(tool_argument_drift_floor=0.95))
@@ -1021,12 +1021,12 @@ class TestWilsonConstant:
     """
 
     def test_the_z_is_the_exact_two_sided_95_percent_quantile(self) -> None:
-        from evalshift.analysis.policy import _WILSON_Z
+        from evalshift_cli.analysis.policy import _WILSON_Z
 
         assert _WILSON_Z == 1.959963984540054
 
     def test_the_bounds_match_the_servers_to_full_precision(self) -> None:
-        from evalshift.analysis.policy import _wilson_interval
+        from evalshift_cli.analysis.policy import _wilson_interval
 
         # Recomputed from the server's ``_wilson_interval`` at z=1.959963984540054.
         # The tolerance is tighter than the 9.03e-6 gap the rounded z produces,
@@ -1860,7 +1860,7 @@ class TestToolSelectionKindRegistration:
     """
 
     def test_the_policy_layer_registers_the_evaluators_own_slugs(self) -> None:
-        from evalshift.analysis.policy import _TOOL_CONFORMANCE_KIND, _TOOL_DIVERGENCE_KIND
+        from evalshift_cli.analysis.policy import _TOOL_CONFORMANCE_KIND, _TOOL_DIVERGENCE_KIND
 
         assert _TOOL_CONFORMANCE_KIND == KIND_CONFORMANCE
         assert _TOOL_DIVERGENCE_KIND == KIND_DIVERGENCE
@@ -1981,7 +1981,7 @@ class TestToolDivergenceBudget:
         assert budget.conclusive
 
     def test_a_slice_can_override_the_budget(self) -> None:
-        from evalshift.analysis.policy import _slice_policy
+        from evalshift_cli.analysis.policy import _slice_policy
 
         resolved = _slice_policy(
             MigrationPolicy(max_tool_divergence=0.2),

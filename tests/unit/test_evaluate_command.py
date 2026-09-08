@@ -14,10 +14,10 @@ import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
-from evalshift.analysis.slicing import build_slices, build_unmeasured
-from evalshift.analysis.statistics import analyze
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.cli.commands.evaluate import (
+from evalshift_cli.analysis.slicing import build_slices, build_unmeasured
+from evalshift_cli.analysis.statistics import analyze
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.cli.commands.evaluate import (
     SCORES_FILENAME,
     _build_evaluators,
     _coverage_for,
@@ -25,17 +25,17 @@ from evalshift.cli.commands.evaluate import (
     _score_all,
     _score_one,
 )
-from evalshift.cli.main import app
-from evalshift.config.models import ToolSelectionEvaluatorConfig
-from evalshift.evaluators.base import PairedScore
-from evalshift.evaluators.llm_judge import PairwiseJudgeEvaluator
-from evalshift.evaluators.semantic import CosineSimilarityEvaluator
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.evaluators.tool_selection import ToolSelectionEvaluator
-from evalshift.models.client import ModelClient
-from evalshift.runner.checkpoint import append_call, read_state, write_state
-from evalshift.runner.models import Call, EvaluatorCoverage, RunModels, RunState
-from evalshift.suite.models import ChatMessage, Suite, SuiteExample
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.models import ToolSelectionEvaluatorConfig
+from evalshift_cli.evaluators.base import PairedScore
+from evalshift_cli.evaluators.llm_judge import PairwiseJudgeEvaluator
+from evalshift_cli.evaluators.semantic import CosineSimilarityEvaluator
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.evaluators.tool_selection import ToolSelectionEvaluator
+from evalshift_cli.models.client import ModelClient
+from evalshift_cli.runner.checkpoint import append_call, read_state, write_state
+from evalshift_cli.runner.models import Call, EvaluatorCoverage, RunModels, RunState
+from evalshift_cli.suite.models import ChatMessage, Suite, SuiteExample
 from tests.unit.suite_examples import suite_example
 
 runner = CliRunner()
@@ -226,7 +226,7 @@ class TestEvaluateHappy:
         assert by_name["structural.regex"]["blocking"] is False
 
     def test_old_scores_row_without_blocking_loads_as_blocking(self) -> None:
-        from evalshift.evaluators.base import EvalRecord
+        from evalshift_cli.evaluators.base import EvalRecord
 
         row = EvalRecord.model_validate(
             {
@@ -749,7 +749,7 @@ class TestToolArgumentsEmbeddings:
 
     @staticmethod
     def _config(tmp_path: Path, *, semantic: bool) -> Any:
-        from evalshift.config.loader import load_config
+        from evalshift_cli.config.loader import load_config
 
         semantic_block = "  semantic:\n    embedding_model: text-embedding-3-small\n"
         cfg_yaml = f"""
@@ -845,7 +845,7 @@ class TestToolArgumentsToolsetResolver:
     @classmethod
     def _project(cls, tmp_path: Path) -> tuple[Any, Path, str]:
         """Write a config, a golden suite naming a toolset, and its sidecar."""
-        from evalshift.config.loader import load_config
+        from evalshift_cli.config.loader import load_config
 
         ref = fingerprint_tools([cls._TOOL])
         toolsets = tmp_path / ".evalshift" / "toolsets"
@@ -1064,7 +1064,7 @@ def _judge_response(text: str) -> Any:
 
 class TestJudgeClientSharingAndReporting:
     def test_build_evaluators_threads_shared_judge_client(self, tmp_path: Path) -> None:
-        from evalshift.config.loader import load_config
+        from evalshift_cli.config.loader import load_config
 
         cfg = load_config(_write_config(tmp_path, with_judge=True))
         judge_client = ModelClient()
@@ -1080,14 +1080,14 @@ class TestJudgeClientSharingAndReporting:
         # temperature value, the client adapts, scoring completes, and the
         # judge model joins non_deterministic_models in the state written
         # alongside evaluator_coverage.
-        from evalshift.models import client as client_module
+        from evalshift_cli.models import client as client_module
 
         # Redirect the default cache path into tmp so the judge's verdict
         # cache can't serve a hit from (or write into) the user's real
         # ~/.evalshift/cache.db — a hit would skip the dispatch this test
         # exists to exercise.
         monkeypatch.setattr(
-            "evalshift.cache.schema.DEFAULT_CACHE_PATH",
+            "evalshift_cli.cache.schema.DEFAULT_CACHE_PATH",
             tmp_path / "cache.db",
         )
         _write_config(tmp_path, with_judge=True)

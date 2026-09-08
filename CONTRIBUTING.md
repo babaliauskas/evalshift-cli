@@ -23,7 +23,7 @@ pre-commit install
 ```
 
 The pre-push stage runs the same four commands as CI — `ruff check .`,
-`ruff format --check .`, `mypy --strict src/evalshift`, `pytest` — over the
+`ruff format --check .`, `mypy --strict src/evalshift_cli`, `pytest` — over the
 whole tree, so a push that would turn CI red is refused locally. Run them by
 hand any time with `make ci`.
 
@@ -34,7 +34,7 @@ pytest                                  # run the test suite
 pytest -m "not integration"             # unit tests only
 ruff check .                            # lint
 ruff format .                           # auto-format
-mypy --strict src/evalshift             # type-check
+mypy --strict src/evalshift_cli             # type-check
 pre-commit run --all-files              # everything pre-commit runs
 ```
 

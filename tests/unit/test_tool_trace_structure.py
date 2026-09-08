@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from evalshift.config.models import ToolTraceStructureEvaluatorConfig
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
+from evalshift_cli.config.models import ToolTraceStructureEvaluatorConfig
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
 from tests.unit.suite_examples import suite_example
 
 

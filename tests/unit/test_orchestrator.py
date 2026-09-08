@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.runner.orchestrator`.
+"""Tests for :mod:`evalshift_cli.runner.orchestrator`.
 
 We exercise the orchestrator end-to-end with:
 
@@ -23,27 +23,27 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from evalshift.cache.store import CacheStore
-from evalshift.captures.reader import CaptureError
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.config.loader import load_config
-from evalshift.config.models import (
+from evalshift_cli.cache.store import CacheStore
+from evalshift_cli.captures.reader import CaptureError
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.config.loader import load_config
+from evalshift_cli.config.models import (
     Defaults,
     EvalShiftConfig,
     PromptDefinition,
 )
-from evalshift.evaluators.tool_models import ToolSpec, ToolTrace
-from evalshift.models.client import (
+from evalshift_cli.evaluators.tool_models import ToolSpec, ToolTrace
+from evalshift_cli.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
     ToolCompletionResult,
 )
-from evalshift.runner.checkpoint import (
+from evalshift_cli.runner.checkpoint import (
     iter_calls,
     read_state,
 )
-from evalshift.runner.orchestrator import (
+from evalshift_cli.runner.orchestrator import (
     CHECKPOINT_EVERY,
     RunAborted,
     RunResult,
@@ -55,8 +55,8 @@ from evalshift.runner.orchestrator import (
     run_orchestrator,
     toolset_base_candidates,
 )
-from evalshift.suite.loader import load_jsonl
-from evalshift.suite.models import ChatMessage, HistoryToolCall, Suite
+from evalshift_cli.suite.loader import load_jsonl
+from evalshift_cli.suite.models import ChatMessage, HistoryToolCall, Suite
 from tests.unit.suite_examples import suite_example
 
 IN_MEMORY_DB = "sqlite+aiosqlite:///:memory:"
@@ -451,8 +451,8 @@ class TestOrchestratorResume:
         # manually, then ask the orchestrator to "resume".
         from datetime import datetime
 
-        from evalshift.runner import checkpoint as cp_mod
-        from evalshift.runner.models import Call, RunModels, RunState
+        from evalshift_cli.runner import checkpoint as cp_mod
+        from evalshift_cli.runner.models import Call, RunModels, RunState
 
         config = _config()
         suite = _suite(n=2)
@@ -522,8 +522,8 @@ class TestOrchestratorResume:
     ) -> None:
         from datetime import datetime
 
-        from evalshift.runner import checkpoint as cp_mod
-        from evalshift.runner.models import RunModels, RunState
+        from evalshift_cli.runner import checkpoint as cp_mod
+        from evalshift_cli.runner.models import RunModels, RunState
 
         config_path, suite_path, runs_base = _writeable_paths(tmp_path)
 
@@ -543,7 +543,7 @@ class TestOrchestratorResume:
             ),
         )
 
-        from evalshift.runner.checkpoint import CheckpointError
+        from evalshift_cli.runner.checkpoint import CheckpointError
 
         with pytest.raises(CheckpointError, match="config or suite has changed"):
             await run_orchestrator(
@@ -1190,8 +1190,8 @@ class TestOrchestratorDispatchRouting:
         """
         from datetime import datetime
 
-        from evalshift.runner import checkpoint as cp_mod
-        from evalshift.runner.models import Call, RunModels, RunState
+        from evalshift_cli.runner import checkpoint as cp_mod
+        from evalshift_cli.runner.models import Call, RunModels, RunState
 
         config = _config()
         suite = self._suite_with_history()
@@ -1542,7 +1542,7 @@ class TestRuntimeTemperatureRejectionReporting:
         tmp_path: Path,
         cache: CacheStore,
     ) -> None:
-        from evalshift.runner import orchestrator as orch_mod
+        from evalshift_cli.runner import orchestrator as orch_mod
 
         _make_fake_client(monkeypatch)
         monkeypatch.setattr(

@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.evaluators.base import EvalRecord
-from evalshift.runner.checkpoint import read_state, write_state
-from evalshift.runner.models import EvaluatorCoverage, RunModels, RunState, UnmeasuredPair
+from evalshift_cli.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.runner.checkpoint import read_state, write_state
+from evalshift_cli.runner.models import EvaluatorCoverage, RunModels, RunState, UnmeasuredPair
 
 runner = CliRunner()
 
