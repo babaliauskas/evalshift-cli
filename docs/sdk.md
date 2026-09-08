@@ -120,5 +120,9 @@ from production traffic rather than hand-written examples.
 
 - [Getting started](getting-started.md) — the capture-first `evalshift init` flow.
 - [Multi-turn conversations](conversations.md) — how history is recovered.
-- [Agent traces](traces.md) — for agents that run outside the SDK entirely
-  (LangChain, another language): import full timelines with `evalshift traces import`.
+- **LangChain** needs no decorators: the SDK ships an `EvalShiftCallbackHandler`
+  (`pip install "evalshift-sdk[langchain]"`) that records a chain or agent run
+  from the `callbacks=[...]` list, into the same captures as step 1.
+- [Agent traces](traces.md) — for agents the SDK cannot instrument at all
+  (another language, or a framework with no adapter): import full timelines with
+  `evalshift traces import`.

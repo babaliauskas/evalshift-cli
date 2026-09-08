@@ -183,8 +183,9 @@ class LLMJudgeConfig(_StrictModel):
         criterion_name: Short, stable identifier surfaced in reports.
         criterion_prompt: Free-form criterion the judge will apply (e.g.
             "Which output preserves more factual detail?").
-        judge_model: Model used as the judge. Defaults to a strong Anthropic
-            model so users get good results out of the box.
+        judge_model: Model used as the judge. Defaults to
+            :data:`DEFAULT_JUDGE_MODEL` — a deliberately cheap tier, so a
+            first run costs little; override it for a stronger judge.
         applies_to: Glob list of prompt IDs this evaluator applies to.
         blocking: Whether regressions from this evaluator can fail the
             migration verdict. Advisory evaluators (``blocking: false``) still

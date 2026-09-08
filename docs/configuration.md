@@ -301,8 +301,10 @@ bad generations fall back to deterministic templated prose.
 
 ## `evaluators`
 
-Three sub-keys, all optional. **At least one evaluator must be
-configured for `evalshift evaluate` to do anything.**
+Seven sub-keys, all optional — `structural`, `semantic`, `tool_selection`,
+`tool_arguments`, `tool_trace_structure`, `agent_trace` and `llm_judge`, each
+documented below. **At least one evaluator must be configured for
+`evalshift evaluate` to do anything.**
 
 ### `blocking` (every evaluator)
 
