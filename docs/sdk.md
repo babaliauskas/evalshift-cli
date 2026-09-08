@@ -20,9 +20,10 @@ your agent (evalshift-sdk)  →  .evalshift/captures/<suite>/cap_<hex>.json
 
 - **Disk is the only interface.** The SDK never imports or calls the CLI, and
   the CLI never imports the SDK. Either one works without the other.
-- **Separate virtual environments.** Both packages use the top-level import
-  name `evalshift`. Install the SDK in your agent's venv and the CLI wherever
-  you run evaluations — never in the same environment.
+- **One environment or two.** The CLI imports as `evalshift_cli` and depends on
+  the SDK, so `pip install evalshift` gives you both and `import evalshift` is
+  always the SDK. A production agent that only records captures installs
+  `evalshift-sdk` alone.
 - **Off by default.** Nothing is recorded unless `EVALSHIFT_CAPTURE=1` is set,
   so the instrumentation is safe to leave in production code permanently.
 - **No network.** The SDK writes local files only. Python 3.10+, stdlib-only.

@@ -30,15 +30,12 @@ both. Only step 1 needs the SDK; steps 2–3 are the CLI.
 
 ### 1. Record captures
 
-The SDK (`evalshift-sdk`) and the CLI (`evalshift`) both import as `evalshift`,
-so they must live in **separate** virtual environments:
+The CLI depends on the SDK (`evalshift-sdk`, import name `evalshift`), so the
+environment that has the `evalshift` binary runs the agent too:
 
 ```bash
-uv venv --python 3.11 /tmp/sdk-venv
-uv pip install --python /tmp/sdk-venv/bin/python evalshift-sdk
-
 cd examples/capture-first
-EVALSHIFT_CAPTURE=1 /tmp/sdk-venv/bin/python agent.py
+EVALSHIFT_CAPTURE=1 python agent.py
 ```
 
 Capture is off unless `EVALSHIFT_CAPTURE` is set, which is what makes it safe to

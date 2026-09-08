@@ -47,7 +47,7 @@ account for them rather than silently dropping examples.
 
 ## What models does EvalShift support?
 
-Anything LiteLLM supports. The `evalshift.models.registry` provides
+Anything LiteLLM supports. The `evalshift_cli.models.registry` provides
 friendly aliases and sane defaults for common models (Claude, GPT,
 Gemini), but **the registry is advisory, not gating**. A model id
 that isn't in the registry — for example a fresh preview from a

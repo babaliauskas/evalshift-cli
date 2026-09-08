@@ -66,7 +66,7 @@ uv pip install -e ".[dev]"
 
 Requires Python 3.11+. Verify with `evalshift --version`.
 
-> **Co-install note:** the CLI (package `evalshift`) and the capture SDK (package `evalshift-sdk`) share the same top-level import name `evalshift`. Keep them in separate virtual environments — the SDK lives inside your agent's environment, the CLI in its own.
+> **Co-install note:** the CLI (package `evalshift`, import package `evalshift_cli`) depends on the capture SDK (package `evalshift-sdk`, import name `evalshift`), so both live in one environment and `pip install evalshift` brings the SDK with it. A production agent that only records captures installs `evalshift-sdk` alone. `python -m evalshift_cli` is the module form of the `evalshift` binary.
 
 API keys go in the environment, never in config:
 
@@ -201,7 +201,7 @@ init          →   doctor   →   run          →   evaluate       →   analy
                                                                    .json (if policy)
 ```
 
-- **`doctor`** validates local config and shows which provider keys are visible. Exit 1 only when an existing `evalshift.yaml` fails validation; missing keys are soft warnings. It also reports the toolset each configured suite carries (or the flat `golden.jsonl`) and flags a suite whose examples carry more than one distinct toolset — legal (each example dispatches its own), but also the shape a wiring mistake takes. When a workflow under `.github/workflows/` uses the GitHub Action it adds a `ci pin` row: `ok` (`pinned to <v>`) when CI installs this CLI version, `warn` when the pin is older, absent, or newer than the local CLI (see [Pin drift](#pin-drift)).
+- **`doctor`** validates local config and shows which provider keys are visible. Exit 1 only when an existing `evalshift.yaml` fails validation; missing keys are soft warnings. Its second row, `evalshift-sdk`, reports the SDK version the `evalshift` import name resolves to in this environment (`warn` when the SDK is missing or shadowed by an older CLI's leftover files; never a failure). It also reports the toolset each configured suite carries (or the flat `golden.jsonl`) and flags a suite whose examples carry more than one distinct toolset — legal (each example dispatches its own), but also the shape a wiring mistake takes. When a workflow under `.github/workflows/` uses the GitHub Action it adds a `ci pin` row: `ok` (`pinned to <v>`) when CI installs this CLI version, `warn` when the pin is older, absent, or newer than the local CLI (see [Pin drift](#pin-drift)).
 - **`run`** parses prompts, validates every example against every prompt, estimates cost, then dispatches `(prompt × example × {source, target})` calls through an async orchestrator under a concurrency semaphore. Responses are cached; progress is checkpointed every 50 completions.
 - **`evaluate`** scores each (source, target) pair with the configured evaluators, one `EvalRecord` per pair × evaluator. Scoring runs under the same `defaults.concurrency` semaphore as `run`, and the embedding/judge calls it makes go through the same response cache.
 - **`analyze`** runs paired statistics per `(prompt, evaluator, slice)`, applies Benjamini–Hochberg FDR correction, classifies severities, and — when a `migration_policy` is configured — computes a pass/fail verdict.
@@ -778,7 +778,7 @@ Common conventions: `-c/--config` defaults to `./evalshift.yaml`; run artefacts 
 `-f/--force` · `-d/--directory <dir>` · `--ci` · `--wire-agents/--no-wire-agents` (default on) · `--provider gemini|openai|anthropic` · `--profile model-upgrade|cost-reduction|local-model|quantization|provider-switch` (default `model-upgrade`)
 Without `--ci`, warns after writing when an existing workflow under `.github/workflows/` pins an older CLI than this one, or none at all (see [Pin drift](#pin-drift)); `init --ci` writes the pin itself and does not warn about the file it just wrote.
 
-**`evalshift doctor`** — environment/config check. Exit 1 only on an invalid existing config. Reports the toolset each configured suite carries and flags a suite whose examples carry more than one distinct toolset. The suite-side checks cover every suite in the config's `suites:` block, falling back to `./golden.jsonl` when none are wired. Adds a `ci pin` row when a workflow uses the GitHub Action (`warn` on pin drift, never a failure).
+**`evalshift doctor`** — environment/config check. Exit 1 only on an invalid existing config. Row 2, `evalshift-sdk`, confirms `import evalshift` is the SDK (`warn` when missing or shadowed, never a failure). Reports the toolset each configured suite carries and flags a suite whose examples carry more than one distinct toolset. The suite-side checks cover every suite in the config's `suites:` block, falling back to `./golden.jsonl` when none are wired. Adds a `ci pin` row when a workflow uses the GitHub Action (`warn` on pin drift, never a failure).
 
 **`evalshift run`** — paired evaluation run (costs money — calls real models).
 `-f/--from <model>` · `-t/--to <model>` · `-c/--config` · `-s/--suite <file>` · `--suite-name <name>` · `--resume` · `-y/--yes`

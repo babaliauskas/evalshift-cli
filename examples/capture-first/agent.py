@@ -20,13 +20,11 @@ Three things make a capture promotable into a golden case:
 
 Regenerate the captures under ``.evalshift/captures/`` with::
 
-    uv venv --python 3.11 /tmp/sdk-venv          # keep the SDK out of the CLI venv:
-    uv pip install --python /tmp/sdk-venv/bin/python evalshift-sdk
     cd examples/capture-first
-    EVALSHIFT_CAPTURE=1 /tmp/sdk-venv/bin/python agent.py
+    EVALSHIFT_CAPTURE=1 python agent.py
 
-The SDK and the CLI both import as ``evalshift``, so they must live in
-separate virtual environments.
+The CLI depends on the SDK (``evalshift-sdk``, import name ``evalshift``), so
+the environment that has the ``evalshift`` binary runs this agent too.
 """
 
 from __future__ import annotations

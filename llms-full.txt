@@ -31,8 +31,9 @@ Companion package: evalshift-sdk (separate PyPI package, in-process capture SDK)
 production agent runs as JSON captures under .evalshift/captures/<suite>/cap_<hex>.json;
 this CLI promotes them into golden suites (`evalshift capture sync`). Disk is the only
 interface between SDK and CLI — they never import or call each other.
-CAUTION: both packages use top-level import name `evalshift` —
-install them in separate virtual environments.
+The CLI imports as `evalshift_cli` and depends on evalshift-sdk, so one environment holds
+both and `import evalshift` is always the SDK. `python -m evalshift_cli` is the module form
+of the `evalshift` binary.
 `evalshift init` (default --wire-agents) writes EVALSHIFT.md into the user's project and points
 existing agent files (AGENTS.md, CLAUDE.md, GEMINI.md, .cursorrules,
 .github/copilot-instructions.md) at all three URLs above, creating AGENTS.md when none of them
@@ -116,6 +117,9 @@ evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire
 evalshift doctor
   Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation; missing API
   keys are soft warnings (exit 0).
+  Row 2 `evalshift-sdk`: ok ("<v> (import name `evalshift`)"); warn (exit 0) when the SDK is
+  not installed, fails to import, or the name resolves to something else (an older CLI's
+  leftover files, a local evalshift/ directory).
   Reports the toolset each configured suite carries (name, or the flat golden.jsonl); warns
   (warn-level, exit 0) when a suite's examples carry more than one distinct toolset -- legal
   (each example dispatches its own), but also the shape a wiring mistake takes.
@@ -837,7 +841,7 @@ content leaves the machine.
   non-empty AND no tool was called AND the turn did not error -- never when nothing was
   offered, so `tool_selection`'s no-tools scoring (1.0/1.0 whenever both sides call zero
   tools) cannot fire on a row that measured nothing.
-- `evalshift.captures.reader.load_toolset(ref, *, base=None, cache=None) -> list[ToolSpec]`
+- `evalshift_cli.captures.reader.load_toolset(ref, *, base=None, cache=None) -> list[ToolSpec]`
   resolves a toolset sidecar (<base>/toolsets/<hex>.json) via ToolSpec.from_dict -- NEVER via
   evaluators.tool_loader.load_tools, which rejects an empty list (wrong here: the empty
   toolset is a first-class value). Pass a shared dict as `cache` to resolve a ref shared by

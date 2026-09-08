@@ -48,9 +48,10 @@ Four pieces, released and documented independently:
 | **Hosted server** — `api.evalshift.dev`, web app at `evalshift.dev` | Optional. Stores pushed run bundles, diffs them across branches, drives PR comments and gating. | [docs/hosted.md](docs/hosted.md) |
 
 The SDK and the CLI never call each other — the interface is files under
-`.evalshift/captures/`, so either works without the other. Because both use the
-top-level import name `evalshift`, install them in **separate virtual
-environments**: the SDK in your agent's, the CLI wherever you run evaluations.
+`.evalshift/captures/`, so either works without the other. The CLI (import
+package `evalshift_cli`) depends on the SDK (import name `evalshift`), so one
+environment holds both: `pip install evalshift` brings the SDK with it, and a
+production agent that only records captures installs `evalshift-sdk` alone.
 
 ## For AI coding agents
 
@@ -82,8 +83,8 @@ Requires Python 3.11+.
 uv pip install evalshift     # or: pip install evalshift
 ```
 
-And, in your agent's virtualenv — a **separate** one, see above — the capture
-SDK that feeds the CLI its suites:
+That also installs the capture SDK that feeds the CLI its suites. A production
+agent that only records captures needs just the SDK (stdlib-only):
 
 ```bash
 uv pip install evalshift-sdk     # or: pip install evalshift-sdk
@@ -111,7 +112,7 @@ evalshift init                    # minimal capture-first evalshift.yaml
 ```
 
 Instrument the agent with [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk)
-— installed in the agent's own virtualenv, stdlib-only, Python 3.10+:
+— stdlib-only, Python 3.10+, installed with the CLI or on its own:
 
 ```python
 from evalshift import capture
