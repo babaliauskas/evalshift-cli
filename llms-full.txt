@@ -906,9 +906,12 @@ evaluators:
         equivalent in substance and differ only in wording.
       judge_model: gemini-3.1-pro-preview
       blocking: false
-migration_policy: {max_overall_regression_rate: 0.03, max_critical_regressions: 0,
-  min_equivalence_rate: 0.95, max_tool_argument_drift: 0.01, max_tool_divergence: 0.03,
-  tool_argument_drift_floor: 0.9, max_cost_increase: 0.20, max_latency_increase: 0.30}
+migration_policy: {max_overall_regression_rate: 0.30, max_critical_regressions: 1,
+  min_equivalence_rate: 0.75, max_tool_argument_drift: 0.20, max_tool_divergence: 0.20,
+  max_cost_increase: 0.30, max_latency_increase: 0.30}
+  # ^ the model-upgrade profile = the MigrationPolicy field defaults. init does NOT
+  #   scaffold tool_argument_drift_floor; it is inherited at 0.9. Tighter presets:
+  #   --profile cost-reduction|quantization|provider-switch|local-model.
 # project: your-org/your-project   # hosted only; init scaffolds it commented out
 suites: {}                         # init writes the managed region LAST, after
                                    # migration_policy: it is the only part a command

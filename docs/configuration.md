@@ -81,12 +81,14 @@ migration_policy:
   max_tool_argument_drift: 0.20
   max_tool_divergence: 0.20  # share of pairs where the target routed elsewhere
   tool_argument_drift_floor: 0.9   # below this a call counts as drifted
-  max_cost_increase: 0.50    # target may cost up to 50% more
-  max_latency_increase: 2.0  # …and be up to 200% slower (small→large migration)
+  max_cost_increase: 0.30    # target may cost up to 30% more
+  max_latency_increase: 0.30 # …and be up to 30% slower
 ```
 
-The rate values above are the defaults `evalshift init` writes (and the
-`MigrationPolicy` field defaults a config that omits the block inherits): a
+Those values are the ones `evalshift init` writes, and they are also the
+`MigrationPolicy` field defaults a config that omits the block inherits — the
+one difference is `tool_argument_drift_floor`, which init leaves out of the
+scaffold and every config therefore inherits at `0.9`. They are a
 first-migration starting point, deliberately loose enough that a fresh suite
 reports its regressions instead of failing on a couple of reworded tool
 arguments. Tighten them as the suite grows and the migration nears merge; the
