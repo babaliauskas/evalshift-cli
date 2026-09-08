@@ -42,7 +42,7 @@ def issue_refund(order_id: str) -> dict:
     return {"status": "refunded", "order_id": order_id}
 
 
-@capture.agent(suite="support_agent", redact=True)
+@capture.agent(suite="support_agent", redact=True, tools=[])
 def handle_ticket(query: str) -> str:
     response = client.messages.create(model="claude-sonnet-5", messages=messages)
     record_model_call(model_id="claude-sonnet-5", input=messages, output=response.text)
@@ -58,6 +58,9 @@ to state its masking policy in the call itself. `True` applies the SDK's
 verbatim, and a `(value) -> value` callable does something custom; any other
 value — `None` included — raises `TypeError`. Details:
 [REDACTION.md](https://github.com/babaliauskas/evalshift-sdk/blob/main/docs/REDACTION.md).
+
+`tools` is required on the same entry points: the toolset the agent was offered,
+or `[]` if it never calls tools. Omitting it is a `TypeError` too.
 
 Pass the **messages list** (not a bare string) as the model-call input where you
 can: `capture sync` recovers conversation history verbatim from a messages list,
