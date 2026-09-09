@@ -19,6 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The capture reader gates on the schema *major* only, so a capture written at
   the SDK's new `2.1.0` schema loads unchanged. Trace models are `extra="forbid"`,
   so the CLI has to accept the field before any SDK writes it.
+- `capture promote` / `capture sync` now use those model-requested calls as the
+  tool-call ground truth whenever a capture carries them, and record which
+  yardstick a case used as `promotion_source` (`"requested"` | `"executed"`,
+  default `"executed"`) on the promoted-case file. The executed `tool_call`
+  events have already passed through the application — its filtering, retries,
+  re-ordering, and its own function signatures — so they show what the *app*
+  did, while a golden case has to state what a *model* should produce. On the
+  requested path each `model_call` is one round (rounds that requested nothing
+  are dropped, exactly as tool-less executed rounds are) and arguments are
+  carried verbatim: wrapper unwrapping never runs on them, because nothing
+  stands between the model and its own requested call. Fallback to the executed
+  calls is silent for a capture that predates the field, and warns for one where
+  only *some* `model_call` events carry it (impossible from a single SDK
+  version, so the whole capture falls back rather than mixing yardsticks).
+  When requested and executed calls disagree, the requested ones win and
+  promotion warns, naming the tools on both sides.
 - `doctor` row `evalshift-sdk`: reports the SDK version the `evalshift` import
   name resolves to in this environment; `warn` (never a failure) when the SDK
   is missing, fails to import, or is shadowed by an older CLI's leftover files

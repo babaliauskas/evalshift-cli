@@ -78,8 +78,9 @@ def _model_call(
     model_input: Any,
     toolset_ref: str | None = _TOOLSET_REF,
     tools_offered: list[str] | None = None,
+    requested_tool_calls: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    return {
+    event: dict[str, Any] = {
         "type": "model_call",
         "sequence_index": index,
         "timestamp": "2026-06-16T12:00:00+00:00",
@@ -90,6 +91,11 @@ def _model_call(
         "toolset_ref": toolset_ref,
         "tools_offered": tools_offered if tools_offered is not None else ["search_orders"],
     }
+    # Omitted, never written as null: "absent" is what every pre-2.1.0 capture
+    # looks like, and it is the case the executed-call path must keep serving.
+    if requested_tool_calls is not None:
+        event["requested_tool_calls"] = requested_tool_calls
+    return event
 
 
 def _tool_call(name: str, index: int, *, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1716,3 +1722,275 @@ def test_build_marks_expected_arguments_as_captured_ground_truth() -> None:
     assert all(
         t.provenance == "captured" for r in built.example.expected_tool_rounds or [] for t in r
     )
+
+
+# ---------------------------------------------------------------------------
+# Requested vs executed tool calls
+# ---------------------------------------------------------------------------
+#
+# A capture records three distinguishable things: the tools OFFERED to the
+# model, the calls the model REQUESTED in its response, and the calls the app
+# actually EXECUTED. Only the requested list is a yardstick a candidate model
+# can be held to -- the executed calls have passed through the app's own
+# filtering, re-ordering, and (see the unwrapping section above) its function
+# signatures. So when the capture carries requested calls, they are the ground
+# truth; a capture that predates the field keeps the executed-call behaviour
+# unchanged.
+
+
+def _requested(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"name": name, "arguments": args if args is not None else {"q": "x"}}
+
+
+def test_requested_calls_become_expected_tools_verbatim() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _final("done", 1),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert built.example.expected_tools is not None
+    [call] = built.example.expected_tools
+    assert call.tool_name == "search_orders"
+    assert call.arguments == {"customer_id": "c42"}
+    assert call.provenance == "captured"
+
+
+def test_requested_calls_skip_wrapper_unwrapping() -> None:
+    """The model's own arguments need no unwrapping — no wrapper signature saw them.
+
+    The executed-call path unwraps ``{"tool_args": {...}}`` because a decorated
+    Python function's parameters stood between the model and the recording.
+    Nothing stands between the model and its own requested call, so the same
+    shape here is what the model really produced and must be kept verbatim.
+    """
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="yes",
+                requested_tool_calls=[
+                    _requested("archive_project", {"tool_args": {"project_name": "X"}}),
+                ],
+            ),
+            _final("Archived.", 1),
+        ],
+    )
+
+    built = build_example_from_capture(
+        envelope,
+        PromoteOptions(tool_properties=_ARCHIVE_SCHEMA),
+    )
+
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].arguments == {"tool_args": {"project_name": "X"}}
+    assert not any("tool_args" in w for w in built.warnings)
+
+
+def test_each_model_call_is_a_round_and_empty_rounds_are_dropped() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
+            _model_call(1, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
+            # The final, text-producing round requested nothing -- dropped
+            # exactly as a tool-less executed round is.
+            _model_call(2, model_input="hi", requested_tool_calls=[]),
+            _final("done", 3),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    rounds = built.example.expected_tool_rounds
+    assert rounds is not None
+    assert [[c.tool_name for c in r] for r in rounds] == [["search_orders"], ["issue_refund"]]
+    # --rounds first still scopes expected_tools to round 1.
+    assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
+
+
+def test_requested_rounds_honour_rounds_all() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
+            _model_call(1, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions(rounds="all"))
+
+    assert [c.tool_name for c in built.example.expected_tools or []] == [
+        "search_orders",
+        "issue_refund",
+    ]
+
+
+def test_a_model_that_requested_nothing_still_asserts_expected_no_tools() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[], tools_offered=["search"]),
+            _final("No tool needed.", 1),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert built.example.expected_tools is None
+    assert built.example.expected_no_tools is True
+
+
+def test_requested_calls_count_as_scoreable_ground_truth() -> None:
+    """A turn whose model asked for tools is scoreable even if the app ran none."""
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders")],
+            ),
+        ],
+    )
+    envelope.trace.events[0].output = ""
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert not any("no scoreable ground truth" in w for w in built.warnings)
+
+
+def test_absent_requested_calls_keep_the_executed_behaviour() -> None:
+    """The default fixture predates the field: nothing about promotion changes."""
+    built = build_example_from_capture(_envelope(), PromoteOptions())
+
+    assert built.promotion_source == "executed"
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].tool_name == "search_orders"
+    assert built.example.expected_tools[0].arguments == {"customer_id": "c42"}
+
+
+def test_a_mixed_capture_falls_back_to_executed_calls_and_warns() -> None:
+    """One SDK version records the field on every model call or on none of them."""
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
+            _tool_call("search_orders", 1, args={"customer_id": "c42"}),
+            _model_call(2, model_input="hi"),
+            _tool_call("search_orders", 3, args={"customer_id": "c99"}),
+            _final("done", 4),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "executed"
+    assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
+    assert any("1 of 2" in w and "requested_tool_calls" in w for w in built.warnings)
+
+
+def test_requested_calls_win_over_disagreeing_executed_calls_and_warn() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[
+                    _requested("search_orders", {"customer_id": "c42"}),
+                    _requested("issue_refund", {"ticket_id": "T-1"}),
+                ],
+            ),
+            # The app ran only one of the two the model asked for.
+            _tool_call("search_orders", 1, args={"customer_id": "c42"}),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert [c.tool_name for c in built.example.expected_tools or []] == [
+        "search_orders",
+        "issue_refund",
+    ]
+    [disagreement] = [w for w in built.warnings if "issue_refund" in w and "search_orders" in w]
+    assert "requested" in disagreement and "executed" in disagreement
+
+
+def test_matching_requested_and_executed_calls_emit_no_disagreement_warning() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _tool_call("search_orders", 1, args={"customer_id": "c42"}),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert not any("disagree" in w for w in built.warnings)
+
+
+def test_differing_arguments_alone_still_warn() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _tool_call("search_orders", 1, args={"customer_id": "REDACTED"}),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].arguments == {"customer_id": "c42"}
+    assert any("search_orders" in w and "argument" in w for w in built.warnings)
+
+
+def test_names_only_drops_requested_arguments_too() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _final("done", 1),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions(names_only=True))
+
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].arguments is None
+
+
+def test_conversation_grouping_carries_the_promotion_source() -> None:
+    envelope = _envelope(
+        capture_id="cap_t1",
+        conversation_id="conv_1",
+        turn_index=0,
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
+            _final("done", 1),
+        ],
+    )
+
+    [(_, built)] = build_conversation_examples([_record(envelope)], PromoteOptions())
+
+    assert built.promotion_source == "requested"

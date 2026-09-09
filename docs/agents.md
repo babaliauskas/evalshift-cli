@@ -187,7 +187,46 @@ manually instrumented project promoted `expected: null` while the reply sat in
 the last `model_call` the whole time. A non-string `output` is left alone
 rather than stringified into ground truth nothing produced.
 
-### Wrapper arguments are unwrapped
+### Requested calls are the ground truth when they were captured
+
+A capture records three things that are easy to conflate:
+
+| | Where it lives | What it is |
+| --- | --- | --- |
+| **offered** | `model_call.toolset_ref` / `.tools_offered` | the tools passed *to* the model |
+| **requested** | `model_call.requested_tool_calls` | the calls the model asked for *in its response* |
+| **executed** | the `tool_call` / `tool_result` events | the calls the app actually *ran* |
+
+Promotion prefers **requested**. The executed calls have already passed through
+the application — its filtering, retries, re-ordering, and its own function
+signatures — so they are evidence of what the *app* did; a golden case has to
+state what a *model* should produce. Each `model_call` carries its own
+response's requested calls, so each `model_call` simply *is* a round (rounds
+that requested nothing are dropped, exactly as tool-less executed rounds are),
+and `--rounds` / `--tool-count` / `--names-only` behave identically either way.
+
+The promoted case records which yardstick was used as
+`promotion_source: "requested" | "executed"`, so a report can say what a row
+measures. Two cases fall back to the executed calls:
+
+- **A capture with no requested calls at all** — written before the SDK
+  recorded them. This is the legacy path below, and it is silent.
+- **A capture where only *some* `model_call` events carry them.** One SDK
+  version records the field on all of them or on none, so this is an
+  inconsistency; rather than score half the trace against one yardstick and
+  half against another, the whole capture falls back and `capture sync` says so.
+
+When requested calls are present *and* the executed ones disagree — a different
+tool, a different argument value, a different round grouping — the requested
+calls win and promotion warns, naming the tools on both sides. A difference is
+often legitimate (the app filtered or rewrote a call); the warning is there so
+you can tell that from a gap in what was captured.
+
+### Wrapper arguments are unwrapped (legacy captures)
+
+This applies only to captures promoted from **executed** calls — that is, ones
+recorded before `requested_tool_calls` existed. A model's own requested
+arguments are never rewritten: nothing stands between the model and them.
 
 A capture SDK that decorates a Python function records that *function's*
 parameters. An agent whose tools are `def archive_project(tool_args: dict)`

@@ -5,6 +5,7 @@
   "promoted_at": "2026-09-08T21:42:43.230740+00:00",
   "source_input_hash": "9c846a5018d2bc893f6ff29f542c3e4ae08a2acf0ede9f56a442f31fe8782d78",
   "code_version": "",
+  "promotion_source": "executed",
   "conversation_id": null,
   "turn_index": null,
   "example": {

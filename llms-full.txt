@@ -260,16 +260,29 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   str output (the reply the user saw, after the tool round-trips). Only the SDK's LangChain
   adapter emits final_output, so without the fallback every manually instrumented project
   promotes expected: null. Non-str output ignored (never stringified); neither -> warn + null.
+  Ground truth prefers the model's REQUESTED calls (model_call.requested_tool_calls) over the
+  EXECUTED tool_call events, and records which was used as PromotedCase.promotion_source
+  ("requested" | "executed", default "executed"). Executed calls passed through the app's
+  filtering/retries/re-ordering and its own function signatures -- they show what the APP did;
+  a golden case must state what a MODEL should produce. With requested calls present each
+  model_call IS a round (empty ones dropped, as tool-less executed rounds are) and arguments
+  are carried VERBATIM -- wrapper unwrapping (below) never runs on them. Fallback to executed:
+  SILENT when no model_call carries the field (pre-2.1.0 capture); WARNS and falls back for the
+  WHOLE capture when only some do (impossible from one SDK version -- never mix yardsticks
+  within one trace). Requested vs executed disagreement (different tool, argument, or round
+  grouping) -> requested wins + warning naming the tools on both sides.
   Rounds: tool calls are grouped into agent rounds (split at each recorded model_call). Every
   round -> expected_tool_rounds; expected_tools (and --tool-count) are scoped to ROUND 1, the
   only round a single-shot replay can produce. Multi-round captures warn; --rounds all flattens
   every round into expected_tools instead.
   Captures whose trace carries an error event are SKIPPED (--allow-errored promotes them).
   Warns on duplicate (conversation_id, turn_index) and on failed tool results.
-  Wrapper args: a capture recording a decorated function's parameters yields
-  {"tool_args": {...}} where the model only saw the flat declared properties. Promotion
-  unwraps it ONLY when the capture's own recorded toolset schema confirms (wrapper key
-  undeclared + inner keys all declared); no resolvable sidecar -> recording left untouched.
+  Wrapper args (EXECUTED path only -- legacy captures): a capture recording a decorated
+  function's parameters yields {"tool_args": {...}} where the model only saw the flat declared
+  properties. Promotion unwraps it ONLY when the capture's own recorded toolset schema confirms
+  (wrapper key undeclared + inner keys all declared); no resolvable sidecar -> recording left
+  untouched. Requested arguments are never unwrapped -- nothing stands between the model and
+  them, so the recorded shape IS what the model produced.
 evalshift capture clean [SUITE] [--promoted (default) | --all] [-y]
   Deletes capture files, never touches promoted suites. Then sweeps <base>/toolsets/: any
   sidecar referenced by neither a surviving capture (any suite, promoted or not) nor a

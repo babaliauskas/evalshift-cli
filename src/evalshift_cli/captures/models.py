@@ -18,6 +18,8 @@ A *promoted case* (:class:`PromotedCase`) is the canonical, auditable artifact
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from evalshift_cli.suite.models import SuiteExample
@@ -64,6 +66,15 @@ class PromotedCase(BaseModel):
     promoted_at: str = ""
     source_input_hash: str = ""
     code_version: str = ""
+    # Which yardstick the tool-call ground truth was taken from:
+    # ``requested`` — the calls the model itself asked for, recorded on the
+    # capture's ``model_call`` events; ``executed`` — the ``tool_call`` events
+    # the app recorded while actually running tools. Reports surface it so a
+    # reader knows whether a row measures the model's own output or the app's
+    # post-processed version of it. Defaults to ``executed`` because every
+    # promoted-case file written before captures carried requested calls was
+    # sourced that way, and must keep parsing unchanged.
+    promotion_source: Literal["requested", "executed"] = "executed"
     # Multi-turn provenance — optional so existing promoted-case JSON files
     # (written before conversation tracking) still parse.
     conversation_id: str | None = None

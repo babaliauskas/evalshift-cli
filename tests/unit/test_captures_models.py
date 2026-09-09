@@ -99,3 +99,16 @@ class TestPromotedCase:
     def test_unknown_key_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             PromotedCase.model_validate(self._case_payload(rogue_key=True))
+
+    def test_promotion_source_defaults_to_executed(self) -> None:
+        """Every promoted-case file written before the field is executed-sourced."""
+        case = PromotedCase.model_validate(self._case_payload())
+        assert case.promotion_source == "executed"
+
+    def test_promotion_source_round_trips(self) -> None:
+        case = PromotedCase.model_validate(self._case_payload(promotion_source="requested"))
+        assert case.promotion_source == "requested"
+
+    def test_promotion_source_rejects_an_unknown_yardstick(self) -> None:
+        with pytest.raises(ValidationError, match="promotion_source"):
+            PromotedCase.model_validate(self._case_payload(promotion_source="guessed"))

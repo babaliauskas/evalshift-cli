@@ -1694,6 +1694,41 @@ def test_promote_records_every_round_on_the_case(tmp_path: Path) -> None:
     ]
 
 
+def _requested_events(names: list[str]) -> list[dict[str, Any]]:
+    """A capture whose model_call records the calls the model asked for."""
+    events = _events(tools=names)
+    events[0]["requested_tool_calls"] = [
+        {"name": name, "arguments": {"customer_id": "c42"}} for name in names
+    ]
+    return events
+
+
+def test_promote_records_the_promotion_source_on_the_case(tmp_path: Path) -> None:
+    """Reports need to know which yardstick a case was promoted against."""
+    _write_capture(tmp_path, capture_id="cap_req", events=_requested_events(["search_orders"]))
+    _write_capture(tmp_path, capture_id="cap_exec", tools=["search_orders"])
+
+    assert _invoke(["promote", "cap_req", "--as", "req"], tmp_path).exit_code == 0
+    assert _invoke(["promote", "cap_exec", "--as", "exe"], tmp_path).exit_code == 0
+
+    suite_dir = tmp_path / "suites" / "support_agent"
+    requested = PromotedCase.model_validate_json((suite_dir / "req.json").read_text("utf-8"))
+    executed = PromotedCase.model_validate_json((suite_dir / "exe.json").read_text("utf-8"))
+    assert requested.promotion_source == "requested"
+    assert executed.promotion_source == "executed"
+
+
+def test_sync_records_the_promotion_source_on_every_case(tmp_path: Path) -> None:
+    _write_capture(tmp_path, capture_id="cap_req", events=_requested_events(["search_orders"]))
+
+    result = _invoke(["sync", "--print"], tmp_path)
+
+    assert result.exit_code == 0, result.stdout
+    case_path = tmp_path / "suites" / "support_agent" / "cap_req.json"
+    case = PromotedCase.model_validate_json(case_path.read_text(encoding="utf-8"))
+    assert case.promotion_source == "requested"
+
+
 def test_rounds_rejects_an_unknown_value(tmp_path: Path) -> None:
     _write_capture(tmp_path, capture_id="cap_1")
 

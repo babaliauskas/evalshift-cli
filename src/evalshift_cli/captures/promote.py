@@ -22,6 +22,7 @@ input. ``inputs`` recovery is therefore best-effort — see
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,7 @@ from evalshift_cli.traces.models import (
     ErrorEvent,
     FinalOutputEvent,
     ModelCallEvent,
+    RequestedToolCall,
     ToolCallEvent,
     ToolResultEvent,
 )
@@ -119,12 +121,19 @@ class BuiltExample:
             latter two is rescued by ``--allow-errored``: re-capturing fixes
             the first but reproduces the second identically. ``None`` when
             ``blocked`` is ``None``.
+        promotion_source: Which yardstick the tool-call ground truth came
+            from — ``"requested"`` when the capture recorded the calls the
+            model itself asked for, ``"executed"`` when it fell back to the
+            ``tool_call`` events the app recorded. Copied onto the
+            :class:`~evalshift_cli.captures.models.PromotedCase` so reports
+            can say which one a row measures.
     """
 
     example: SuiteExample
     warnings: list[str] = field(default_factory=list)
     blocked: str | None = None
     blocked_reason: Literal["errored", "no_toolset", "multi_toolset"] | None = None
+    promotion_source: Literal["requested", "executed"] = "executed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +184,60 @@ def build_example_from_capture(
         warnings.append(loss)
     tags = _build_tags(envelope.suite, opts.tags)
     expected = _recover_expected(events, warnings)
-    tool_rounds = _tool_rounds(events)
+
+    match_strategy: Literal["exact", "subset", "contains_per_field"] = (
+        "exact" if opts.strict_args else "subset"
+    )
+    unwrapped_keys: set[str] = set()
+
+    def _from_executed(call: ToolCallEvent) -> ExpectedToolCall:
+        arguments: dict[str, Any] | None = None
+        if not opts.names_only:
+            arguments, wrapper = _unwrap_recorded_arguments(
+                call.name,
+                dict(call.arguments),
+                opts.tool_properties,
+            )
+            if wrapper is not None:
+                unwrapped_keys.add(wrapper)
+        return ExpectedToolCall(
+            tool_name=call.name,
+            arguments=arguments,
+            match_strategy=match_strategy,
+            # Stated at the write site, not left to the field default: these
+            # arguments are a transcript of what the source model did, which
+            # nobody has yet confirmed is what it *should* have done. A human
+            # who checks a row flips it to `reviewed`.
+            provenance="captured",
+        )
+
+    def _from_requested(call: RequestedToolCall) -> ExpectedToolCall:
+        # No unwrapping here, deliberately: _unwrap_recorded_arguments exists
+        # because a decorated Python function's signature stood between the
+        # model and the recording. Nothing stands between the model and its
+        # own requested call, so the same {"tool_args": {...}} shape here IS
+        # what the model produced, and rewriting it would corrupt the one
+        # yardstick a candidate model can actually be held to.
+        return ExpectedToolCall(
+            tool_name=call.name,
+            arguments=None if opts.names_only else dict(call.arguments),
+            match_strategy=match_strategy,
+            provenance="captured",
+        )
+
+    executed_rounds = _tool_rounds(events)
+    requested_rounds = _requested_tool_rounds(events, warnings)
+    promotion_source: Literal["requested", "executed"] = (
+        "executed" if requested_rounds is None else "requested"
+    )
+    if requested_rounds is None:
+        tool_rounds = [[_from_executed(c) for c in r] for r in executed_rounds]
+    else:
+        disagreement = _requested_vs_executed_warning(requested_rounds, executed_rounds)
+        if disagreement is not None:
+            warnings.append(disagreement)
+        tool_rounds = [[_from_requested(c) for c in r] for r in requested_rounds]
+
     scoped_calls = (
         [call for round_ in tool_rounds for call in round_]
         if opts.rounds == "all"
@@ -278,35 +340,8 @@ def build_example_from_capture(
             "--rounds all only if you score the flattened trace deliberately.",
         )
 
-    match_strategy: Literal["exact", "subset", "contains_per_field"] = (
-        "exact" if opts.strict_args else "subset"
-    )
-
-    unwrapped_keys: set[str] = set()
-
-    def _expected_call(call: ToolCallEvent) -> ExpectedToolCall:
-        arguments: dict[str, Any] | None = None
-        if not opts.names_only:
-            arguments, wrapper = _unwrap_recorded_arguments(
-                call.name,
-                dict(call.arguments),
-                opts.tool_properties,
-            )
-            if wrapper is not None:
-                unwrapped_keys.add(wrapper)
-        return ExpectedToolCall(
-            tool_name=call.name,
-            arguments=arguments,
-            match_strategy=match_strategy,
-            # Stated at the write site, not left to the field default: these
-            # arguments are a transcript of what the source model did, which
-            # nobody has yet confirmed is what it *should* have done. A human
-            # who checks a row flips it to `reviewed`.
-            provenance="captured",
-        )
-
     if scoped_calls:
-        expected_tools: list[ExpectedToolCall] | None = [_expected_call(c) for c in scoped_calls]
+        expected_tools: list[ExpectedToolCall] | None = [c.model_copy() for c in scoped_calls]
         expected_no_tools = False
     else:
         expected_tools = None
@@ -317,9 +352,7 @@ def build_example_from_capture(
         # turn that errored produced no tool calls because it never ran, not
         # because calling nothing was right.
         expected_no_tools = bool(tools_offered) and not errors
-    expected_tool_rounds = (
-        [[_expected_call(c) for c in r] for r in tool_rounds] if tool_rounds else None
-    )
+    expected_tool_rounds = tool_rounds if tool_rounds else None
     if unwrapped_keys:
         keys = ", ".join(sorted(unwrapped_keys))
         warnings.append(
@@ -372,6 +405,7 @@ def build_example_from_capture(
         warnings=warnings,
         blocked=blocked,
         blocked_reason=blocked_reason,
+        promotion_source=promotion_source,
     )
 
 
@@ -442,8 +476,15 @@ def _failed_tool_results(events: list[Any]) -> list[str]:
 
 
 def _has_no_scoreable_ground_truth(events: list[Any]) -> bool:
-    """True when a turn recorded no final output, no non-empty model output, no tool calls."""
+    """True when a turn recorded no final output, no non-empty model output, no tool calls.
+
+    A model that *requested* tools counts, even when the app executed none:
+    the requested list is what promotion scores against, so the case is
+    measurable regardless of what the app went on to run.
+    """
     if any(isinstance(e, ToolCallEvent) for e in events):
+        return False
+    if any(isinstance(e, ModelCallEvent) and e.requested_tool_calls for e in events):
         return False
     if any(isinstance(e, FinalOutputEvent) and e.text for e in events):
         return False
@@ -481,6 +522,107 @@ def _tool_rounds(events: list[Any]) -> list[list[ToolCallEvent]]:
                 rounds.append([])
             rounds[-1].append(event)
     return [r for r in rounds if r]
+
+
+def _requested_tool_rounds(
+    events: list[Any],
+    warnings: list[str],
+) -> list[list[RequestedToolCall]] | None:
+    """Group the calls the *model itself requested* into rounds, or ``None`` to fall back.
+
+    Preferred over :func:`_tool_rounds` whenever the capture carries it. The
+    executed ``tool_call`` events have already passed through the app — its
+    filtering, re-ordering, retries, and (see
+    :func:`_unwrap_recorded_arguments`) its own function signatures — so they
+    are evidence of what the *app* did, while a golden case has to state what a
+    *model* should produce. The requested list is exactly that.
+
+    Rounds need no reconstruction here: each ``model_call`` carries its own
+    response's requested calls, so each ``model_call`` simply *is* a round.
+    Rounds that requested nothing (typically the final, text-producing one)
+    are dropped, exactly as :func:`_tool_rounds` drops tool-less rounds.
+
+    Args:
+        events: The capture's trace events, in sequence order.
+        warnings: Collector appended to when the capture is internally
+            inconsistent (see the return contract).
+
+    Returns:
+        One list of :class:`RequestedToolCall` per requesting round, or
+        ``None`` to mean "use the executed calls instead". ``None`` covers two
+        cases: no ``model_call`` recorded the field at all (a capture written
+        before the SDK had it — silent, this is the normal legacy path), and a
+        capture where only *some* did. The latter cannot come from one SDK
+        version, so rather than promote half the trace against one yardstick
+        and half against another, the whole capture falls back to the executed
+        calls and the inconsistency is named in ``warnings``.
+    """
+    model_calls = [e for e in events if isinstance(e, ModelCallEvent)]
+    with_field = [e for e in model_calls if e.requested_tool_calls is not None]
+    if not with_field:
+        return None
+    if len(with_field) != len(model_calls):
+        warnings.append(
+            f"{len(with_field)} of {len(model_calls)} model_call event(s) recorded "
+            "requested_tool_calls — one SDK version records it on all of them or on none, so "
+            "this capture is internally inconsistent. Ground truth fell back to the executed "
+            "tool calls for the whole capture; re-capture with a single evalshift-sdk version "
+            "to score against the model's own requested calls.",
+        )
+        return None
+    return [list(e.requested_tool_calls or []) for e in model_calls if e.requested_tool_calls]
+
+
+def _call_signature(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
+    """A comparable ``(name, canonical arguments)`` key for one tool call."""
+    return name, json.dumps(arguments, sort_keys=True, default=str)
+
+
+def _requested_vs_executed_warning(
+    requested: list[list[RequestedToolCall]],
+    executed: list[list[ToolCallEvent]],
+) -> str | None:
+    """Warning when what the model asked for differs from what the app ran, else ``None``.
+
+    Compared as a multiset of ``(tool_name, arguments)`` per round, so a
+    re-ordering *within* one round is not a difference (nothing downstream
+    scores intra-round order) while a different tool, a different argument
+    value, or a different round grouping is.
+
+    The difference is reported, never resolved: the requested calls win by
+    construction (they are the yardstick a candidate model can meet), and the
+    warning exists so an operator can tell a legitimate app-side filter from a
+    capture that lost calls.
+    """
+    if [
+        Counter(_call_signature(c.name, dict(c.arguments)) for c in round_) for round_ in requested
+    ] == [
+        Counter(_call_signature(c.name, dict(c.arguments)) for c in round_) for round_ in executed
+    ]:
+        return None
+
+    requested_names = [c.name for round_ in requested for c in round_]
+    executed_names = [c.name for round_ in executed for c in round_]
+    if Counter(requested_names) == Counter(executed_names):
+        detail = (
+            f"the same tool(s) ({_join_names(requested_names)}), but with different arguments "
+            "or split across different rounds"
+        )
+    else:
+        detail = (
+            f"the model requested {_join_names(requested_names)}; the app executed "
+            f"{_join_names(executed_names)}"
+        )
+    return (
+        f"model-requested and executed tool calls disagree — {detail}. Ground truth follows the "
+        "requested calls, which is what a candidate model can actually reproduce. A difference "
+        "is normal when the app filters, retries, or rewrites the calls it runs; check it is "
+        "not a gap in what was captured."
+    )
+
+
+def _join_names(names: list[str]) -> str:
+    return ", ".join(names) if names else "no tools"
 
 
 def _coerce_history_role(role: Any) -> Literal["system", "user", "assistant", "tool"] | None:
@@ -928,6 +1070,7 @@ def build_conversation_examples(
                 warnings=warnings,
                 blocked=built.blocked,
                 blocked_reason=built.blocked_reason,
+                promotion_source=built.promotion_source,
             )
             # A blocked turn is never promoted, so it must not seed later
             # turns' history either: a turn that died before the agent acted
