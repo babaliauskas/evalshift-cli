@@ -252,3 +252,43 @@ def test_oversized_stream_keeps_leading_events_and_flags_itself() -> None:
     assert 0 < len(stream["events"]) < 200
     assert stream["events"][0]["name"] == "tool_0"
     assert len(json.dumps(stream["events"])) <= MAX_STREAM_BYTES
+
+
+def test_a_multi_round_trace_tags_each_call_with_its_round() -> None:
+    """Teacher-forced replay: the round is what makes the pane readable."""
+    trace = ToolTrace(
+        calls=[
+            ToolCall(tool_name="search", arguments={}, sequence_index=0, round_index=0),
+            ToolCall(tool_name="open", arguments={}, sequence_index=1, round_index=1),
+            ToolCall(tool_name="summarise", arguments={}, sequence_index=2, round_index=1),
+        ],
+        final_text="here you go",
+        round_count=3,
+    )
+
+    stream = from_tool_trace(trace, side="target")
+
+    assert stream is not None
+    assert [(e["type"], e["round"]) for e in stream["events"]] == [
+        ("tool_call", 0),
+        ("tool_call", 1),
+        ("tool_call", 1),
+        ("final_output", 2),
+    ]
+
+
+def test_a_refusal_belongs_to_the_last_round() -> None:
+    trace = ToolTrace(
+        calls=[ToolCall(tool_name="search", arguments={}, sequence_index=0, round_index=0)],
+        raised_refusal=True,
+        refusal_text="no",
+        round_count=2,
+    )
+
+    stream = from_tool_trace(trace, side="source")
+
+    assert stream is not None
+    assert [(e["type"], e["round"]) for e in stream["events"]] == [
+        ("tool_call", 0),
+        ("error", 1),
+    ]
