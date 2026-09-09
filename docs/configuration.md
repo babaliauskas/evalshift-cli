@@ -244,6 +244,14 @@ Use `--policy-gate` on `analyze` or `all` to fail CI for `fail` and
 
 ## `prompts`
 
+`prompts` is the **template axis** and [`suites`](#suites) the **dataset
+axis**: a run renders every prompt template with every example of one
+suite, so both are always present, and `prompts` is required even for a
+capture-first project. There the single `replay` prompt that `init` writes
+(`content: "{{input}}"`) is a passthrough — a promoted capture's example is
+`{"input": "<full rendered prompt>"}`, and echoing it back verbatim is what
+makes captured inputs replayable against a second model.
+
 A list of prompt definitions. Each entry has:
 
 | Field         | Type    | Required                          | Description |
@@ -641,7 +649,9 @@ Unknown keys are rejected (typos fail fast).
 
 A map of named suites so `evalshift run --suite-name <name>` can resolve a
 suite path without retyping it. Optional — omit it and `run` uses `--suite`
-(or the default `golden.jsonl`).
+(or the default `golden.jsonl`). Suites are the dataset axis of a run, the
+inputs that get rendered through every entry under [`prompts`](#prompts),
+which is why a capture-first config still carries a (passthrough) prompt.
 
 ```yaml
 suites:

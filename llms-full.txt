@@ -386,6 +386,8 @@ Strict Pydantic, extra="forbid" everywhere — unknown keys fail at load.
 version: 1                          # required literal
 project: str|null                   # hosted slug, regex ^[a-z0-9-]+/[a-z0-9-]+$
 prompts:                            # required, >=1, unique ids
+  # Template axis (suites = dataset axis); every prompt x every example. Init's
+  # `replay` prompt is a passthrough: content "{{input}}" echoes the promoted capture.
   - id: str
     detection: manual | python_string
     content: str                    # manual only (required for manual)
@@ -414,6 +416,9 @@ evaluators:                         # every evaluator config also takes blocking
   semantic:                         # single block, not a list
     embedding_model: str = text-embedding-3-small
     min_similarity: float = 0.9     # below -> SEMANTIC_REGRESSION flag
+    # Yardstick is the SOURCE output, never the suite's `expected` field: this
+    # measures drift, not correctness (reworded-but-right reads as drift). Init
+    # writes blocking: false for it; library default is true. Judge = correctness.
     # source score pinned 1.0; target = cosine(source, target) clamped [0,1]
     # both outputs empty (tool-only turn) -> NO record at all (score returns None),
     #   no provider call. ONE empty side still scores: 0.0 similarity by definition,

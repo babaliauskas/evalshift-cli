@@ -429,6 +429,8 @@ Validators enforced at load: exactly one of `toolset_ref` / `tools` is required 
 
 ## Prompts
 
+`prompts` is the template axis and `suites` the dataset axis: every prompt is rendered with every example of the suite being run, so both are always present. In a capture-first project the `replay` prompt that `init` writes (`content: "{{input}}"`) is a passthrough — a promoted example is `{"input": "<full rendered prompt>"}` — and that is what makes captured inputs replayable.
+
 Two detection modes tell EvalShift where a prompt's body lives:
 
 ```yaml
@@ -477,7 +479,7 @@ When an evaluator's own measurement breaks (judge call fails, embedding call fai
 
 ### Semantic (`evaluators.semantic`, single block)
 
-Embeds both outputs and scores the target by cosine similarity to the source (source score pinned at 1.0). Config: `embedding_model` (default `text-embedding-3-small`; the Gemini scaffold uses `gemini/gemini-embedding-001`), `min_similarity` (default 0.9) — below it the pair is flagged `SEMANTIC_REGRESSION`. Within it, drift counts as *equivalent* for policy purposes. Cosine distance can't tell "reworded" from "wrong", which is why the scaffold keeps it advisory.
+Embeds both outputs and scores the target by cosine similarity to the source (source score pinned at 1.0). Config: `embedding_model` (default `text-embedding-3-small`; the Gemini scaffold uses `gemini/gemini-embedding-001`), `min_similarity` (default 0.9) — below it the pair is flagged `SEMANTIC_REGRESSION`. Within it, drift counts as *equivalent* for policy purposes. The yardstick is the source output, never the suite's `expected` field, so this measures drift rather than correctness: cosine distance can't tell "reworded" from "wrong", which is why the scaffold keeps it advisory (the library default is `blocking: true`; see [FAQ](docs/faq.md#why-does-a-hand-written-config-block-on-semantic-when-init-does-not)) and why correctness belongs to an `llm_judge` criterion.
 
 On an agent turn where **both** models answered with tool calls and no prose, there is nothing to embed — the evaluator writes **no record at all** (no provider call) rather than erroring on an empty embedding input or inventing a score. A turn where only *one* side is empty is still scored: a target that went silent where the source answered is exactly the regression this evaluator exists to catch. Since the empty side cannot be embedded (the provider 400s on empty input), the pair scores **0.0 similarity by definition** with no embedding call — still gated by `min_similarity` as usual — and the record carries `empty_side: "source" | "target"` metadata plus an explanation the report shows verbatim. The mirrored case (source silent, target answered) scores identically.
 

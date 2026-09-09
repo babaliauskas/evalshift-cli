@@ -42,6 +42,16 @@ most real regressions.
   as a target-preservation score: source = 1.0, target = similarity.
   Delta < 0 means the target drifted in meaning from the source.
 
+**What "expected" means here.** The yardstick is the *source model's*
+output, not a reference answer: the suite's `expected` field is never
+read by the text evaluators. So the score measures drift, not
+correctness — a target that answers correctly in different words reads
+as drift, and a target that repeats the source's mistake reads as
+equivalent. That is why `evalshift init` ships semantic as advisory
+(`blocking: false`, see the [FAQ](faq.md#why-does-a-hand-written-config-block-on-semantic-when-init-does-not))
+and why correctness belongs to an `llm_judge` criterion that names the
+property you care about.
+
 Use when:
 * You don't have a clean structural check.
 * You want to detect "wandered off" outputs that still look fine
