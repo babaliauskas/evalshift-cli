@@ -109,6 +109,15 @@ and scores three orthogonal dimensions:
   missed by both**, never "Equivalent": the delta really is zero, but
   that is a fact about your suite, not about the migration.
 
+  On a teacher-forced multi-round replay (a suite promoted with
+  `--rounds all`, see [Agent rounds](agents.md#agent-rounds-and-what-a-replay-can-reproduce))
+  both axes score **per round** — conformance against
+  `expected_tool_rounds[k]`, divergence target-vs-source within round *k* —
+  and the record's scores are the mean over the replayed rounds, with each
+  round's names and scores under `metadata.rounds`. A round with no ground
+  truth in which neither side called anything does not enter the mean.
+  Single-shot pairs score exactly as before and carry no `rounds` key.
+
   When the **source** model misses conformance on half or more of at
   least four rows, `evalshift evaluate` says so in red, at `doctor`
   volume, naming the rate: the expectations were captured *from* the
@@ -118,7 +127,9 @@ and scores three orthogonal dimensions:
 * **`tool_arguments`** — *what* did the model pass? Greedy match by
   `(tool_name, sequence_index)`, then per-field strategies. Use when arg
   drift matters (e.g. the model still calls `issue_refund` but the amount
-  is wrong).
+  is wrong). On a multi-round replay calls are paired **within** a round
+  (a right call in the wrong round is a miss) and the score is the mean
+  over rounds that had something to score.
 
   Fields you do not name in `strategies` are scored by `default_strategy`,
   which defaults to **`auto`**: a ladder that tries normalized string
@@ -145,7 +156,10 @@ and scores three orthogonal dimensions:
 * **`tool_trace_structure`** — *how* did it sequence them? Sub-scores:
   call count, parallelism, refusal alignment, expected count.
   Refusal mismatches force `severity_floor: high`. Use to catch
-  call-count explosions or sudden parallel/serial flips.
+  call-count explosions or sudden parallel/serial flips. On a multi-round
+  replay the call count is over the whole trace and parallelism is
+  compared round by round (fanning out is a property of one response);
+  `details.rounds_replayed` records how many rounds each side made.
 
 The seven agent-migration failure modes each map to one of these
 three: dropped tool / wrong tool → `tool_selection`; arg drift /

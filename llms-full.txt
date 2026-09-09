@@ -69,7 +69,7 @@ as one section under the pipeline block (also on stage failure); errors are neve
 | File | Stage | Contents |
 |---|---|---|
 | state.json | run | status (in_progress/completed/failed), models, config_hash, counters, non_deterministic_models, dropped_params, evaluator_coverage (written by evaluate: attempted vs recorded per axis, the pairs that produced no row, + the axis's blocking flag; absent flag reads as true) |
-| raw.jsonl | run | one model call per line: prompt, output, tokens, cost, latency, tool trace, error |
+| raw.jsonl | run | one (prompt, example, role) per line: prompt, output, tokens, cost, latency, tool trace, error. A teacher-forced multi-round example is ONE row: tokens/cost/latency summed, text = last round's answer, trace.round_count = rounds, each call tagged round_index |
 | scores.jsonl | evaluate | one EvalRecord per (pair x evaluator): source/target scores in [0,1], delta |
 | analysis.json | analyze | per-(prompt,evaluator,slice) statistics + severity |
 | migration_decision.json | analyze | policy verdict (only when migration_policy configured) |
@@ -287,9 +287,21 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   litellm does not price -- local/self-hosted is the NORMAL case: stays 0, no warning). The
   golden.jsonl example never carries it -- provenance of the capture, not reproduced by replay.
   Rounds: tool calls are grouped into agent rounds (split at each recorded model_call). Every
-  round -> expected_tool_rounds; expected_tools (and --tool-count) are scoped to ROUND 1, the
-  only round a single-shot replay can produce. Multi-round captures warn; --rounds all flattens
-  every round into expected_tools instead.
+  round -> expected_tool_rounds; expected_tools is ALWAYS round 1. --rounds first (default):
+  single-shot replay, scored against round 1; multi-round captures warn. --rounds all: also
+  writes tool_result_fixtures (each round's calls paired with that round's tool_result events
+  by call_id, then by name within the round; coverage stops at the first round with an unpaired
+  call -> warning "round m+1 has N tool call(s) with no recorded result; replay will cover
+  rounds 1..m"; round 1 uncovered -> stays single-shot). run then replays TEACHER-FORCED: round k
+  sees prompt + the RECORDED rounds 1..k-1 as assistant tool_calls (ids call_r{j}_{i}) + tool
+  results (str verbatim, else JSON, error -> {"error": ...}); the candidate's own calls are
+  never fed back; rounds replayed = covered rounds + 1 (the answer round). Tool evaluators score
+  per round (conformance vs expected_tool_rounds[k], "called nothing" past the recording;
+  divergence target-vs-source within round k; arguments paired within a round) and record the
+  MEAN over rounds with per-round detail under metadata.rounds -> max_tool_divergence counts an
+  example as diverged if ANY round diverged. Error in round k -> Call.error "round k/n: ...",
+  no trace. Cost estimate counts one call per round; progress bar counts examples. --tool-count
+  under --rounds all pins the total over the replayed rounds. NO flattening any more.
   Captures whose trace carries an error event are SKIPPED (--allow-errored promotes them).
   Warns on duplicate (conversation_id, turn_index) and on failed tool results.
   Wrapper args (EXECUTED path only -- legacy captures): a capture recording a decorated
@@ -502,6 +514,7 @@ migration_policy:                   # optional; fractions not percents
   min_equivalence_rate: float = 0.75 (0..1)   # floor on non-regression rate (equivalent OR improved)
   max_tool_argument_drift: float = 0.20 (0..1)
   max_tool_divergence: float = 0.20 (0..1)   # share of tool_selection.divergence rows that regressed
+                                              # (multi-round replay: any diverged round counts)
   tool_argument_drift_floor: float = 0.9 (0..1)  # target arg score below which a call counts as drifted
   max_cost_increase: float = 0.30 (0..10)
   max_latency_increase: float = 0.30 (0..10)
@@ -539,8 +552,14 @@ inferred by prefix: gemini-* -> google, claude-* -> anthropic, gpt-*/o1-*/o3-* -
                                          # way; only gates the disclosure recommendation.
  "expected_tool_rounds": [[{...}]]|null, # full recorded agent loop, one list per model turn that
                                          # emitted tool calls; expected_tools is normally
-                                         # expected_tool_rounds[0] (a single-shot replay cannot
-                                         # reach round 2). null for pre-v0.3 suites / no tools.
+                                         # expected_tool_rounds[0]. null for pre-v0.3 suites /
+                                         # no tools.
+ "tool_result_fixtures": [[{"tool_name":str,"result":any,"error":str|null}]]|null,
+                                         # recorded results, one inner list per covered round,
+                                         # positionally aligned with expected_tool_rounds
+                                         # (validated at load). Written by --rounds all; when
+                                         # present run replays teacher-forced: covered rounds
+                                         # + the answer round. null = single-shot replay.
  "expected_tool_count": int>=0|null,
  "expected_no_tools": bool = false,      # incompatible with expected_tools /
                                          # expected_tool_rounds / nonzero count. Only meaningful

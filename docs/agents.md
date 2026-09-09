@@ -1,8 +1,15 @@
 # Agent migrations
 
 EvalShift compares **agent behaviour** — which tools the model called,
-what arguments it passed, and how it sequenced them — across two model
-versions.
+what arguments it passed, and, within a response, in what order and
+whether in parallel — across two model versions.
+
+By default `evalshift run` makes **one model call per example** and scores
+that response against the first tool-emitting round of the recording. A
+suite promoted with `--rounds all` opts into **teacher-forced multi-round
+replay**: every recorded round is replayed with the recorded tool results
+fed back, and each round is scored against its own ground truth. See
+[Agent rounds](#agent-rounds-and-what-a-replay-can-reproduce).
 
 The killer scenario it catches:
 
@@ -159,19 +166,70 @@ production behaviour; `--strict-args`, `--names-only`, and
 ### Agent rounds and what a replay can reproduce
 
 A captured agent turn is usually a **loop**: the model calls tools, reads the
-results, calls more tools, then answers. `evalshift capture promote` groups
-those calls into rounds and, by default, keeps only **round 1** as
-`expected_tools`. Every round is preserved on the case as
+results, calls more tools, then answers. `evalshift capture promote` / `sync`
+group those calls into rounds — one per recorded `model_call` — and keep
+**round 1** as `expected_tools`. Every round is preserved on the case as
 `expected_tool_rounds`.
 
-This is not a simplification — it is the only honest yardstick. `evalshift run`
-issues **one** model call per example and does not feed tool results back, so a
-candidate model cannot reach round 2. Scoring it against round-2 calls records a
-regression that no model could avoid.
+**Default (`--rounds first`): single-shot replay.** `evalshift run` issues one
+model call per example and does not feed tool results back, so a candidate
+model can only ever produce round 1, and round 1 is the only round it is
+scored against. Scoring it against round-2 calls would record a regression no
+model could avoid. A multi-round capture promoted this way prints a warning
+naming the later calls it will not replay.
 
-Promote with `--rounds all` to flatten every round into `expected_tools`. Do
-that only when you have a reason to score the whole trace — for example when
-comparing against an externally-produced multi-round trace.
+**`--rounds all`: teacher-forced multi-round replay.** Promotion also carries
+the recorded tool results on the case as `tool_result_fixtures`, aligned by
+position with `expected_tool_rounds`. Each round's calls are paired with that
+round's `tool_result` events by `call_id` first (this works for both executed
+`tool_call` events and model-`requested_tool_calls`), then by tool name among
+the results recorded in the same round; a name match never reaches across a
+`model_call` boundary. `run` then replays the example round by round:
+
+* Round *k* sees the conversation prefix (`history`, if any), the rendered
+  prompt, and then the **recorded** rounds `1..k-1` — the recorded assistant
+  tool calls and the recorded results, as ordinary `assistant` / `tool`
+  messages. The candidate's own calls are never fed back: source, target and
+  the recording all saw byte-identical context in every round, which is what
+  makes a per-round comparison fair. It is the same contract the multi-turn
+  `history` prefix already uses.
+* A result is sent verbatim when it was a string, as JSON otherwise; a recorded
+  tool error is sent as `{"error": "..."}` — the recorded agent saw the failure
+  too, and its next round is the ground truth for what to do about it.
+* The replay covers every round the fixtures cover **plus the round after it**.
+  When every tool round is covered, that last round is the *answer* round: the
+  recorded agent called nothing and produced its final text, so the candidate's
+  text is what the text evaluators compare, and a candidate that keeps calling
+  tools when it should have answered is caught.
+* Fixtures cover rounds `1..m` where round `m+1` is the first with a call that
+  has no recorded result (an app that records `@capture.tool` calls but no
+  results). Promotion warns — `round m+1 has N tool call(s) with no recorded
+  result; replay will cover rounds 1..m` — and the rounds after it stay on the
+  case as `expected_tool_rounds` but are never replayed. When round 1 itself is
+  uncovered, replay stays single-shot and the warning says so.
+* One `raw.jsonl` row per example per model, as before: tokens, cost and
+  latency are summed over rounds, `text` is the last round's answer, and the
+  trace carries every round's calls tagged with their `round_index`. A model
+  error in round *k* fails the example with `round k/n: <error>`; the rounds
+  that did complete are discarded, so a partially replayed example is an
+  unmeasured one, not a half-scored one.
+* Scoring is **per round**: `tool_selection` conformance grades round *k*
+  against `expected_tool_rounds[k]` (and "called nothing" for the answer
+  round); divergence compares round *k* of the target to round *k* of the
+  source; `tool_arguments` pairs calls within a round, so a right call in the
+  wrong round is a miss. Each record's scores are the mean over the replayed
+  rounds, with the per-round detail under `metadata.rounds`. Because the mean
+  drops below 1.0 as soon as one round differs, `max_tool_divergence` counts an
+  example as diverged if **any** replayed round diverged.
+* The cost estimate counts one call per replayed round; the progress bar still
+  counts examples.
+
+`expected_tools` is `expected_tool_rounds[0]` under both settings. `--rounds
+all` no longer flattens every round into `expected_tools` — that yardstick was
+only ever right for comparing against an externally produced multi-round
+trace, which is the `agent_trace` evaluator's job and reads imported traces.
+`--tool-count` under `--rounds all` pins the total over the rounds the replay
+actually reaches.
 
 ### Tool-choice constraints are replayed too
 

@@ -256,9 +256,13 @@ shape, `fail-on` modes, and baseline behavior.
 
 Migrating an agent (a prompt that uses tools)? EvalShift detects
 regressions in *which* tools the new model calls, *what* arguments it
-passes, and *how* it sequences them. The killer scenario: a routing
-agent that silently stops calling `notify_security_team` after the
-migration — text-only eval reports green, EvalShift marks it CRITICAL.
+passes, and in what order and parallelism within a response. By default
+each example is one model call scored against the first recorded round;
+promote with `--rounds all` to replay every recorded round teacher-forced,
+with the recorded tool results fed back and each round scored on its own.
+The killer scenario: a routing agent that silently stops calling
+`notify_security_team` after the migration — text-only eval reports green,
+EvalShift marks it CRITICAL.
 
 Each golden-suite example carries its own toolset — recorded automatically
 by `capture promote` / `capture sync` from your production captures, or

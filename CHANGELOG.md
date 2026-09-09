@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Teacher-forced multi-round replay. `capture promote` / `capture sync
+  --rounds all` now carry the recorded tool results on the promoted example as
+  `tool_result_fixtures` — one inner list per covered round, positionally
+  aligned with `expected_tool_rounds`, each entry `{tool_name, result, error}`
+  — pairing each round's calls with that round's `tool_result` events by
+  `call_id` first and by tool name within the round second. `evalshift run`
+  then replays such an example round by round: round *k* is sent the prompt
+  (and any `history` prefix) followed by the *recorded* rounds `1..k-1` as
+  assistant tool calls and `tool` results, so source, target and the recording
+  all see identical context; the candidate's own calls are never fed back. The
+  replay covers every round the fixtures cover plus the round after it, which
+  — when every tool round is covered — is the answer round, where the recorded
+  agent called nothing and produced its final text. Fixture coverage stops at
+  the first round with a call that has no recorded result, with a warning
+  naming the rounds the replay will cover. One `raw.jsonl` row per example per
+  model as before: tokens, cost and latency summed, `text` the last round's
+  answer, the `ToolTrace` carrying `round_count` and a `round_index` on every
+  call. A model error in round *k* fails the example as `round k/n: …`.
+  `tool_selection`, `tool_arguments` and `tool_trace_structure` score each
+  round against its own ground truth (conformance against
+  `expected_tool_rounds[k]`, "called nothing" for the answer round; divergence
+  and argument pairing within a round) and record the mean over replayed
+  rounds with per-round detail under `metadata.rounds`, so
+  `max_tool_divergence` counts an example as diverged when any round diverged.
+  The HTML report and `report.json` show one line per round in the tools
+  column and prefix trace-diff items with `Round k:`; bundle trace events now
+  carry the real `round`. The cost pre-flight counts one call per replayed
+  round. Suites without the field (every suite written before it, and every
+  `--rounds first` promotion) replay single-shot exactly as before.
+- `cache_key` accepts a `round_index` (hashed only when set), so tool-call
+  caching can land later without a cache migration; the tool path still
+  bypasses the cache.
+
 - Runs now record which generation parameters the models cannot honour, instead
   of `drop_params: True` making them vanish. A promoted capture can pin the
   generation config its original call used (`temperature`, `top_p`,
@@ -161,6 +194,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `--rounds all` no longer flattens every recorded round into `expected_tools`.
+  `expected_tools` is now `expected_tool_rounds[0]` under both settings, and
+  `--rounds all` means teacher-forced multi-round replay instead (see *Added*).
+  The flattened list was only ever right for comparing against an externally
+  produced multi-round trace, which the `agent_trace` evaluator does from
+  imported traces. `--tool-count` under `--rounds all` pins the total over the
+  rounds the replay reaches rather than over every recorded round.
 - **Breaking (packaging):** the CLI's import package is now `evalshift_cli`.
   The distribution (`evalshift`) and the `evalshift` command are unchanged.
   The import name `evalshift` belongs to the capture SDK, which the CLI now

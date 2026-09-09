@@ -147,6 +147,8 @@ than the source, counted over *those* rows only. It has deliberately no
 materiality floor of its own — an argument score slides continuously (a
 reworded query is not a wrong call), whereas a divergence score below `1.0`
 means the target called a tool the source did not, or skipped one it did.
+On a teacher-forced multi-round replay the row's score is the mean over the
+replayed rounds, so an example counts as diverged if **any** round diverged.
 
 A `tool_selection.conformance` row where **both** models missed the recorded
 ground truth by the same margin is excluded from every policy rate: its zero
@@ -567,7 +569,20 @@ The suite is JSON Lines — one example per non-blank line. Each row:
 
 Also present (v0.2, tool-call ground truth — see `docs/agents.md`):
 `expected_tools`, `expected_tool_count`, `expected_no_tools`,
-`expected_parallel`.
+`expected_parallel`, plus `expected_tool_rounds` (v0.3 — the whole recorded
+agent loop, one list per tool-emitting model call; `expected_tools` is
+`expected_tool_rounds[0]`) and `tool_result_fixtures` (the recorded results of
+those calls, one inner list per covered round, positionally aligned with
+`expected_tool_rounds`; each entry is `{tool_name, result, error}`). Written by
+`capture promote` / `sync --rounds all`; when present the runner replays the
+example teacher-forced, one round per covered round plus the answer round, and
+the tool evaluators score per round — see
+[Agent rounds](agents.md#agent-rounds-and-what-a-replay-can-reproduce). `null`
+(the default, and every suite written before the field existed) means
+single-shot replay. Fixtures must line up: they require `expected_tool_rounds`,
+cannot cover more rounds than it has, and each covered round must have one
+result per expected call with matching `tool_name`, else the suite fails to
+load.
 
 Each `expected_tools` entry carries `provenance`: `captured` (the default, and
 what `capture promote` / `capture sync` write) means its arguments were
@@ -764,7 +779,11 @@ paired statistics (`--keep-duplicates` opts out). The dedup set is seeded
 from the cases already in the suite dir, so re-syncing after recording more
 captures can't slip a duplicate past it. Useful flags: `--input-var`
 (default `input`), `--suite <name>` to filter to one suite, `--tag`,
-`--names-only`, `--tool-count`, `--strict-args`, `--force`/`-f` to overwrite
+`--names-only`, `--tool-count`, `--strict-args`, `--rounds first|all`
+(`first`, the default, scores single-shot replay against round 1; `all`
+carries the recorded tool results so `run` replays every round teacher-forced
+— see [Agent rounds](agents.md#agent-rounds-and-what-a-replay-can-reproduce)),
+`--force`/`-f` to overwrite
 existing suite files, and `--print` to preview the wiring without writing
 (`--write` is the default). After syncing, run the whole pipeline against a
 named suite with `evalshift all --suite-name <suite>` (it mirrors
