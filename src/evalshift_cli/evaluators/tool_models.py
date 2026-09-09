@@ -5,7 +5,8 @@ OpenAI, and Gemini so the rest of the v0.2 pipeline (parser, evaluators,
 report) speaks one language regardless of provider.
 
 The wire format mirrors Anthropic's tool spec (``name`` / ``description`` /
-``input_schema``), which OpenAI's adapter accepts as input. We provide
+``input_schema``, plus an optional ``strict``), which OpenAI's adapter accepts
+as input. We provide
 ``ToolSpec.to_anthropic()`` / ``.to_openai()`` for outbound serialisation
 and ``ToolSpec.from_dict()`` for inbound deserialisation that accepts
 either shape.
@@ -56,25 +57,47 @@ class ToolSpec(_StrictModel):
         default_factory=dict,
         description="JSON Schema describing the tool's arguments.",
     )
+    strict: bool = Field(
+        default=False,
+        description=(
+            "Whether the provider must constrain generated arguments to ``input_schema`` "
+            "exactly (OpenAI strict function calling / Anthropic strict tools). Recorded by "
+            "the SDK only when production set it, and only ever ``true`` on the wire -- a "
+            "tool without the key is not strict."
+        ),
+    )
 
     def to_anthropic(self) -> dict[str, Any]:
-        """Serialise in Anthropic / LiteLLM-Anthropic-path shape."""
-        return {
+        """Serialise in Anthropic / LiteLLM-Anthropic-path shape.
+
+        ``strict`` is emitted as a top-level key, and only when set: this is
+        also the canonical shape the SDK fingerprints toolsets in
+        (:func:`evalshift_cli.captures.toolset.fingerprint_tools`), so a
+        non-strict tool must serialise byte-identically to before.
+        """
+        payload: dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
+        if self.strict:
+            payload["strict"] = True
+        return payload
 
     def to_openai(self) -> dict[str, Any]:
-        """Serialise in OpenAI function-calling shape."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.input_schema,
-            },
+        """Serialise in OpenAI function-calling shape.
+
+        ``strict`` lives inside the ``function`` object here, and is emitted
+        only when set.
+        """
+        function: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.input_schema,
         }
+        if self.strict:
+            function["strict"] = True
+        return {"type": "function", "function": function}
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> Self:
@@ -97,6 +120,8 @@ class ToolSpec(_StrictModel):
                 name=fn["name"],
                 description=fn.get("description", ""),
                 input_schema=fn.get("parameters", {}),
+                # OpenAI carries strictness inside the function object.
+                strict=fn.get("strict") is True,
             )
         if "name" not in payload:
             raise ValueError("tool payload missing 'name' field")
@@ -104,6 +129,10 @@ class ToolSpec(_StrictModel):
             name=payload["name"],
             description=payload.get("description", ""),
             input_schema=payload.get("input_schema", payload.get("parameters", {})),
+            # Canonical / Anthropic shape carries it at the top level. Only a
+            # literal `true` counts: the SDK writes the key exclusively when
+            # it is true, so anything else is not a strictness assertion.
+            strict=payload.get("strict") is True,
         )
 
 

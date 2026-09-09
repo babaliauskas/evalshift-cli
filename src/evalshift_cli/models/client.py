@@ -30,7 +30,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import litellm
 
@@ -349,6 +349,40 @@ class RetryPolicy:
 # ---------------------------------------------------------------------------
 
 
+#: Tool-constraint kwargs the replay path may add to ``extra``. They are
+#: meaningless without a ``tools`` array, so the tool-less dispatch path strips
+#: them (loudly) rather than sending a parameter the provider would 400 on.
+_TOOL_CONSTRAINT_KEYS: Final = ("tool_choice", "parallel_tool_calls")
+
+#: Constraints a provider genuinely cannot express, keyed by provider.
+#:
+#: LiteLLM translates OpenAI-style ``tool_choice`` / ``parallel_tool_calls`` into
+#: each provider's own shape — Anthropic's ``tool_choice`` object (with
+#: ``disable_parallel_tool_use``) and Gemini's ``toolConfig`` — so the CLI sends
+#: the OpenAI-style form and lets LiteLLM do the mapping (pinned by
+#: ``TestLiteLLMTranslatesToolChoice``). Two pairs survive that translation
+#: unhonoured, and are warned about instead of dropped in silence:
+#:
+#: * ``("gemini", "parallel_tool_calls")`` — ``generateContent`` has no
+#:   parallel-tool switch. LiteLLM keeps the param in ``optional_params`` but
+#:   the Gemini request builder filters it against ``GenerationConfig``'s
+#:   fields, where it does not appear, so it never reaches the wire.
+#: * ``("gemini", "strict")`` — a Gemini ``function_declaration`` has no
+#:   ``strict`` field; LiteLLM's ``_map_function`` drops it.
+_UNEXPRESSIBLE_CONSTRAINTS: Final[dict[str, dict[str, str]]] = {
+    "gemini": {
+        "parallel_tool_calls": (
+            "the Gemini generateContent body has no parallel-tool-calls switch, "
+            "so the target may call tools in parallel regardless"
+        ),
+        "strict": (
+            "Gemini function declarations have no strict mode, so tool arguments "
+            "are not schema-constrained on this target"
+        ),
+    },
+}
+
+
 class ModelClient:
     """Thin async wrapper around :func:`litellm.acompletion`.
 
@@ -364,6 +398,23 @@ class ModelClient:
         # model's calls omit the parameter entirely — one failed call per
         # model per process. See _is_temperature_value_rejection.
         self._temperature_rejected: set[str] = set()
+        # (canonical model id, constraint key) pairs already warned about, so a
+        # whole-suite replay of the same un-expressible constraint logs once
+        # instead of once per example.
+        self._warned_constraints: set[tuple[str, str]] = set()
+
+    def _warn_constraint(self, canonical: str, key: str, value: object, reason: str) -> None:
+        """Warn once per ``(model, key)`` that a constraint cannot be honoured."""
+        if (canonical, key) in self._warned_constraints:
+            return
+        self._warned_constraints.add((canonical, key))
+        log.warning(
+            "model %s cannot honour the recorded %s=%r: %s",
+            canonical,
+            key,
+            value,
+            reason,
+        )
 
     @property
     def temperature_rejected_models(self) -> frozenset[str]:
@@ -404,7 +455,9 @@ class ModelClient:
                 registered default.
             extra: Provider-specific kwargs forwarded to
                 ``litellm.acompletion`` (e.g. ``response_format`` for the
-                judge to demand JSON).
+                judge to demand JSON). ``tool_choice`` /
+                ``parallel_tool_calls`` are stripped with a warning here —
+                this path offers no tools for them to constrain.
 
         Returns:
             A :class:`CompletionResult` with the response text plus
@@ -455,7 +508,9 @@ class ModelClient:
                 registered default.
             extra: Provider-specific kwargs forwarded to
                 ``litellm.acompletion`` (e.g. ``response_format`` for the
-                judge to demand JSON).
+                judge to demand JSON). ``tool_choice`` /
+                ``parallel_tool_calls`` are stripped with a warning here —
+                this path offers no tools for them to constrain.
 
         Returns:
             A :class:`CompletionResult` with the response text plus
@@ -484,6 +539,13 @@ class ModelClient:
         }
         if extra:
             kwargs.update(extra)
+        # A recorded tool_choice can reach a tool-less example (a capture whose
+        # generation_config carried one, promoted onto an example with no
+        # toolset). Constraining tool use when no tools are offered is not
+        # expressible — say so rather than 400ing or silently sending it.
+        for key in _TOOL_CONSTRAINT_KEYS:
+            if key in kwargs:
+                self._warn_constraint(canonical, key, kwargs.pop(key), "this call offers no tools")
 
         response, latency_ms = await self._dispatch_with_retry(canonical, kwargs, log_suffix="")
         return _build_result(canonical, response, latency_ms)
@@ -510,13 +572,20 @@ class ModelClient:
             tools: Tool specs to expose to the model. Serialised
                 per-provider (``to_anthropic`` for Anthropic models,
                 ``to_openai`` for everything else — Gemini accepts the
-                OpenAI shape via LiteLLM).
+                OpenAI shape via LiteLLM). A spec's ``strict`` flag rides
+                along in whichever shape is used.
             temperature: Sampling temperature. ``None`` uses the model's
                 registered default.
             max_tokens: Completion length cap. ``None`` uses the
                 registered default.
             extra: Provider-specific kwargs forwarded to
-                ``litellm.acompletion``.
+                ``litellm.acompletion``. ``tool_choice`` (OpenAI-style: a
+                string or ``{"type": "function", "function": {"name": ...}}``)
+                and ``parallel_tool_calls`` are forwarded as-is — LiteLLM's
+                provider configs map them onto Anthropic's ``tool_choice``
+                object and Gemini's ``toolConfig`` — with a warning for any
+                pair this provider cannot express
+                (:data:`_UNEXPRESSIBLE_CONSTRAINTS`).
 
         Returns:
             A :class:`ToolCompletionResult` with the parsed
@@ -565,13 +634,20 @@ class ModelClient:
             tools: Tool specs to expose to the model. Serialised
                 per-provider (``to_anthropic`` for Anthropic models,
                 ``to_openai`` for everything else — Gemini accepts the
-                OpenAI shape via LiteLLM).
+                OpenAI shape via LiteLLM). A spec's ``strict`` flag rides
+                along in whichever shape is used.
             temperature: Sampling temperature. ``None`` uses the model's
                 registered default.
             max_tokens: Completion length cap. ``None`` uses the
                 registered default.
             extra: Provider-specific kwargs forwarded to
-                ``litellm.acompletion``.
+                ``litellm.acompletion``. ``tool_choice`` (OpenAI-style: a
+                string or ``{"type": "function", "function": {"name": ...}}``)
+                and ``parallel_tool_calls`` are forwarded as-is — LiteLLM's
+                provider configs map them onto Anthropic's ``tool_choice``
+                object and Gemini's ``toolConfig`` — with a warning for any
+                pair this provider cannot express
+                (:data:`_UNEXPRESSIBLE_CONSTRAINTS`).
 
         Returns:
             A :class:`ToolCompletionResult` with the parsed
@@ -605,6 +681,22 @@ class ModelClient:
         }
         if extra:
             kwargs.update(extra)
+
+        # tool_choice / parallel_tool_calls go out in OpenAI-style form: LiteLLM's
+        # provider configs translate them (Anthropic tool_choice object, Gemini
+        # toolConfig). Anything that survives that translation unhonoured gets a
+        # warning naming the model, key, and value.
+        unexpressible = _UNEXPRESSIBLE_CONSTRAINTS.get(provider, {})
+        for key in _TOOL_CONSTRAINT_KEYS:
+            if key in kwargs and key in unexpressible:
+                self._warn_constraint(canonical, key, kwargs[key], unexpressible[key])
+        if "strict" in unexpressible and any(t.strict for t in tools):
+            self._warn_constraint(
+                canonical,
+                "strict",
+                sorted(t.name for t in tools if t.strict),
+                unexpressible["strict"],
+            )
 
         response, latency_ms = await self._dispatch_with_retry(
             canonical, kwargs, log_suffix=" (tools)"

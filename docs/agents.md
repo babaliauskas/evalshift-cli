@@ -173,6 +173,37 @@ Promote with `--rounds all` to flatten every round into `expected_tools`. Do
 that only when you have a reason to score the whole trace — for example when
 comparing against an externally-produced multi-round trace.
 
+### Tool-choice constraints are replayed too
+
+Production rarely offers tools and leaves it at that. If the app forced a tool
+(`tool_choice`), banned parallel calls (`parallel_tool_calls: false`), or
+demanded schema-exact arguments (`strict: true` on a tool), replaying without
+those constraints measures a different call than the one that ran.
+
+The SDK records all three, and `evalshift run` sends them:
+
+| Recorded as | Where | Replayed as |
+| --- | --- | --- |
+| `tool_choice` — OpenAI string (`"auto"` / `"none"` / `"required"`) or `{"type": "function", "function": {"name": ...}}` | `generation_config` | forwarded as-is |
+| `tool_choice` — Anthropic object (`{"type": "auto"\|"any"\|"tool"\|"none", "name"?, "disable_parallel_tool_use"?}`) | `generation_config` | `any` → `required`, `tool` → the named-function object, `disable_parallel_tool_use` inverted into `parallel_tool_calls` |
+| `tool_config` — Gemini (`{"function_calling_config": {"mode": "AUTO"\|"ANY"\|"NONE", "allowed_function_names"?: [...]}}`) | `generation_config` | the matching OpenAI string; exactly one allowed name becomes a named-function choice, several degrade to `required` |
+| `parallel_tool_calls` | `generation_config` | forwarded as-is (wins over the value inferred from an Anthropic `tool_choice`) |
+| `strict: true` on a tool | the toolset sidecar or inline `tools` | `function.strict` for OpenAI targets, top-level `strict` for Anthropic targets |
+
+Everything goes out in OpenAI-style form and LiteLLM maps it per provider —
+into Anthropic's `tool_choice` object (carrying `disable_parallel_tool_use`)
+and into Gemini's `toolConfig`. Because the constraint is normalised, a
+capture from one provider replays meaningfully against a target on another,
+which is the whole point of a migration run.
+
+Two constraints have no equivalent on a Gemini target: **`parallel_tool_calls`**
+(`generateContent` has no such switch) and a tool's **`strict`** flag (Gemini
+function declarations have no strict mode). Neither is dropped quietly — the
+run logs a warning naming the model, the key, and the value, once per model and
+key. A recorded `tool_choice` on an example with no toolset is likewise dropped
+with a warning: there is nothing to constrain. Recorded keys the runner does not
+translate at all (`top_p`, `max_tokens`, …) get one warning listing them.
+
 ### Where `expected` text comes from
 
 `example.expected` is recovered from the capture's `final_output` event when

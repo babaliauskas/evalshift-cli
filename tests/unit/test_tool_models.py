@@ -95,6 +95,79 @@ class TestToolSpec:
             )
 
 
+class TestToolSpecStrict:
+    """``strict`` (structured tool arguments) survives both wire shapes.
+
+    The SDK records ``strict`` verbatim when production set it; dropping it on
+    replay would change what the target model is actually asked to do.
+    """
+
+    def test_defaults_to_false(self) -> None:
+        assert ToolSpec(name="x", description="y", input_schema={}).strict is False
+
+    def test_non_strict_serialisation_is_unchanged(self) -> None:
+        spec = ToolSpec(name="x", description="y", input_schema={"a": 1})
+        assert spec.to_anthropic() == {"name": "x", "description": "y", "input_schema": {"a": 1}}
+        assert spec.to_openai() == {
+            "type": "function",
+            "function": {"name": "x", "description": "y", "parameters": {"a": 1}},
+        }
+
+    def test_to_anthropic_emits_top_level_strict(self) -> None:
+        spec = ToolSpec(name="x", description="y", input_schema={"a": 1}, strict=True)
+        assert spec.to_anthropic() == {
+            "name": "x",
+            "description": "y",
+            "input_schema": {"a": 1},
+            "strict": True,
+        }
+
+    def test_to_openai_emits_function_strict(self) -> None:
+        spec = ToolSpec(name="x", description="y", input_schema={"a": 1}, strict=True)
+        assert spec.to_openai() == {
+            "type": "function",
+            "function": {
+                "name": "x",
+                "description": "y",
+                "parameters": {"a": 1},
+                "strict": True,
+            },
+        }
+
+    def test_from_dict_reads_top_level_strict(self) -> None:
+        spec = ToolSpec.from_dict(
+            {"name": "x", "description": "y", "input_schema": {}, "strict": True}
+        )
+        assert spec.strict is True
+
+    def test_from_dict_reads_openai_function_strict(self) -> None:
+        spec = ToolSpec.from_dict(
+            {
+                "type": "function",
+                "function": {"name": "x", "description": "y", "parameters": {}, "strict": True},
+            }
+        )
+        assert spec.strict is True
+
+    def test_from_dict_absent_strict_is_false(self) -> None:
+        assert ToolSpec.from_dict({"name": "x", "input_schema": {}}).strict is False
+        assert ToolSpec.from_dict({"type": "function", "function": {"name": "x"}}).strict is False
+
+    def test_from_dict_non_true_strict_is_false(self) -> None:
+        """Only a literal ``true`` counts — the SDK writes the key only when true."""
+        assert (
+            ToolSpec.from_dict({"name": "x", "input_schema": {}, "strict": False}).strict is False
+        )
+        assert (
+            ToolSpec.from_dict({"name": "x", "input_schema": {}, "strict": "yes"}).strict is False
+        )
+
+    def test_round_trips_through_both_shapes(self) -> None:
+        original = ToolSpec(name="x", description="y", input_schema={"a": 1}, strict=True)
+        assert ToolSpec.from_dict(original.to_anthropic()) == original
+        assert ToolSpec.from_dict(original.to_openai()) == original
+
+
 # ---------------------------------------------------------------------------
 # ToolCall
 # ---------------------------------------------------------------------------

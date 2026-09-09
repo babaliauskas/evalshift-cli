@@ -38,6 +38,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back rather than mixing yardsticks). When requested and executed calls
   disagree, the requested ones win and promotion warns, naming the tools on
   both sides.
+- Replay now carries the tool-choice constraints production used, instead of
+  debug-logging and dropping them. A recorded `tool_choice` reaches the target
+  in whichever of the three spellings the capture holds — an OpenAI string
+  (`"auto"` / `"none"` / `"required"`) or object, an Anthropic object
+  (`{"type": "auto"|"any"|"tool", "name"?, "disable_parallel_tool_use"?}`), or
+  Gemini's `tool_config` (`function_calling_config.mode`, with
+  `allowed_function_names`) — all normalised to one OpenAI-style intent plus a
+  `parallel_tool_calls` bool, which LiteLLM then maps onto each provider's own
+  shape (Anthropic's `tool_choice` object carrying `disable_parallel_tool_use`,
+  Gemini's `toolConfig`). Normalising rather than passing through is what lets a
+  capture recorded against one provider replay meaningfully against a target on
+  another. An Anthropic `disable_parallel_tool_use: true` becomes
+  `parallel_tool_calls: false`; an explicit top-level `parallel_tool_calls`
+  wins over the inferred one.
+- `ToolSpec` gained `strict`, so a toolset sidecar or inline `tools` entry
+  carrying `strict: true` (top-level in the canonical/Anthropic shape,
+  `function.strict` in the OpenAI shape) is replayed instead of being rejected
+  as an unknown key. Both serialisers emit it only when set, so non-strict tools
+  serialise byte-identically to before and toolset fingerprints are unchanged.
+- Generation-config keys the runner cannot translate are now logged at
+  **warning** rather than debug — once per distinct key set, so a whole-suite
+  replay says it once. Constraints a target provider genuinely cannot express
+  are named rather than dropped in silence: a Gemini target warns for
+  `parallel_tool_calls` (`generateContent` has no such switch) and for a tool's
+  `strict` flag (Gemini function declarations have no strict mode), once per
+  model and key. A `tool_choice` that reaches an example with no toolset is
+  dropped with a warning — there is nothing to constrain.
 - `doctor` row `evalshift-sdk`: reports the SDK version the `evalshift` import
   name resolves to in this environment; `warn` (never a failure) when the SDK
   is missing, fails to import, or is shadowed by an older CLI's leftover files

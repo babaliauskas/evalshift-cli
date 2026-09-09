@@ -403,6 +403,27 @@ def test_load_toolset_accepts_a_tool_with_an_empty_description(tmp_path: Path) -
     assert tools == [ToolSpec(name="search_orders", description="", input_schema={})]
 
 
+def test_load_toolset_round_trips_a_strict_tool_back_to_its_own_ref(tmp_path: Path) -> None:
+    """``strict`` must survive ``from_dict`` -> ``to_anthropic`` unchanged.
+
+    The orchestrator content-addresses a resolved toolset by hashing
+    ``[t.to_anthropic() for t in tools]``; if ``to_anthropic`` dropped
+    ``strict`` the recomputed fingerprint would stop matching the sidecar's
+    own ref and every strict toolset would silently miss the cache.
+    """
+    tools_raw = [
+        {"name": "issue_refund", "description": "Refund.", "input_schema": {}, "strict": True},
+        {"name": "search_orders", "description": "Look up.", "input_schema": {}},
+    ]
+    ref = fingerprint_tools(tools_raw)
+    _write_toolset(tmp_path, ref, tools_raw)
+
+    tools = load_toolset(ref, base=tmp_path)
+
+    assert [t.strict for t in tools] == [True, False]
+    assert fingerprint_tools([t.to_anthropic() for t in tools]) == ref
+
+
 def test_load_toolset_accepts_a_bare_list_without_the_tools_wrapper(tmp_path: Path) -> None:
     tools_raw = [{"name": "a", "description": "d", "input_schema": {}}]
     ref = fingerprint_tools(tools_raw)

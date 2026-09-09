@@ -843,12 +843,37 @@ content leaves the machine.
   tool_call_id) and LiteLLM translates per provider. A promoted tool result with no recorded
   id gets a positional id (_posN) with a warning.
 - Promotion copies the first model_call's metadata["generation_config"] (recorded by the SDK:
-  temperature, response_mime_type, response_schema, ...) onto SuiteExample.generation_config
-  VERBATIM. At dispatch the runner translates it: temperature overrides the registry default;
-  response_mime_type "application/json" (+ optional dict response_schema) -> LiteLLM
-  response_format (json_schema when a schema is present, else json_object); a litellm-shaped
-  response_format dict passes through. Applied to BOTH source and target calls and folded into
-  the cache key (absent config keeps pre-existing keys byte-stable). Unknown keys ignored.
+  temperature, response_mime_type, response_schema, tool_choice, parallel_tool_calls,
+  tool_config, ...) onto SuiteExample.generation_config VERBATIM. At dispatch the runner
+  translates it: temperature overrides the registry default; response_mime_type
+  "application/json" (+ optional dict response_schema) -> LiteLLM response_format (json_schema
+  when a schema is present, else json_object); a litellm-shaped response_format dict passes
+  through. Applied to BOTH source and target calls and folded into the cache key (absent config
+  keeps pre-existing keys byte-stable). Untranslatable keys are ignored WITH A WARNING (once
+  per distinct key set), never silently.
+- Tool-choice constraints replay too. Three recorded spellings normalise to ONE OpenAI-style
+  intent, emitted as tool_choice (+ parallel_tool_calls) and mapped per provider by LiteLLM
+  itself (Anthropic tool_choice object incl. disable_parallel_tool_use; Gemini toolConfig):
+  * OpenAI tool_choice: "auto"|"none"|"required" or {"type":"function","function":{"name":..}}
+    -> forwarded as-is.
+  * Anthropic tool_choice: {"type":"auto"|"any"|"tool", "name"?, "disable_parallel_tool_use"?}
+    -> any->required, tool->named-function object, disable_parallel_tool_use INVERTED into
+    parallel_tool_calls.
+  * Gemini tool_config: {"function_calling_config":{"mode":"AUTO"|"ANY"|"NONE",
+    "allowed_function_names"?:[..]}} -> matching string; exactly one allowed name -> named
+    function, several -> "required" (OpenAI-style has no allow-list). camelCase REST spelling
+    accepted.
+  A top-level parallel_tool_calls bool wins over the Anthropic-inferred one. Unrecognised
+  shapes are WARNED and skipped, never raised.
+- ToolSpec gained `strict: bool = False`. from_dict reads function.strict (OpenAI shape) or
+  top-level strict (canonical/Anthropic); to_openai emits function.strict, to_anthropic emits
+  top-level strict -- both ONLY when true, so non-strict tools serialise byte-identically and
+  toolset fingerprints (fingerprint_tools over to_anthropic() output) stay stable.
+- Constraints a target cannot honour are WARNED (model, key, value; once per model+key), never
+  dropped in silence: (gemini, parallel_tool_calls) -- generateContent has no such switch, and
+  LiteLLM filters the param out of the request body; (gemini, strict) -- Gemini function
+  declarations have no strict mode. A tool_choice reaching a TOOL-LESS example is dropped with
+  a warning (nothing to constrain).
 - capture sync recovers history VERBATIM when the capture recorded a full messages list, else
   RECONSTRUCTS from sibling turns (approximation; earliest turn's system prompt wins, warns on
   disagreement). capture promote (single) never cross-reconstructs.
