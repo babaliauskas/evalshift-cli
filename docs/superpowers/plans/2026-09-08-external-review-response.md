@@ -305,26 +305,29 @@ Contract (both repos, verbatim): `requested_tool_calls: list[RequestedToolCall] 
 
 **Files:** `src/evalshift/capture/generation.py:28-36` (`GENERATION_KEYS`), `adapters/langchain.py:101` (`_generation_config`), `capture/toolset.py` (strict flag on OpenAI function shape survives normalisation?), tests, `DOCS.md`.
 
-- [ ] **Step 1:** Failing tests: `sanitize_generation_config({"tool_choice": ..., "parallel_tool_calls": False})` keeps both; a toolset with `function.strict: true` fingerprints differently from one without.
-- [ ] **Step 2:** Extend `GENERATION_KEYS`; verify `normalize_tools` does not prune `strict` (`DECISIONS.md:309-310` says it never prunes keys — add a test that locks that in).
-- [ ] **Step 3:** Commit: `feat(capture): record tool_choice, parallel_tool_calls, and strict schemas`.
+- [x] **Step 1:** Failing tests: `sanitize_generation_config({"tool_choice": ..., "parallel_tool_calls": False})` keeps both; a toolset with `function.strict: true` fingerprints differently from one without.
+- [x] **Step 2:** Extend `GENERATION_KEYS`; verify `normalize_tools` does not prune `strict` (`DECISIONS.md:309-310` says it never prunes keys — add a test that locks that in).
+- [x] **Step 3:** Commit: `feat(capture): record tool_choice, parallel_tool_calls, and strict schemas`.
+  Done in 781bf46 + 387f975 (sdk). The premise of Step 2 was wrong: `normalize_tools` *did* prune `strict` (it rebuilt every tool from name/description/parameters; D-toolset's "never prunes" is about `input_schema`). Contract, mirrored verbatim in the CLI: the canonical tool dict gains `"strict": true` only when the source declared it (OpenAI `function.strict` or top-level `strict`), so every existing fingerprint is byte-identical. `GENERATION_KEYS` also gains Gemini's `tool_config`; `jsonable` duck-types `model_dump` so a `ToolConfig` lands as a dict. No schema or sidecar version bump (additive optional key in a content-addressed file). LangChain adapter needed no change.
 
 ### Task 4.2 `[cli]` Carry those params through replay
 
 **Files:** `src/evalshift/runner/generation.py:18-20` (`_HANDLED_KEYS`), `models/client.py:588-592` (tool serialisation), `evaluators/tool_models.py:60-77`, `tool_parser.py:39-64`, tests.
 
-- [ ] **Step 1:** Failing tests: a captured `tool_choice` reaches the `litellm.acompletion` kwargs; `strict: true` survives `to_openai`; Anthropic equivalent (`tool_choice: {type: "tool", name}`) is produced for Anthropic targets.
-- [ ] **Step 2:** Implement translation per provider prefix. Where a target provider cannot express the constraint, record it (next task) rather than drop it.
-- [ ] **Step 3:** Commit: `feat(runner): pass tool_choice, parallel_tool_calls, and strict through replay`.
+- [x] **Step 1:** Failing tests: a captured `tool_choice` reaches the `litellm.acompletion` kwargs; `strict: true` survives `to_openai`; Anthropic equivalent (`tool_choice: {type: "tool", name}`) is produced for Anthropic targets.
+- [x] **Step 2:** Implement translation per provider prefix. Where a target provider cannot express the constraint, record it (next task) rather than drop it.
+- [x] **Step 3:** Commit: `feat(runner): pass tool_choice, parallel_tool_calls, and strict through replay`.
+  Done in e9894c9 (cli). `ToolSpec.strict` (read from `function.strict` or top-level `strict`, emitted only when true by both `to_openai` and `to_anthropic`, so the orchestrator's cache fingerprint matches the SDK sidecar). `translate_generation_config` normalises the OpenAI, Anthropic and Gemini (`tool_config`, snake or camel case) spellings into OpenAI-style `tool_choice` + `parallel_tool_calls`. No hand translation per provider: litellm 1.100.0 already maps OpenAI-style values for Anthropic (`_map_tool_choice`, incl. `disable_parallel_tool_use`) and Gemini (`toolConfig`), pinned by tests against the installed source. Sending the plan's "Anthropic equivalent" `{type: "tool", name}` would have been wrong — litellm's dict branch has no `"tool"` case and drops it. Un-expressible: Gemini `parallel_tool_calls` and Gemini `strict` (folded into Task 4.3); a `tool_choice` on a tool-less example is stripped with a warning. Ignored-key warnings deduped per key set.
 
 ### Task 4.3 `[cli]` Surface dropped parameters instead of hiding them
 
 **Files:** `src/evalshift/models/client.py:483, :599` (`drop_params`), `models/capabilities.py`, `runner/generation.py:58-60`, `reports/html.py` + template (extend the `non_deterministic_models` banner pattern at `report.html.j2:49-68`), `analysis/policy.py`, docs.
 
-- [ ] **Step 1:** Failing tests: when `litellm.get_supported_openai_params` says the target lacks `tool_choice` (or `response_format`), the run records `dropped_params[model] = {...}` and the report shows a "Constraints not honoured by target" banner.
-- [ ] **Step 2:** Implement using the existing capability probe (`capabilities.py:56-64`) before dispatch; keep `drop_params: True` so calls still succeed, but log at `warning` not `debug`.
-- [ ] **Step 3:** Optional policy knob `fail_on_dropped_params: bool = False` (document in `docs/configuration.md`).
-- [ ] **Step 4:** Commit: `feat(report): surface generation params the target model cannot honour`.
+- [x] **Step 1:** Failing tests: when `litellm.get_supported_openai_params` says the target lacks `tool_choice` (or `response_format`), the run records `dropped_params[model] = {...}` and the report shows a "Constraints not honoured by target" banner.
+- [x] **Step 2:** Implement using the existing capability probe (`capabilities.py:56-64`) before dispatch; keep `drop_params: True` so calls still succeed, but log at `warning` not `debug`.
+- [x] **Step 3:** Optional policy knob `fail_on_dropped_params: bool = False` (document in `docs/configuration.md`).
+- [x] **Step 4:** Commit: `feat(report): surface generation params the target model cannot honour`.
+  Done in 23f42c0 (merged 8e8f211) + d0f356f (cli). `unsupported_params` generalises the probe (`honors_temperature` now builds on it); `detect_dropped_params` runs at run start over the suite's recorded keys (mapped to litellm names: `response_mime_type`/`response_schema` → `response_format`, `tool_config` → `tool_choice`, `max_output_tokens` → `max_tokens`) and unions a hard-coded known-litellm-gaps table (`_KNOWN_LITELLM_GAPS`, cites litellm 1.100.0 and the file) for Gemini `parallel_tool_calls` and the pseudo-param `tools.strict`. Stored as `RunState.dropped_params`, rendered as a banner after the sampling banner, emitted in `report.json`, and gated by `migration_policy.fail_on_dropped_params` (top-level only). `temperature` is deliberately left to `non_deterministic_models`. Warnings once per (model, param) at run start; the client's duplicate Gemini warnings were removed.
 
 ---
 
@@ -439,4 +442,5 @@ Options already named by the author:
 | 2026-09-08 | — | Plan written from verified findings. |
 | 2026-09-08 | 0.1–0.6 | Phase 0 complete. cli: a2c8f24, cef4c85, 1861439, 54ff55f. sdk: 647e09f, 7853167. Found and logged Task 0.7 (validate lacks --suite-name). |
 | 2026-09-09 | 6.1–6.2 | Phase 6 done out of order (before 2–4, at the maintainer's request). cli: 3dbf245, 1e1de65, 5da36c1, d9c4eba. sdk: ea54c0a. Version bump deferred to the 0.14.0 release commit. |
+| 2026-09-09 | 4.1–4.3 | Phase 4 complete, run as three parallel Opus agents (sdk; cli main; cli worktree for 4.3) plus one follow-up to fold the Gemini gaps into `dropped_params`. sdk: 781bf46, 387f975. cli: e9894c9, 23f42c0, 8e8f211 (merge), d0f356f. End-to-end verified with the dev SDK: an OpenAI-shaped strict tool + `tool_choice: required` + `parallel_tool_calls: false` capture promotes with those keys and a `strict: true` sidecar; `translate_generation_config` emits both; `detect_dropped_params` reports `['parallel_tool_calls', 'tools.strict']` for a Gemini target and nothing for Anthropic. Open: `validate --suite-name` (Task 0.7) still missing; the capture-first example still records executed-only until SDK 0.4.0 ships. |
 | 2026-09-09 | 3.0–3.4 | Phase 3 complete, run as three parallel Opus agents (cli; sdk core; sdk helpers in a worktree) then one for LangChain. cli: 6b8f210, 76a8c43, 3222b6a. sdk: aad7a21, ba8bffa, ff7a272, d69d397, 19964ee, 836ea92. Task 3.0 added: the CLI's `extra="forbid"` trace model must accept the field before the SDK writes it. End-to-end verified with the dev SDK: 2.1.0 envelopes with requested calls promote with `promotion_source: requested`. Open: whole-capture fallback when only some model calls carry the field (per-round hybrid considered, not done); capture-first example still records executed-only until SDK 0.4.0 ships the kwarg. |
