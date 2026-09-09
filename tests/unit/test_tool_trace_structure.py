@@ -175,3 +175,114 @@ class TestCombinedScore:
         # refusal_alignment=1.0
         # mean = 2/3 ≈ 0.667
         assert record.target_score == pytest.approx(2 / 3)
+
+
+# ---------------------------------------------------------------------------
+# Teacher-forced multi-round replay
+# ---------------------------------------------------------------------------
+
+
+def _multi(*rounds: list[str], raised_refusal: bool = False) -> ToolTrace:
+    """A trace spanning several teacher-forced rounds; each round is a fan-out."""
+    calls: list[ToolCall] = []
+    for round_index, names in enumerate(rounds):
+        for name in names:
+            calls.append(
+                ToolCall(
+                    tool_name=name,
+                    arguments={},
+                    sequence_index=len(calls),
+                    round_index=round_index,
+                ),
+            )
+    return ToolTrace(calls=calls, round_count=len(rounds), raised_refusal=raised_refusal)
+
+
+class TestPerRoundStructure:
+    """Parallelism is a property of one response, so it is compared per response."""
+
+    async def test_the_same_total_fan_out_in_different_rounds_is_not_a_match(self) -> None:
+        """Both traces fan out once, in different rounds — sequencing changed."""
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_multi(["a", "b"], ["c"]),
+            target_trace=_multi(["a"], ["b", "c"]),
+        )
+        assert record.metadata["sub_scores"]["parallelism"] == 0.0
+
+    async def test_agreeing_rounds_score_one(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_multi(["a", "b"], ["c"]),
+            target_trace=_multi(["x", "y"], ["z"]),
+        )
+        assert record.metadata["sub_scores"]["parallelism"] == 1.0
+
+    async def test_a_round_one_side_never_replayed_counts_as_sequential(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_multi(["a"], ["b", "c"]),
+            target_trace=_trace("a"),
+        )
+        assert record.metadata["sub_scores"]["parallelism"] == 0.0
+
+    async def test_call_count_is_the_whole_trace(self) -> None:
+        record = await _ev(call_count_tolerance=0).score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_multi(["a"], ["b"]),
+            target_trace=_multi(["a"], ["b"]),
+        )
+        assert record.metadata["details"]["call_count"] == {
+            "source": 2,
+            "target": 2,
+            "tolerance": 0,
+        }
+
+    async def test_expected_count_is_the_whole_trace(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex", expected_tool_count=3),
+            source_trace=_multi(["a"], ["b", "c"]),
+            target_trace=_multi(["a"], ["b", "c"]),
+        )
+        assert record.metadata["sub_scores"]["expected_count"] == 1.0
+
+    async def test_rounds_replayed_is_disclosed_per_side(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_multi(["a"], ["b"]),
+            target_trace=_trace("a"),
+        )
+        assert record.metadata["details"]["rounds_replayed"] == {"source": 2, "target": 1}
+
+    async def test_a_single_round_pair_discloses_no_rounds(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_trace("a"),
+            target_trace=_trace("a"),
+        )
+        assert "rounds_replayed" not in record.metadata["details"]
+        assert "rounds" not in record.metadata["details"]["parallelism"]
+
+    async def test_refusal_alignment_reads_the_merged_flags(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=suite_example(id="ex"),
+            source_trace=_multi(["a"], ["b"]),
+            target_trace=_multi(["a"], ["b"], raised_refusal=True),
+        )
+        assert record.metadata["sub_scores"]["refusal_alignment"] == 0.0

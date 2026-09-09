@@ -33,7 +33,14 @@ from evalshift_cli.config.models import ToolSelectionEvaluatorConfig
 from evalshift_cli.evaluators.base import EvalRecord, PairedScore
 from evalshift_cli.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
 from evalshift_cli.evaluators.tool_models import ToolTrace
-from evalshift_cli.suite.models import SuiteExample
+from evalshift_cli.evaluators.tool_rounds import (
+    expected_names,
+    expected_rounds,
+    is_multi_round,
+    padded_rounds,
+    replayed_rounds,
+)
+from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 
 #: Family slug. Not stamped on any record — the two axes below are what
 #: rows carry — but it names the evaluator family in config and reports.
@@ -137,6 +144,14 @@ class ToolSelectionEvaluator:
                 source_trace=source_trace,
                 target_trace=target_trace,
             )
+        if is_multi_round(source_trace, target_trace):
+            return self._score_conformance_rounds(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                example=example,
+                source_trace=source_trace,
+                target_trace=target_trace,
+            )
         if strategy == "expected":
             return self._score_expected(
                 run_id=run_id,
@@ -167,6 +182,14 @@ class ToolSelectionEvaluator:
         strategy = self.config.divergence
         if strategy == "off":
             return None
+        if is_multi_round(source_trace, target_trace):
+            return self._score_divergence_rounds(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                example=example,
+                source_trace=source_trace,
+                target_trace=target_trace,
+            )
         if strategy == "exact":
             return self._score_exact(
                 run_id=run_id,
@@ -383,6 +406,154 @@ class ToolSelectionEvaluator:
             ),
         )
 
+    # ------------------------------------------------------------------
+    # Teacher-forced multi-round replay
+    # ------------------------------------------------------------------
+
+    def _score_conformance_rounds(
+        self,
+        *,
+        run_id: str,
+        prompt_id: str,
+        example: SuiteExample,
+        source_trace: ToolTrace,
+        target_trace: ToolTrace,
+    ) -> EvalRecord | None:
+        """Grade each replayed round against its own ground-truth round.
+
+        Round *k* is compared to ``expected_tool_rounds[k]`` with the
+        configured strategy; past the last recorded round the expectation is
+        "call nothing", because that is where the recording answered. The
+        record's scores are the mean over the rounds that measured something.
+
+        Returns:
+            One conformance record, or ``None`` when the example carries no
+            tool-call ground truth — the same silence the single-round path
+            keeps for a row nothing can be conformed to.
+        """
+        ground_truth = expected_rounds(example)
+        if not ground_truth:
+            return None
+        strategy = self.config.conformance
+        match = _sequence_match if strategy == "expected" else _multiset_match
+        count = replayed_rounds(source_trace, target_trace)
+        source_split = padded_rounds(source_trace, count)
+        target_split = padded_rounds(target_trace, count)
+
+        detail: list[dict[str, Any]] = []
+        measured: list[tuple[float, float]] = []
+        for index in range(count):
+            wanted = expected_names(ground_truth, index)
+            source_names = source_split[index].tool_names
+            target_names = target_split[index].tool_names
+            if wanted:
+                source_score = match(wanted, source_names)
+                target_score = match(wanted, target_names)
+            else:
+                source_score = 1.0 if not source_names else 0.0
+                target_score = 1.0 if not target_names else 0.0
+            detail.append(
+                {
+                    "round": index,
+                    "expected_names": wanted,
+                    "source_names": source_names,
+                    "target_names": target_names,
+                    "source_score": source_score,
+                    "target_score": target_score,
+                },
+            )
+            if wanted or source_names or target_names:
+                measured.append((source_score, target_score))
+
+        return self._record(
+            run_id=run_id,
+            prompt_id=prompt_id,
+            example_id=example.id,
+            kind=KIND_CONFORMANCE,
+            paired=PairedScore(
+                source_score=_mean([s for s, _ in measured]),
+                target_score=_mean([t for _, t in measured]),
+                metadata={
+                    "mode": strategy,
+                    "expected_names": [
+                        name for round_calls in ground_truth for name in _names(round_calls)
+                    ],
+                    "source_names": source_trace.tool_names,
+                    "target_names": target_trace.tool_names,
+                    "rounds": detail,
+                },
+            ),
+        )
+
+    def _score_divergence_rounds(
+        self,
+        *,
+        run_id: str,
+        prompt_id: str,
+        example: SuiteExample,
+        source_trace: ToolTrace,
+        target_trace: ToolTrace,
+    ) -> EvalRecord:
+        """Compare the target to the source one round at a time.
+
+        The mean drops below 1.0 as soon as a single round differs, which is
+        what makes ``max_tool_divergence`` — a count of negative deltas —
+        count an example whose *any* round diverged.
+        """
+        strategy = self.config.divergence
+        ground_truth = expected_rounds(example)
+        count = replayed_rounds(source_trace, target_trace)
+        source_split = padded_rounds(source_trace, count)
+        target_split = padded_rounds(target_trace, count)
+
+        detail: list[dict[str, Any]] = []
+        measured: list[float] = []
+        for index in range(count):
+            source_round = source_split[index]
+            target_round = target_split[index]
+            wanted = expected_names(ground_truth, index)
+            # A round both sides skipped is not a divergence: under ``first``
+            # it would otherwise score 0.0 for having no first call at all.
+            if wanted or source_round.calls or target_round.calls:
+                target_score = _divergence_score(strategy, source_round, target_round)
+                measured.append(target_score)
+            else:
+                target_score = 1.0
+            detail.append(
+                {
+                    "round": index,
+                    "expected_names": wanted,
+                    "source_names": source_round.tool_names,
+                    "target_names": target_round.tool_names,
+                    "source_score": 1.0,
+                    "target_score": target_score,
+                },
+            )
+
+        metadata: dict[str, Any] = {"mode": strategy}
+        if strategy == "exact":
+            metadata["source_names"] = source_trace.tool_names
+            metadata["target_names"] = target_trace.tool_names
+        elif strategy == "set":
+            metadata["source_set"] = sorted(source_trace.tool_name_set)
+            metadata["target_set"] = sorted(target_trace.tool_name_set)
+        else:
+            metadata["source_first"] = source_trace.tool_names[0] if source_trace.calls else None
+            metadata["target_first"] = target_trace.tool_names[0] if target_trace.calls else None
+        metadata["rounds"] = detail
+
+        return self._record(
+            run_id=run_id,
+            prompt_id=prompt_id,
+            example_id=example.id,
+            kind=KIND_DIVERGENCE,
+            paired=PairedScore(
+                source_score=1.0,
+                target_score=_mean(measured),
+                metadata=metadata,
+            ),
+        )
+
     def _record(
         self,
         *,
@@ -465,6 +636,33 @@ def _multiset_match(expected: list[str], actual: list[str]) -> float:
             remaining[name] -= 1
             matched += 1
     return matched / len(expected)
+
+
+def _names(expected: list[ExpectedToolCall]) -> list[str]:
+    """Tool names of one round's expectations, in order."""
+    return [call.tool_name for call in expected]
+
+
+def _mean(values: list[float]) -> float:
+    """Mean of the rounds that measured something; 1.0 when none did.
+
+    An example where every round was empty on both sides with nothing
+    expected is the multi-round form of today's empty-vs-empty pair, which
+    scores 1.0 rather than dividing by zero.
+    """
+    return sum(values) / len(values) if values else 1.0
+
+
+def _divergence_score(strategy: str, source: ToolTrace, target: ToolTrace) -> float:
+    """One round's target-vs-source score under the configured strategy."""
+    if strategy == "exact":
+        return 1.0 if target.tool_names == source.tool_names else 0.0
+    if strategy == "set":
+        return _jaccard(source.tool_name_set, target.tool_name_set)
+    # strategy == "first"
+    source_first = source.tool_names[0] if source.calls else None
+    target_first = target.tool_names[0] if target.calls else None
+    return 1.0 if source_first is not None and target_first == source_first else 0.0
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:

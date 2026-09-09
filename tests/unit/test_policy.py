@@ -2624,3 +2624,41 @@ class TestFailOnDroppedParams:
         # The "no blocking evaluator records" explanation survives.
         assert "no blocking evaluator records" in decision.reason
         assert "tool_choice" in decision.reason
+
+
+class TestAMultiRoundDivergenceCountsAsDiverged:
+    """``max_tool_divergence`` counts ``delta < 0``, and that is the whole rule.
+
+    A teacher-forced replay scores the mean over its rounds, so an example
+    that matched the source in round 1 and diverged in round 2 lands at
+    ``0.5`` rather than ``0.0``. The budget must still count it: "the target
+    called different tools somewhere in the loop" is the finding, and a
+    threshold on the *mean* would let a four-round example hide three
+    divergences behind one match. No policy code implements this — the
+    evaluator's mean does — so this test is what locks the semantics in.
+    """
+
+    def test_a_partially_diverged_row_is_counted(self) -> None:
+        diverged_in_one_round = EvalRecord(
+            run_id="r",
+            prompt_id="p",
+            example_id="e1",
+            evaluator_name="routing",
+            kind=KIND_DIVERGENCE,
+            source_score=1.0,
+            target_score=0.5,
+            delta=-0.5,
+            metadata={
+                "mode": "exact",
+                "failure_categories": [TOOL_SELECTION_DRIFT],
+                "rounds": [
+                    {"round": 0, "source_names": ["a"], "target_names": ["a"]},
+                    {"round": 1, "source_names": ["b"], "target_names": ["c"]},
+                ],
+            },
+        )
+        budget = _budgets(_decide([diverged_in_one_round, _divergence_record("e2", 1.0)]))[
+            "max_tool_divergence"
+        ]
+        assert budget.denominator == 2
+        assert budget.observed == pytest.approx(0.5)

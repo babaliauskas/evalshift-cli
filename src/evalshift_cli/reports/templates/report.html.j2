@@ -11,6 +11,19 @@
   {%- if value is none -%}—{%- else -%}{{ ("%+." ~ digits ~ "f")|format(value) }}%{%- endif -%}
 {%- endmacro -%}
 
+{#- A tool change renders as one arrow, or as one arrow per round when the
+    replay was teacher-forced: "a, b -> a, c" cannot say which round went
+    wrong, and the round is the whole finding. -#}
+{%- macro tool_change_arrows(change) -%}
+  {%- if change.rounds -%}
+    {%- for r in change.rounds -%}
+    <div class="tool-round"><span class="tool-round-label">r{{ r.round + 1 }}</span> <code>{{ tool_list(r.source_names) }}</code> <span class="tool-arrow">&rarr;</span> <code class="{{ "tool-diverged" if r.diverged else "tool-same" }}">{{ tool_list(r.target_names) }}</code></div>
+    {%- endfor -%}
+  {%- else -%}
+    <code>{{ tool_list(change.source_names) }}</code> <span class="tool-arrow">&rarr;</span> <code class="{{ "tool-diverged" if change.diverged else "tool-same" }}">{{ tool_list(change.target_names) }}</code>
+  {%- endif -%}
+{%- endmacro -%}
+
 {#- Colour a signed delta. Cost and latency are better when they fall, scores
     when they rise, so the direction that counts as good is per-metric. -#}
 {%- macro tone_of(value, higher_is_better=False) -%}
@@ -457,7 +470,7 @@
               <td>{% if row.tool_match is none %}<span class="faint">—</span>{% elif row.tool_match %}<span class="ok">✓</span>{% else %}<span class="bad">✗</span>{% endif %}</td>
               <td class="tool-change">
                 {%- if row.tool_change is none %}<span class="faint">—</span>
-                {%- else %}<code>{{ tool_list(row.tool_change.source_names) }}</code> <span class="tool-arrow">→</span> <code class="{{ "tool-diverged" if row.tool_change.diverged else "tool-same" }}">{{ tool_list(row.tool_change.target_names) }}</code>
+                {%- else %}{{ tool_change_arrows(row.tool_change) }}
                 {%- endif %}
               </td>
             </tr>
@@ -605,9 +618,7 @@
           {% if tr.tool_change %}
           <div class="tool-change">
             <span class="eyebrow">Tools called</span>
-            <code>{{ tool_list(tr.tool_change.source_names) }}</code>
-            <span class="tool-arrow">→</span>
-            <code class="{{ "tool-diverged" if tr.tool_change.diverged else "tool-same" }}">{{ tool_list(tr.tool_change.target_names) }}</code>
+            {{ tool_change_arrows(tr.tool_change) }}
           </div>
           {% endif %}
 
@@ -660,8 +671,11 @@
               <div class="reg-col-head"><span class="eyebrow">Source trace</span><span class="reg-col-score ok">score {{ "%.3f"|format(tr.source_score) }}</span></div>
               {% if tr.source_trace and tr.source_trace.calls %}
               <ol class="trace-list">
-                {% for c in tr.source_trace.calls %}
+                {% for round_index, calls in tr.source_trace.calls|groupby("round_index") %}
+                {% if tr.source_trace.round_count > 1 %}<li class="trace-round-label" value="0">round {{ round_index + 1 }}</li>{% endif %}
+                {% for c in calls %}
                 <li class="trace-call">{{ c.tool_name }} <span class="trace-args">({{ c.arguments|tojson }})</span></li>
+                {% endfor %}
                 {% endfor %}
               </ol>
               {% else %}
@@ -676,8 +690,11 @@
               {% if tr.target_trace and tr.target_trace.calls %}
               {% set source_names = (tr.source_trace.calls if tr.source_trace else []) | map(attribute='tool_name') | list %}
               <ol class="trace-list trace-target">
-                {% for c in tr.target_trace.calls %}
+                {% for round_index, calls in tr.target_trace.calls|groupby("round_index") %}
+                {% if tr.target_trace.round_count > 1 %}<li class="trace-round-label" value="0">round {{ round_index + 1 }}</li>{% endif %}
+                {% for c in calls %}
                 <li class="trace-call {{ "" if c.tool_name in source_names else "trace-extra" }}">{{ c.tool_name }} <span class="trace-args">({{ c.arguments|tojson }})</span></li>
+                {% endfor %}
                 {% endfor %}
               </ol>
               {% else %}

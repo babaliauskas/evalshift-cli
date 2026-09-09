@@ -4,8 +4,9 @@ The hosted run-detail page renders what a model *did*, not just what it said.
 Two internal representations describe that, and neither goes on the wire:
 
 * :class:`~evalshift_cli.evaluators.tool_models.ToolTrace` — produced by replay. A
-  flat call list plus optional final text, no rounds and no tool results,
-  because a single-shot replay never executes a tool.
+  flat call list plus optional final text and no tool results: replay never
+  executes a tool, it feeds back the recorded result. Each call carries the
+  round it was made in.
 * :class:`~evalshift_cli.traces.models.AgentTrace` — imported bring-your-own-agent
   timelines. A discriminated event stream with rounds, results and timestamps.
 
@@ -91,11 +92,11 @@ def _event(
 def from_tool_trace(trace: ToolTrace | None, *, side: str) -> dict[str, Any] | None:
     """Wire stream for one replayed model side, or ``None`` if there is nothing to show.
 
-    Every event is ``round: 0``. Replay is single-shot — one
-    ``litellm.acompletion`` call with no tool results fed back — so it cannot
-    produce a second round. When teacher-forced multi-round replay lands, this
-    is the function that starts emitting higher rounds; the wire format already
-    allows them.
+    Each ``tool_call`` carries the round it was made in
+    (:attr:`~evalshift_cli.evaluators.tool_models.ToolCall.round_index`); the
+    ``final_output`` and refusal ``error`` events belong to the last round,
+    which is the response a user would have seen. A single-shot replay is one
+    round, so every event of one is ``round: 0`` exactly as before.
 
     No ``model_call`` event is emitted. Its metrics would duplicate the example
     row's ``cost_usd_*`` and ``latency_ms_*`` columns.
@@ -111,13 +112,14 @@ def from_tool_trace(trace: ToolTrace | None, *, side: str) -> dict[str, Any] | N
     if trace is None:
         return None
 
+    last_round = trace.round_count - 1
     events: list[dict[str, Any]] = []
     for call in trace.calls:
         events.append(
             _event(
                 "tool_call",
                 sequence_index=len(events),
-                round_index=0,
+                round_index=call.round_index,
                 name=call.tool_name,
                 arguments=call.arguments,
                 call_id=call.call_id,
@@ -130,7 +132,7 @@ def from_tool_trace(trace: ToolTrace | None, *, side: str) -> dict[str, Any] | N
             _event(
                 "final_output",
                 sequence_index=len(events),
-                round_index=0,
+                round_index=last_round,
                 text=trace.final_text,
             )
         )
@@ -140,7 +142,7 @@ def from_tool_trace(trace: ToolTrace | None, *, side: str) -> dict[str, Any] | N
             _event(
                 "error",
                 sequence_index=len(events),
-                round_index=0,
+                round_index=last_round,
                 message=trace.refusal_text or "model refused",
                 category="refusal",
             )

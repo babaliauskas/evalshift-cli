@@ -490,6 +490,8 @@ td.ci { font-size: 13px; }
 }
 .tool-change code { white-space: normal; font-size: inherit; }
 .tool-arrow { color: var(--dim2); margin: 0 4px; }
+.tool-round { display: block; }
+.tool-round-label { color: var(--dim2); margin-right: 4px; }
 .tool-diverged { color: var(--bad); }
 .tool-same { color: var(--body); }
 .trunc-flag { color: var(--warn); }
@@ -605,6 +607,14 @@ details[open] > summary .caret::after { content: "\25BE"; }
 .trace-list.trace-target { background: var(--bad-wash); border-color: var(--bad-edge); }
 .trace-args { color: var(--dim2); }
 .trace-call.trace-extra { color: var(--warn); }
+.trace-round-label {
+  list-style: none;
+  margin-left: -16px;
+  color: var(--dim2);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .trace-empty { margin: 0; font-size: 14px; font-style: italic; color: var(--dim); }
 .trace-empty.trace-missing { color: var(--bad); font-style: normal; font-weight: 600; }
 .trace-final { margin: 8px 0 0; font-size: 13px; color: var(--dim); }
