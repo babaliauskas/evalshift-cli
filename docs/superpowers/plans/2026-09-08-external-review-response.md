@@ -242,43 +242,60 @@ Goal: teacher-forced multi-round replay. For round *k* > 1, the candidate is giv
 
 *Validity: full. Importance: high. Cost: medium. Cross-repo; SDK first.*
 
+### Task 3.0 `[cli]` CLI trace model accepts `requested_tool_calls` (must land before 3.1)
+
+**Files:** `src/evalshift_cli/traces/models.py` (`ModelCallEvent`), `captures/reader.py` (version check), `tests/unit/test_trace_models.py`, `tests/unit/test_captures_reader.py`.
+
+Found while preparing Phase 3: the CLI's trace models inherit `extra="forbid"`, and the SDK dataclasses mirror them field for field (guarded by `evalshift-sdk/tests/conformance/test_parity.py` against the vendored copy in `cli_models_vendored.py`). If the SDK starts writing a new field before the CLI accepts it, every existing CLI install rejects every new capture at load time. So the plan's "SDK first" is inverted for the schema field: the CLI model lands first and is the contract.
+
+Contract (both repos, verbatim): `requested_tool_calls: list[RequestedToolCall] | None = None`, `RequestedToolCall = {name: str, arguments: dict[str, Any], call_id: str | None}`, positioned immediately after `tools_offered` so the parity test's field order holds.
+
+- [x] **Step 1:** Failing tests: `ModelCallEvent` accepts and round-trips the field; absent → `None`; a `2.1.0` envelope passes `captures/reader.py` (it checks the major only, `_SUPPORTED_MAJOR = 2`; lock that in with a test).
+- [x] **Step 2:** Add `RequestedToolCall` (strict) and the field.
+- [x] **Step 3:** Commit: `feat(traces): accept requested_tool_calls on ModelCallEvent`.
+  Done in 6b8f210 (cli). reader.py needed no change: major-only gate, now pinned by tests.
+
 ### Task 3.1 `[sdk]` Schema: add `requested_tool_calls` to `ModelCallEvent`
 
 **Files:** `src/evalshift/trace/models.py:24-45`, `trace/schema.py`, `trace/serialize.py`, `trace/migrate.py`, `docs/SCHEMA.md`, `tests/`.
 
-- [ ] **Step 1:** Failing tests: a `ModelCallEvent` round-trips a `requested_tool_calls: list[{name, arguments, call_id}] | None` field; a `2.0.0` envelope loads with the field absent → `None`.
-- [ ] **Step 2:** Add the field (default `None` so old writers/readers coexist). Bump `SCHEMA_VERSION` to `2.1.0`; register a no-op-with-default migration. Update `schema.py:80` fixed field set.
-- [ ] **Step 3:** Document in `docs/SCHEMA.md` and `docs/DECISIONS.md` (new D-requested: "requested ≠ executed; both recorded").
-- [ ] **Step 4:** Commit: `feat(trace): record model-requested tool calls separately from executed ones`.
+- [x] **Step 1:** Failing tests: a `ModelCallEvent` round-trips a `requested_tool_calls: list[{name, arguments, call_id}] | None` field; a `2.0.0` envelope loads with the field absent → `None`.
+- [x] **Step 2:** Add the field (default `None` so old writers/readers coexist). Bump `SCHEMA_VERSION` to `2.1.0`; register a no-op-with-default migration. Update `schema.py:80` fixed field set.
+- [x] **Step 3:** Document in `docs/SCHEMA.md` and `docs/DECISIONS.md` (new D-requested: "requested ≠ executed; both recorded").
+- [x] **Step 4:** Commit: `feat(trace): record model-requested tool calls separately from executed ones`.
+  Done in aad7a21 (sdk). Also updated docs/REDACTION.md field table and tests/test_smoke.py's pinned version.
 
 ### Task 3.2 `[sdk]` API: accept requested calls in `record_model_call` and the streaming recorder
 
 **Files:** `src/evalshift/capture/api.py:225-250` (`record_model_call`), `:529-546` (`set_usage` area of `capture.model_call`), `DOCS.md:278-340`, `llms-full.txt`.
 
-- [ ] **Step 1:** Failing tests for `record_model_call(..., requested_tool_calls=[...])` and `rec.set_requested_tool_calls([...])`.
-- [ ] **Step 2:** Implement; redact arguments through the same redactor as `ToolCallEvent.arguments`.
-- [ ] **Step 3:** Add small stdlib-only helpers that extract requested calls from an already-serialised provider response dict (OpenAI `choices[0].message.tool_calls`, Anthropic `content[].type == "tool_use"`, Gemini `candidates[0].content.parts[].functionCall`). Pure dict walking, no provider import.
-- [ ] **Step 4:** Docs: explain the difference between "offered" (`tools=`), "requested" (new), and "executed" (`@capture.tool`).
-- [ ] **Step 5:** Commit: `feat(capture): requested_tool_calls on record_model_call and model_call recorder`.
+- [x] **Step 1:** Failing tests for `record_model_call(..., requested_tool_calls=[...])` and `rec.set_requested_tool_calls([...])`.
+- [x] **Step 2:** Implement; redact arguments through the same redactor as `ToolCallEvent.arguments`.
+- [x] **Step 3:** Add small stdlib-only helpers that extract requested calls from an already-serialised provider response dict (OpenAI `choices[0].message.tool_calls`, Anthropic `content[].type == "tool_use"`, Gemini `candidates[0].content.parts[].functionCall`). Pure dict walking, no provider import.
+- [x] **Step 4:** Docs: explain the difference between "offered" (`tools=`), "requested" (new), and "executed" (`@capture.tool`).
+- [x] **Step 5:** Commit: `feat(capture): requested_tool_calls on record_model_call and model_call recorder`.
+  Done in ba8bffa + ff7a272 (sdk; helpers merged in d69d397, vendored `name` min_length synced in 19964ee). Helper: `evalshift.capture.requested.extract_requested_tool_calls`; returns `[]` for a recognised response with no calls and `None` for an unrecognised one.
 
 ### Task 3.3 `[sdk]` LangChain adapter: read `AIMessage.tool_calls`
 
 **Files:** `src/evalshift/adapters/langchain.py:465-478` (`on_llm_end`), `tests/adapters/`.
 
-- [ ] **Step 1:** Failing test with a synthetic `LLMResult` whose generation message carries `tool_calls`.
-- [ ] **Step 2:** Populate `requested_tool_calls` from `generations[0][0].message.tool_calls` when present.
-- [ ] **Step 3:** Commit: `feat(langchain): capture requested tool calls from AIMessage`.
+- [x] **Step 1:** Failing test with a synthetic `LLMResult` whose generation message carries `tool_calls`.
+- [x] **Step 2:** Populate `requested_tool_calls` from `generations[0][0].message.tool_calls` when present.
+- [x] **Step 3:** Commit: `feat(langchain): capture requested tool calls from AIMessage`.
+  Done in 836ea92 (sdk). Reuses api's normaliser; chat message with no tool_calls records `[]`, plain text generation leaves the field unset.
 
 ### Task 3.4 `[cli]` Promotion prefers requested calls as ground truth
 
 **Files:** `src/evalshift/captures/models.py`, `captures/promote.py` (`_tool_rounds` `:457-483`, `_unwrap_recorded_arguments` `:378-419`), `docs/agents.md:190-206`, tests.
 
-- [ ] **Step 1:** Failing tests: when `requested_tool_calls` is present it becomes `expected_tools` / `expected_tool_rounds` verbatim and `_unwrap_recorded_arguments` is skipped; when absent, current executed-call behaviour is unchanged.
-- [ ] **Step 2:** Implement; add a `promotion_source: "requested" | "executed"` note to the promoted case metadata so reports can show which yardstick was used.
-- [ ] **Step 3:** Update `docs/agents.md` — the "No model can produce the recorded shape" section now applies only to legacy captures.
-- [ ] **Step 4:** Commit: `feat(promote): use model-requested tool calls as ground truth when captured`.
+- [x] **Step 1:** Failing tests: when `requested_tool_calls` is present it becomes `expected_tools` / `expected_tool_rounds` verbatim and `_unwrap_recorded_arguments` is skipped; when absent, current executed-call behaviour is unchanged.
+- [x] **Step 2:** Implement; add a `promotion_source: "requested" | "executed"` note to the promoted case metadata so reports can show which yardstick was used.
+- [x] **Step 3:** Update `docs/agents.md` — the "No model can produce the recorded shape" section now applies only to legacy captures.
+- [x] **Step 4:** Commit: `feat(promote): use model-requested tool calls as ground truth when captured`.
 
 ---
+  Done in 76a8c43 (cli). `promotion_source` on PromotedCase and BuiltExample; mixed captures fall back to executed for the whole capture with a warning; requested-vs-executed disagreement warns, requested wins. Checked-in capture-first cases gained `promotion_source: executed`.
 
 ## Phase 4 — Stop LiteLLM from silently dropping migration-relevant params (#8)
 
@@ -422,3 +439,4 @@ Options already named by the author:
 | 2026-09-08 | — | Plan written from verified findings. |
 | 2026-09-08 | 0.1–0.6 | Phase 0 complete. cli: a2c8f24, cef4c85, 1861439, 54ff55f. sdk: 647e09f, 7853167. Found and logged Task 0.7 (validate lacks --suite-name). |
 | 2026-09-09 | 6.1–6.2 | Phase 6 done out of order (before 2–4, at the maintainer's request). cli: 3dbf245, 1e1de65, 5da36c1, d9c4eba. sdk: ea54c0a. Version bump deferred to the 0.14.0 release commit. |
+| 2026-09-09 | 3.0–3.4 | Phase 3 complete, run as three parallel Opus agents (cli; sdk core; sdk helpers in a worktree) then one for LangChain. cli: 6b8f210, 76a8c43, 3222b6a. sdk: aad7a21, ba8bffa, ff7a272, d69d397, 19964ee, 836ea92. Task 3.0 added: the CLI's `extra="forbid"` trace model must accept the field before the SDK writes it. End-to-end verified with the dev SDK: 2.1.0 envelopes with requested calls promote with `promotion_source: requested`. Open: whole-capture fallback when only some model calls carry the field (per-round hybrid considered, not done); capture-first example still records executed-only until SDK 0.4.0 ships the kwarg. |
