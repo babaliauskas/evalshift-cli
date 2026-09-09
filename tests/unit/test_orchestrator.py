@@ -627,6 +627,8 @@ class TestOrchestratorErrors:
         rows = list(iter_calls(result.run_dir))
         target_rows = [r for r in rows if r.role == "target"]
         assert all(r.error is not None for r in target_rows)
+        # A single-shot failure carries the bare provider error, no round prefix.
+        assert not any(r.error.startswith("round ") for r in target_rows if r.error)
         # Final state still completed (the orchestrator doesn't fail the
         # whole run on a per-call error — Phase 5 evaluators handle errors).
         assert read_state(result.run_dir).status == "completed"

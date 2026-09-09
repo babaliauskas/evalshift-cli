@@ -284,7 +284,7 @@ async def run_orchestrator(
         if (
             not yes
             and estimate.estimated_usd > COST_CONFIRM_THRESHOLD_USD
-            and not _confirm_cost(cons, estimate, len(work))
+            and not _confirm_cost(cons, estimate, estimate.total_calls)
         ):
             state = state.model_copy(update={"status": "failed"})
             write_state(run_dir, state)
@@ -1380,14 +1380,15 @@ async def _execute_with_tools(
             # A partially replayed example is an unmeasured example: the rounds
             # that did complete are dropped, exactly as a failed single-shot
             # call records no trace. The round is named so the failure is
-            # attributable without re-running.
+            # attributable without re-running; a single-shot call keeps the
+            # bare provider error it always carried.
             return Call(
                 run_id=run_id,
                 prompt_id=item.prompt.id,
                 example_id=item.example.id,
                 model_id=canonical_id,
                 role=item.role,
-                error=f"round {round_index + 1}/{rounds}: {exc}",
+                error=f"round {round_index + 1}/{rounds}: {exc}" if rounds > 1 else str(exc),
             )
 
         input_tokens += result.input_tokens
