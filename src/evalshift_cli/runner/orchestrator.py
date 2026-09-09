@@ -49,7 +49,7 @@ from evalshift_cli.cache.store import CacheStore, cache_key
 from evalshift_cli.captures.reader import CaptureError, capture_base, load_toolset
 from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.config.models import EvalShiftConfig
-from evalshift_cli.evaluators.tool_models import ToolSpec
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
 from evalshift_cli.models.capabilities import (
     TOOL_STRICT_PARAM,
     honors_temperature,
@@ -76,7 +76,7 @@ from evalshift_cli.runner.checkpoint import (
 )
 from evalshift_cli.runner.generation import translate_generation_config
 from evalshift_cli.runner.models import Call, CallRole, RunModels, RunState
-from evalshift_cli.suite.models import ChatMessage, Suite, SuiteExample
+from evalshift_cli.suite.models import ChatMessage, Suite, SuiteExample, ToolResultFixture
 from evalshift_cli.utils.cost import CostEstimate, estimate_run_cost
 from evalshift_cli.utils.templating import (
     SuiteCompatibilityError,
@@ -97,12 +97,20 @@ COST_CONFIRM_THRESHOLD_USD: float = 10.0
 
 @dataclass(frozen=True, slots=True)
 class WorkItem:
-    """One unit of work: a single LLM call to make.
+    """One unit of work: one example replayed against one model.
+
+    That is a single LLM call, except for an example carrying
+    ``tool_result_fixtures``, which is replayed teacher-forced over
+    :meth:`SuiteExample.rounds_to_replay` rounds — one call per round, merged
+    into the one :class:`Call` this item produces. Either way a ``WorkItem``
+    maps 1:1 to a ``(prompt, example, role)`` row of ``raw.jsonl``, which is
+    what resume, evaluate pairing and the progress bar all count.
 
     When ``tools`` is non-empty, the orchestrator dispatches to
     ``ModelClient.complete_with_tools`` and the resulting :class:`Call`
     carries a populated ``trace``. Otherwise the standard text-only
-    ``ModelClient.complete`` path runs. ``tools`` is sourced from the
+    ``ModelClient.complete`` path runs (and never replays rounds — only the
+    tool path loops). ``tools`` is sourced from the
     dispatched ``example``'s own toolset (:func:`resolve_example_tools`) —
     two ``WorkItem``s built from the same prompt can carry different
     toolsets, or none, depending on what each example asserts.
@@ -356,10 +364,13 @@ def preflight_cost(
         canonical_source=canonical_source,
         canonical_target=canonical_target,
     )
-    total_calls = len(templates) * len(suite) * 2
+    # LLM calls, not ``Call`` rows: a teacher-forced example costs one call per
+    # replayed round. ``_estimate`` already computed exactly that shape
+    # (``n_prompts x sum(rounds_to_replay) x 2``), so read it off there rather
+    # than recomputing ``len(templates) * len(suite) * 2`` and drifting.
     return CostPlan(
         estimated_usd=estimate.estimated_usd,
-        total_calls=total_calls,
+        total_calls=estimate.total_calls,
     )
 
 
@@ -814,9 +825,18 @@ def _estimate(
     representative = max((t.content for t in templates), key=len, default="")
     # Multi-turn examples carry a recorded history prefix that gets sent
     # on every call; count its characters as extra input so the estimate
-    # doesn't silently ignore what can be a large prefix.
+    # doesn't silently ignore what can be a large prefix. A teacher-forced
+    # example also grows its own context round by round as recorded results
+    # are fed back — count every rendered fixture once, so the growing
+    # context shows up in the estimate rather than surprising the user.
     per_example_extra_chars = [
-        sum(len(m.content) for m in (e.history or [])) for e in suite.examples
+        sum(len(m.content) for m in (e.history or []))
+        + sum(
+            len(_render_fixture(fixture))
+            for round_fixtures in (e.tool_result_fixtures or [])
+            for fixture in round_fixtures
+        )
+        for e in suite.examples
     ]
     return estimate_run_cost(
         template=representative,
@@ -824,6 +844,10 @@ def _estimate(
         n_prompts=len(templates),
         models=[canonical_source, canonical_target],
         per_example_extra_chars=per_example_extra_chars,
+        # One call per replayed round, not one per example (see
+        # SuiteExample.rounds_to_replay). Every example is 1 unless its
+        # fixtures ask for a teacher-forced loop.
+        per_example_calls=[e.rounds_to_replay() for e in suite.examples],
     )
 
 
@@ -869,6 +893,94 @@ def build_messages(example: SuiteExample, prompt_text: str) -> list[dict[str, An
     return [_dispatch_message(m) for m in example.history] + [
         {"role": "user", "content": prompt_text},
     ]
+
+
+def build_round_messages(
+    example: SuiteExample,
+    prompt_text: str,
+    round_index: int,
+) -> list[dict[str, Any]] | None:
+    """Build the messages for round ``round_index`` of a teacher-forced replay.
+
+    Round *k* shows the candidate the rendered prompt followed by the
+    **recorded** rounds ``0..k-1`` — the ground-truth assistant tool calls and
+    the recorded results of those calls — and asks it for round *k*. The
+    candidate's own calls are never fed back, which is what makes round *k*
+    comparable across source, target and ground truth: all three saw a
+    byte-identical context.
+
+    Args:
+        example: The suite example being replayed. Its ``history``,
+            ``expected_tool_rounds`` and ``tool_result_fixtures`` are the
+            whole input.
+        prompt_text: The current turn's fully-rendered prompt text.
+        round_index: 0-based round to build, below
+            :meth:`SuiteExample.rounds_to_replay`.
+
+    Returns:
+        For ``round_index == 0``, exactly what :func:`build_messages` returns —
+        ``None`` for a single-turn example (dispatch via the plain-prompt path)
+        or the history prefix plus the current turn otherwise. Round 0 is
+        deliberately identical to a single-shot dispatch: replaying a loop must
+        not change what the first round asks for. For ``round_index >= 1``, that
+        same prefix followed by one ``assistant`` message per recorded round
+        (its ``tool_calls`` carrying positional ids ``call_r{j}_{i}``) and one
+        ``tool`` message per recorded result, in the OpenAI wire shape
+        :func:`_dispatch_message` already emits.
+    """
+    if round_index == 0:
+        return build_messages(example, prompt_text)
+
+    messages: list[dict[str, Any]] = [
+        *(_dispatch_message(m) for m in (example.history or [])),
+        {"role": "user", "content": prompt_text},
+    ]
+    expected_rounds = example.expected_tool_rounds or []
+    fixture_rounds = example.tool_result_fixtures or []
+    for j in range(min(round_index, len(expected_rounds), len(fixture_rounds))):
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"call_r{j}_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": call.tool_name,
+                            "arguments": json.dumps(call.arguments or {}),
+                        },
+                    }
+                    for i, call in enumerate(expected_rounds[j])
+                ],
+            },
+        )
+        messages.extend(
+            {
+                "role": "tool",
+                "tool_call_id": f"call_r{j}_{i}",
+                "content": _render_fixture(fixture),
+            }
+            for i, fixture in enumerate(fixture_rounds[j])
+        )
+    return messages
+
+
+def _render_fixture(fixture: ToolResultFixture) -> str:
+    """Render one recorded tool result as the ``content`` of a ``tool`` message.
+
+    A recorded error is sent as ``{"error": ...}`` — the recorded agent saw the
+    failure too, and its next round is the ground truth for what to do about
+    it. A ``str`` result is sent verbatim (tools that already return text must
+    not be double-encoded); anything else is JSON, with ``default=str`` so a
+    stray non-serialisable value degrades to its repr instead of raising
+    mid-run.
+    """
+    if fixture.error is not None:
+        return json.dumps({"error": fixture.error})
+    if isinstance(fixture.result, str):
+        return fixture.result
+    return json.dumps(fixture.result, ensure_ascii=False, default=str)
 
 
 def history_for_cache_key(example: SuiteExample) -> list[dict[str, Any]] | None:
@@ -1107,6 +1219,11 @@ async def _execute(
         history=history_for_key,
         generation_config=item.example.generation_config,
         toolset_fingerprint=toolset_fingerprint,
+        # None: this path is single-shot by construction. Only the tool path
+        # replays rounds, and it bypasses the cache entirely (unchanged since
+        # v0.2), so nothing passes a real round today — the key's round
+        # dimension exists so tool-call caching can land without a migration.
+        round_index=None,
     )
 
     if cache_enabled:
@@ -1199,56 +1316,134 @@ async def _execute_with_tools(
     canonical_id: str,
     messages: list[dict[str, Any]] | None = None,
 ) -> Call:
-    """Tool-aware call path: dispatch + record the trace on the Call.
+    """Tool-aware call path: teacher-forced replay loop + one Call per example.
 
-    ``messages`` is set for multi-turn examples (``example.history`` is
-    not ``None``) and dispatches via
-    :meth:`ModelClient.complete_messages_with_tools`; ``None`` keeps the
-    existing single-prompt :meth:`ModelClient.complete_with_tools` path.
-    The local cache is bypassed for both — unchanged from before.
+    The example is replayed for :meth:`SuiteExample.rounds_to_replay` rounds —
+    one for a single-shot example, else one per round its
+    ``tool_result_fixtures`` cover plus the answer round after the last covered
+    one. Round *k* is dispatched with the recorded rounds ``0..k-1`` fed back as
+    assistant/tool turns (:func:`build_round_messages`); the candidate's own
+    calls are never fed back. Every round's response is merged into ONE
+    :class:`Call` (tokens/cost/latency summed, calls tagged with their
+    ``round_index``), because one row per ``(prompt, example, role)`` is what
+    resume, evaluate pairing, reports and the bundle all key on.
+
+    ``messages`` carries round 0's dispatch as :func:`build_messages` computed
+    it: set for multi-turn examples (``example.history`` is not ``None``), in
+    which case round 0 goes through
+    :meth:`ModelClient.complete_messages_with_tools`, and ``None`` for
+    single-turn examples, which keeps the existing single-prompt
+    :meth:`ModelClient.complete_with_tools` path so a single-shot example makes
+    a byte-identical client call to before this loop existed. Rounds ``k >= 1``
+    are always message-mode. The local cache is bypassed throughout — unchanged
+    from before.
     """
     gen_temperature, gen_extra = translate_generation_config(item.example.generation_config)
-    try:
-        if messages is not None:
-            result = await client.complete_messages_with_tools(
-                model=canonical_id,
-                messages=messages,
-                tools=list(item.tools),
-                temperature=gen_temperature,
-                max_tokens=item.max_tokens,
-                extra=gen_extra,
-            )
-        else:
-            result = await client.complete_with_tools(
-                model=canonical_id,
-                prompt=prompt_text,
-                tools=list(item.tools),
-                temperature=gen_temperature,
-                max_tokens=item.max_tokens,
-                extra=gen_extra,
-            )
-    except ModelClientError as exc:
-        return Call(
-            run_id=run_id,
-            prompt_id=item.prompt.id,
-            example_id=item.example.id,
-            model_id=canonical_id,
-            role=item.role,
-            error=str(exc),
+    rounds = item.example.rounds_to_replay()
+
+    merged_calls: list[ToolCall] = []
+    input_tokens = 0
+    output_tokens = 0
+    cost_usd = 0.0
+    latency_ms = 0
+    finish_reasons: list[str | None] = []
+    raised_refusal = False
+    refusal_text: str | None = None
+    last_trace: ToolTrace | None = None
+
+    for round_index in range(rounds):
+        round_messages = (
+            messages
+            if round_index == 0
+            else build_round_messages(item.example, prompt_text, round_index)
         )
+        try:
+            if round_messages is not None:
+                result = await client.complete_messages_with_tools(
+                    model=canonical_id,
+                    messages=round_messages,
+                    tools=list(item.tools),
+                    temperature=gen_temperature,
+                    max_tokens=item.max_tokens,
+                    extra=gen_extra,
+                )
+            else:
+                result = await client.complete_with_tools(
+                    model=canonical_id,
+                    prompt=prompt_text,
+                    tools=list(item.tools),
+                    temperature=gen_temperature,
+                    max_tokens=item.max_tokens,
+                    extra=gen_extra,
+                )
+        except ModelClientError as exc:
+            # A partially replayed example is an unmeasured example: the rounds
+            # that did complete are dropped, exactly as a failed single-shot
+            # call records no trace. The round is named so the failure is
+            # attributable without re-running.
+            return Call(
+                run_id=run_id,
+                prompt_id=item.prompt.id,
+                example_id=item.example.id,
+                model_id=canonical_id,
+                role=item.role,
+                error=f"round {round_index + 1}/{rounds}: {exc}",
+            )
+
+        input_tokens += result.input_tokens
+        output_tokens += result.output_tokens
+        cost_usd += result.cost_usd
+        latency_ms += result.latency_ms
+        finish_reasons.append(result.finish_reason)
+        if result.trace.raised_refusal:
+            raised_refusal = True
+            if refusal_text is None:
+                refusal_text = result.trace.refusal_text
+        # sequence_index keeps counting across rounds: it stays unique per
+        # trace, which ToolTrace validates. Snapshot the base before extending
+        # — list.extend consumes a generator lazily, so len() must not be read
+        # from inside it.
+        base = len(merged_calls)
+        merged_calls.extend(
+            call.model_copy(
+                update={"round_index": round_index, "sequence_index": base + offset},
+            )
+            for offset, call in enumerate(result.trace.calls)
+        )
+        last_trace = result.trace
+
+    assert last_trace is not None  # rounds_to_replay() is always >= 1
+
+    # A single-round replay keeps the client's trace object verbatim, so
+    # nothing about a non-agentic-loop example changes shape.
+    trace = (
+        last_trace
+        if rounds == 1
+        else ToolTrace(
+            calls=merged_calls,
+            final_text=last_trace.final_text,
+            raised_refusal=raised_refusal,
+            refusal_text=refusal_text,
+            round_count=rounds,
+        )
+    )
+    # A truncated round poisons every comparison after it, so "length" anywhere
+    # in the loop wins over the last round's own reason.
+    finish_reason = "length" if "length" in finish_reasons else finish_reasons[-1]
+
     return Call(
         run_id=run_id,
         prompt_id=item.prompt.id,
         example_id=item.example.id,
         model_id=canonical_id,
         role=item.role,
-        text=result.trace.final_text or "",
-        input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-        cost_usd=result.cost_usd,
-        latency_ms=result.latency_ms,
-        trace=result.trace,
-        finish_reason=result.finish_reason,
+        text=trace.final_text or "",
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=cost_usd,
+        latency_ms=latency_ms,
+        trace=trace,
+        finish_reason=finish_reason,
     )
 
 
@@ -1264,6 +1459,7 @@ __all__ = [
     "SuiteCompatibilityError",
     "WorkItem",
     "build_messages",
+    "build_round_messages",
     "history_for_cache_key",
     "preflight_cost",
     "resolve_example_tools",

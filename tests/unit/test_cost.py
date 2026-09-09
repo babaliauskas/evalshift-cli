@@ -186,6 +186,60 @@ class TestPerExampleExtraChars:
 
 
 # ---------------------------------------------------------------------------
+# Teacher-forced multi-round replay: calls per example
+# ---------------------------------------------------------------------------
+
+
+class TestPerExampleCalls:
+    def test_default_is_one_call_per_example(self) -> None:
+        """Omitting ``per_example_calls`` and passing all-ones must agree exactly."""
+        default = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+        )
+        ones = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[1, 1, 1],
+        )
+        assert default == ones
+        # 2 prompts x 3 examples x 2 models
+        assert default.total_calls == 12
+
+    def test_multi_round_examples_multiply_total_calls(self) -> None:
+        estimate = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[3, 1, 2],
+        )
+        # 2 prompts x (3 + 1 + 2) calls x 2 models
+        assert estimate.total_calls == 24
+
+    def test_multi_round_examples_raise_estimated_cost(self) -> None:
+        single = estimate_run_cost(
+            template="Hi",
+            examples=[{}],
+            n_prompts=1,
+            models=["gemini/gemini-2.5-flash"],
+            per_example_calls=[1],
+        )
+        triple = estimate_run_cost(
+            template="Hi",
+            examples=[{}],
+            n_prompts=1,
+            models=["gemini/gemini-2.5-flash"],
+            per_example_calls=[3],
+        )
+        assert triple.estimated_usd == pytest.approx(single.estimated_usd * 3)
+
+
+# ---------------------------------------------------------------------------
 # Render fallback
 # ---------------------------------------------------------------------------
 

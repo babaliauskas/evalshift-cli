@@ -5,12 +5,17 @@ Two complementary types live here:
 * :class:`RunState` — top-level state of an in-flight run. Persisted to
   ``state.json`` per the PDF §5.4 schema, used by the resume logic, and
   rendered in Rich progress UIs.
-* :class:`Call` — one row of ``raw.jsonl``: a single LLM call's worth
-  of data. The Phase 5 evaluators consume this stream and pair up the
-  ``role="source"`` and ``role="target"`` rows for each
-  ``(prompt_id, example_id)`` to produce evaluations.
+* :class:`Call` — one row of ``raw.jsonl``: one *example* replayed
+  against one model, which is a single LLM call unless the example asks
+  for a teacher-forced multi-round replay, in which case it is the merged
+  result of one call per replayed round (see
+  :meth:`~evalshift_cli.suite.models.SuiteExample.rounds_to_replay`). The
+  Phase 5 evaluators consume this stream and pair up the ``role="source"``
+  and ``role="target"`` rows for each ``(prompt_id, example_id)`` to
+  produce evaluations.
 
-We deliberately store one row per call (not per pair) because:
+We deliberately store one row per (prompt, example, role) — not per pair,
+and not per round — because:
 
 1. Resume logic stays simple — every crash leaves a coherent prefix of
    ``raw.jsonl``; we just skip what's already there.
@@ -143,8 +148,13 @@ class RunState(_StrictModel):
             :meth:`~evalshift_cli.config.models.EvalShiftConfig.evaluators_for` —
             the run must remember which suite it was, not just where the file
             sat.
-        total_evaluations: Total LLM calls implied by the run shape
-            (``len(prompts) * len(examples) * 2`` models).
+        total_evaluations: Total ``Call`` rows implied by the run shape
+            (``len(prompts) * len(examples) * 2`` models). One row per
+            example per role, so a teacher-forced multi-round example
+            counts once here however many rounds it replays — the *cost*
+            estimate counts rounds (see
+            :func:`evalshift_cli.utils.cost.estimate_run_cost`), the
+            progress denominator does not.
         completed_evaluations: Calls completed so far. Drives the
             progress bar and the resume "skip" filter.
         non_deterministic_models: Canonical ids of models in this run that
@@ -194,7 +204,14 @@ class RunState(_StrictModel):
 
 
 class Call(_StrictModel):
-    """One row of ``raw.jsonl`` — a single completed LLM call.
+    """One row of ``raw.jsonl`` — one example replayed against one model.
+
+    Usually that is a single completed LLM call. An example carrying
+    ``tool_result_fixtures`` is replayed teacher-forced over several rounds
+    (:meth:`~evalshift_cli.suite.models.SuiteExample.rounds_to_replay`) and
+    still produces exactly one row: tokens, cost and latency are summed over
+    the rounds, ``text`` is the last round's answer, and ``trace`` is the
+    merged multi-round :class:`~evalshift_cli.evaluators.tool_models.ToolTrace`.
 
     Successful calls have ``error=None`` and a populated ``text``.
     Failed calls record the exception message in ``error`` and leave
@@ -209,15 +226,23 @@ class Call(_StrictModel):
         example_id: Suite example whose inputs were rendered.
         model_id: Canonical id of the model that was called.
         role: ``"source"`` or ``"target"``.
-        text: The model's response text. Empty string on error.
-        input_tokens / output_tokens: From the provider response.
-        cost_usd: Per-call cost (``litellm.completion_cost``); ``0.0``
-            when the model isn't priced.
-        latency_ms: Wall time of the live call. ``0`` for cache hits
-            after the first run (we keep the *original* latency).
+        text: The model's response text — the *last* round's, for a
+            multi-round replay. Empty string on error.
+        input_tokens / output_tokens: From the provider response, summed
+            over replayed rounds.
+        cost_usd: Per-call cost (``litellm.completion_cost``), summed over
+            replayed rounds; ``0.0`` when the model isn't priced.
+        latency_ms: Wall time of the live call, summed over replayed
+            rounds. ``0`` for cache hits after the first run (we keep the
+            *original* latency).
         cached: ``True`` if the response came from the local cache.
-        error: ``None`` on success; the stringified error on failure.
-        finish_reason: The provider's normalised stop reason. ``"length"``
+        error: ``None`` on success; the stringified error on failure. A
+            multi-round replay that fails part-way names the round it died
+            in (``"round 2/3: <error>"``) and records no ``trace`` — a
+            partially replayed example is an unmeasured example.
+        finish_reason: The provider's normalised stop reason — for a
+            multi-round replay the last round's, unless any earlier round
+            was ``"length"``, which wins. ``"length"``
             means the output was truncated by the ``max_tokens`` cap;
             :meth:`truncated` reports this. Truncated calls are excluded
             from the paired regression statistics (via the evaluator's

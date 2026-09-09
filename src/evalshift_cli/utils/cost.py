@@ -196,6 +196,7 @@ def estimate_run_cost(
     sample_size: int = DEFAULT_SAMPLE_SIZE,
     completion_tokens: int | None = None,
     per_example_extra_chars: Sequence[int] | None = None,
+    per_example_calls: Sequence[int] | None = None,
 ) -> CostEstimate:
     """Estimate the cost of running a (prompts x examples x models) sweep.
 
@@ -218,6 +219,14 @@ def estimate_run_cost(
             recorded history prefix, sent on every call and otherwise
             invisible to the estimator). ``None`` or all-zeros reproduces
             the estimate exactly as if this parameter didn't exist.
+        per_example_calls: Optional, index-aligned with ``examples`` — how
+            many model calls each example costs *per model*. A teacher-forced
+            multi-round replay makes one call per replayed round (see
+            :meth:`evalshift_cli.suite.models.SuiteExample.rounds_to_replay`),
+            so the run shape is ``n_prompts x sum(per_example_calls) x
+            len(models)`` rather than one call per example. ``None`` (or
+            all-ones) reproduces the estimate exactly as if this parameter
+            didn't exist.
 
     Returns:
         A :class:`CostEstimate` summarising the math.
@@ -230,7 +239,12 @@ def estimate_run_cost(
             estimated_usd=0.0,
         )
     n_examples = len(examples)
-    total_calls = n_prompts * n_examples * len(models)
+    # Calls per model, across every example. One per example unless the caller
+    # says otherwise (a teacher-forced replay costs one call per round).
+    calls_per_model = (
+        sum(list(per_example_calls)[:n_examples]) if per_example_calls is not None else n_examples
+    )
+    total_calls = n_prompts * calls_per_model * len(models)
 
     primary_meta = resolve_model(models[0])
     assumed_completion = (
@@ -253,7 +267,7 @@ def estimate_run_cost(
         )
         for m in models
     ]
-    estimated = sum(c * n_prompts * n_examples for c in per_call_cost_per_model)
+    estimated = sum(c * n_prompts * calls_per_model for c in per_call_cost_per_model)
 
     return CostEstimate(
         total_calls=total_calls,
