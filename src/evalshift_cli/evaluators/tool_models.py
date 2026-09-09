@@ -148,7 +148,12 @@ class ToolCall(_StrictModel):
         parent_call_id: For chained / nested calls. ``None`` for top-level
             calls. v0.2 treats two top-level calls (``parent_call_id is None``)
             as parallel.
-        sequence_index: 0-indexed position within the trace.
+        sequence_index: 0-indexed position within the trace. Keeps counting
+            across rounds, so it is unique per trace.
+        round_index: Which model response this call came from, for a
+            teacher-forced multi-round replay (see :attr:`ToolTrace.round_count`).
+            ``0`` for every single-shot call, and for every trace written
+            before the field existed.
     """
 
     tool_name: str = Field(min_length=1)
@@ -156,10 +161,18 @@ class ToolCall(_StrictModel):
     call_id: str | None = None
     parent_call_id: str | None = None
     sequence_index: int = Field(ge=0)
+    round_index: int = Field(default=0, ge=0)
 
 
 class ToolTrace(_StrictModel):
     """The full sequence of tool calls in one model response.
+
+    Or, for a teacher-forced multi-round replay, in several: ``round_count``
+    responses were made for one example, each call is tagged with the
+    ``round_index`` it came from, and :meth:`rounds` splits the trace back into
+    one single-round trace per response so per-response scoring runs unchanged.
+    ``final_text`` / ``raised_refusal`` describe the *last* response -- the
+    answer a user would have seen.
 
     A trace can be:
 
@@ -175,12 +188,17 @@ class ToolTrace(_StrictModel):
             tool calls. ``None`` if the response was tool-only.
         raised_refusal: True if the response indicates refusal.
         refusal_text: Optional text accompanying a refusal.
+        round_count: How many model responses this trace spans. ``1`` for a
+            single-shot call and for every trace written before the field
+            existed; a teacher-forced replay sets it to the number of rounds
+            it made. Every call's ``round_index`` is below it.
     """
 
     calls: list[ToolCall] = Field(default_factory=list)
     final_text: str | None = None
     raised_refusal: bool = False
     refusal_text: str | None = None
+    round_count: int = Field(default=1, ge=1)
 
     @property
     def call_count(self) -> int:
@@ -198,14 +216,53 @@ class ToolTrace(_StrictModel):
         return {c.tool_name for c in self.calls}
 
     def has_parallel_calls(self) -> bool:
-        """True iff the trace contains two or more top-level calls.
+        """True iff some single response contains two or more top-level calls.
 
         v0.2 treats "top-level" as ``parent_call_id is None``. Provider
         adapters may refine this once we have richer parent/child signals
-        from the underlying SDKs.
+        from the underlying SDKs. Parallelism is a property of one response:
+        two rounds of one call each are sequential, not a fan-out, so a
+        multi-round trace is checked round by round.
         """
-        top_level = [c for c in self.calls if c.parent_call_id is None]
-        return len(top_level) >= 2
+        by_round: dict[int, int] = {}
+        for call in self.calls:
+            if call.parent_call_id is None:
+                by_round[call.round_index] = by_round.get(call.round_index, 0) + 1
+        return any(n >= 2 for n in by_round.values())
+
+    def round(self, index: int) -> ToolTrace:
+        """The calls of one response, as a single-round trace.
+
+        ``sequence_index`` is renumbered from 0 and ``round_index`` reset, so
+        the result is exactly what a single-shot call would have produced.
+        ``final_text`` and the refusal flags belong to the last round only.
+
+        Raises:
+            IndexError: If ``index`` is not below :attr:`round_count`.
+        """
+        if not 0 <= index < self.round_count:
+            raise IndexError(f"round {index} out of range for a {self.round_count}-round trace")
+        calls = [
+            c.model_copy(update={"sequence_index": position, "round_index": 0})
+            for position, c in enumerate(c for c in self.calls if c.round_index == index)
+        ]
+        last = index == self.round_count - 1
+        return ToolTrace(
+            calls=calls,
+            final_text=self.final_text if last else None,
+            raised_refusal=self.raised_refusal if last else False,
+            refusal_text=self.refusal_text if last else None,
+        )
+
+    def rounds(self) -> list[ToolTrace]:
+        """Every response as its own single-round trace, in order.
+
+        A single-round trace returns ``[self]`` unchanged, so callers that
+        loop over rounds see exactly the trace they were given today.
+        """
+        if self.round_count == 1:
+            return [self]
+        return [self.round(k) for k in range(self.round_count)]
 
     def calls_by_tool(self, tool_name: str) -> list[ToolCall]:
         """Return every call for the given ``tool_name`` (in trace order)."""
@@ -222,6 +279,18 @@ class ToolTrace(_StrictModel):
         if len(indices) != len(set(indices)):
             duplicates = sorted({i for i in indices if indices.count(i) > 1})
             raise ValueError(f"duplicate sequence_index in trace: {duplicates}")
+        return self
+
+    @model_validator(mode="after")
+    def _check_round_indices_in_range(self) -> Self:
+        """Reject a call tagged with a round the trace says it never made."""
+        out_of_range = sorted(
+            {c.round_index for c in self.calls if c.round_index >= self.round_count}
+        )
+        if out_of_range:
+            raise ValueError(
+                f"round_index {out_of_range} out of range for round_count={self.round_count}",
+            )
         return self
 
 

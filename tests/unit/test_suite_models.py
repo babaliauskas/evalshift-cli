@@ -15,6 +15,7 @@ from evalshift_cli.suite.models import (
     HistoryToolCall,
     Suite,
     SuiteExample,
+    ToolResultFixture,
 )
 
 _TOOLSET_REF = "sha256:" + "ab" * 32
@@ -568,3 +569,101 @@ class TestExpectedToolCallProvenance:
     def test_rejects_an_unknown_provenance(self) -> None:
         with pytest.raises(ValidationError):
             ExpectedToolCall.model_validate({"tool_name": "x", "provenance": "guessed"})
+
+
+# ---------------------------------------------------------------------------
+# tool_result_fixtures (teacher-forced multi-round replay)
+# ---------------------------------------------------------------------------
+
+
+def _call(name: str, **arguments: Any) -> ExpectedToolCall:
+    return ExpectedToolCall(tool_name=name, arguments=arguments or None)
+
+
+def _agent_ex(**kw: Any) -> SuiteExample:
+    """``_ex`` for tool ground truth: a real toolset ref, not the empty one."""
+    return SuiteExample(toolset_ref=_TOOLSET_REF, **kw)
+
+
+class TestToolResultFixtures:
+    """Recorded tool results ride on the example, aligned by position with
+    ``expected_tool_rounds`` — see
+    ``docs/superpowers/specs/2026-09-09-teacher-forced-replay-design.md``."""
+
+    def test_absent_by_default_and_means_single_shot(self) -> None:
+        ex = _agent_ex(id="e", expected_tool_rounds=[[_call("a")]])
+        assert ex.tool_result_fixtures is None
+        assert ex.rounds_to_replay() == 1
+
+    def test_rounds_to_replay_is_covered_rounds_plus_the_answer_round(self) -> None:
+        ex = _agent_ex(
+            id="e",
+            expected_tool_rounds=[[_call("a"), _call("b")], [_call("c")]],
+            tool_result_fixtures=[
+                [
+                    ToolResultFixture(tool_name="a", result={"ok": 1}),
+                    ToolResultFixture(tool_name="b", result="plain"),
+                ],
+                [ToolResultFixture(tool_name="c", error="boom")],
+            ],
+        )
+        assert ex.rounds_to_replay() == 3
+
+    def test_partial_coverage_replays_through_the_first_uncovered_round(self) -> None:
+        ex = _agent_ex(
+            id="e",
+            expected_tool_rounds=[[_call("a")], [_call("c")]],
+            tool_result_fixtures=[[ToolResultFixture(tool_name="a")]],
+        )
+        assert ex.rounds_to_replay() == 2
+
+    def test_fixture_defaults(self) -> None:
+        fx = ToolResultFixture(tool_name="a")
+        assert fx.result is None
+        assert fx.error is None
+
+    def test_fixtures_require_expected_tool_rounds(self) -> None:
+        with pytest.raises(ValidationError, match="expected_tool_rounds"):
+            _agent_ex(id="e", tool_result_fixtures=[[ToolResultFixture(tool_name="a")]])
+
+    def test_more_fixture_rounds_than_expected_rounds_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="2 round"):
+            _agent_ex(
+                id="e",
+                expected_tool_rounds=[[_call("a")]],
+                tool_result_fixtures=[
+                    [ToolResultFixture(tool_name="a")],
+                    [ToolResultFixture(tool_name="a")],
+                ],
+            )
+
+    def test_round_length_mismatch_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="round 1"):
+            _agent_ex(
+                id="e",
+                expected_tool_rounds=[[_call("a"), _call("b")]],
+                tool_result_fixtures=[[ToolResultFixture(tool_name="a")]],
+            )
+
+    def test_tool_name_mismatch_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match=r"round 1.*position 1"):
+            _agent_ex(
+                id="e",
+                expected_tool_rounds=[[_call("a")]],
+                tool_result_fixtures=[[ToolResultFixture(tool_name="zzz")]],
+            )
+
+    def test_round_trips_through_json(self) -> None:
+        ex = _agent_ex(
+            id="e",
+            expected_tool_rounds=[[_call("a", q=1)]],
+            tool_result_fixtures=[[ToolResultFixture(tool_name="a", result=[1, 2])]],
+        )
+        again = SuiteExample.model_validate_json(ex.model_dump_json())
+        assert again == ex
+        assert again.tool_result_fixtures is not None
+        assert again.tool_result_fixtures[0][0].result == [1, 2]
+
+    def test_fixture_rejects_unknown_keys(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolResultFixture(tool_name="a", call_id="x")  # type: ignore[call-arg]

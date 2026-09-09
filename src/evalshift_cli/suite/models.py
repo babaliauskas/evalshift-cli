@@ -123,6 +123,32 @@ class ExpectedToolCall(_StrictModel):
     provenance: Literal["captured", "reviewed"] = "captured"
 
 
+class ToolResultFixture(_StrictModel):
+    """The recorded result of one ground-truth tool call, for teacher-forced replay.
+
+    Positionally aligned with :attr:`SuiteExample.expected_tool_rounds`:
+    ``tool_result_fixtures[k][i]`` answers ``expected_tool_rounds[k][i]``. No
+    call id lives here -- :class:`ExpectedToolCall` carries none either,
+    because a candidate model invents its own; the runner synthesises one per
+    position when it builds the replayed messages.
+
+    Attributes:
+        tool_name: The tool that produced this result. Must equal the
+            aligned expected call's ``tool_name`` (enforced on the example).
+        result: What the tool returned, verbatim from the capture's
+            ``tool_result`` event. Rendered into the ``tool`` message at
+            dispatch: a ``str`` is sent as-is, anything else as JSON.
+        error: The recorded error, when the call failed. Sent to the
+            candidate as ``{"error": ...}`` -- the recorded agent saw the
+            failure too, and its next round is the ground truth for what to
+            do about it.
+    """
+
+    tool_name: str = Field(min_length=1)
+    result: Any = None
+    error: str | None = None
+
+
 class SuiteExample(_StrictModel):
     """A single row from a golden suite file.
 
@@ -144,6 +170,13 @@ class SuiteExample(_StrictModel):
             into rounds (one list per model turn that emitted tool calls).
             ``None`` for suites promoted before v0.3 or for captures that
             called no tools.
+        tool_result_fixtures: Teacher-forced replay — the recorded results of
+            the calls in ``expected_tool_rounds``, one inner list per covered
+            round, positionally aligned. ``None`` (every suite written before
+            the field existed, and every ``--rounds first`` promotion) means
+            single-shot replay. When present, the runner replays one round
+            per covered round plus the answer round after the last one --
+            see :meth:`rounds_to_replay`.
         expected_tool_count: v0.2 — exact total tool-call count expected.
             Used by the trace-structure evaluator.
         expected_no_tools: v0.2 — set ``True`` when the example expects a
@@ -198,6 +231,9 @@ class SuiteExample(_StrictModel):
     #: the only fair yardstick. Later rounds are retained here for
     #: teacher-forced multi-round replay and for report context.
     expected_tool_rounds: list[list[ExpectedToolCall]] | None = None
+    #: Teacher-forced replay — recorded tool results aligned by position with
+    #: ``expected_tool_rounds``. Written only by ``--rounds all`` promotion.
+    tool_result_fixtures: list[list[ToolResultFixture]] | None = None
     expected_tool_count: int | None = Field(default=None, ge=0)
     expected_no_tools: bool = False
     expected_parallel: bool | None = None
@@ -333,6 +369,54 @@ class SuiteExample(_StrictModel):
                     f"{reason} is incompatible with a non-empty expected_tool_rounds",
                 )
         return self
+
+    @model_validator(mode="after")
+    def _check_tool_result_fixtures_align(self) -> Self:
+        """Reject fixtures that do not line up with ``expected_tool_rounds``.
+
+        Alignment is positional and checked at load time: a fixture the
+        runner would pair with the wrong call, or with no call at all, would
+        otherwise send the candidate a context the recorded agent never saw,
+        and every later round would be scored against a yardstick the
+        candidate could not have reached.
+        """
+        fixtures = self.tool_result_fixtures
+        if fixtures is None:
+            return self
+        rounds = self.expected_tool_rounds
+        if rounds is None:
+            raise ValueError("tool_result_fixtures requires expected_tool_rounds")
+        if len(fixtures) > len(rounds):
+            raise ValueError(
+                f"tool_result_fixtures covers {len(fixtures)} round(s) but "
+                f"expected_tool_rounds has {len(rounds)}",
+            )
+        for k, (fixture_round, expected_round) in enumerate(zip(fixtures, rounds, strict=False)):
+            if len(fixture_round) != len(expected_round):
+                raise ValueError(
+                    f"tool_result_fixtures round {k + 1} has {len(fixture_round)} result(s) "
+                    f"for {len(expected_round)} expected call(s)",
+                )
+            for i, (fixture, call) in enumerate(zip(fixture_round, expected_round, strict=True)):
+                if fixture.tool_name != call.tool_name:
+                    raise ValueError(
+                        f"tool_result_fixtures round {k + 1} position {i + 1} is for "
+                        f"{fixture.tool_name!r} but the expected call there is "
+                        f"{call.tool_name!r}",
+                    )
+        return self
+
+    def rounds_to_replay(self) -> int:
+        """How many model calls a teacher-forced replay of this example makes.
+
+        One for a single-shot example. Otherwise one per round the fixtures
+        cover, plus the round *after* the last covered one: when every tool
+        round is covered that is the answer round, where the recorded agent
+        called nothing and produced its final text.
+        """
+        if self.tool_result_fixtures is None:
+            return 1
+        return len(self.tool_result_fixtures) + 1
 
     @model_validator(mode="after")
     def _check_history_system_message_placement(self) -> Self:
