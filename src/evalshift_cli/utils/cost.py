@@ -197,6 +197,7 @@ def estimate_run_cost(
     completion_tokens: int | None = None,
     per_example_extra_chars: Sequence[int] | None = None,
     per_example_calls: Sequence[int] | None = None,
+    samples_per_example: int = 1,
 ) -> CostEstimate:
     """Estimate the cost of running a (prompts x examples x models) sweep.
 
@@ -227,6 +228,10 @@ def estimate_run_cost(
             len(models)`` rather than one call per example. ``None`` (or
             all-ones) reproduces the estimate exactly as if this parameter
             didn't exist.
+        samples_per_example: ``defaults.samples_per_example`` — every call
+            above is repeated this many times per model, so both the call
+            count and the cost scale by it. ``1`` reproduces the estimate
+            exactly as if this parameter didn't exist.
 
     Returns:
         A :class:`CostEstimate` summarising the math.
@@ -243,7 +248,7 @@ def estimate_run_cost(
     # says otherwise (a teacher-forced replay costs one call per round).
     calls_per_model = (
         sum(list(per_example_calls)[:n_examples]) if per_example_calls is not None else n_examples
-    )
+    ) * samples_per_example
     total_calls = n_prompts * calls_per_model * len(models)
 
     primary_meta = resolve_model(models[0])

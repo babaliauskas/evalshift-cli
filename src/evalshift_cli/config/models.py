@@ -606,6 +606,16 @@ class Defaults(_StrictModel):
             outputs are being truncated (``finish_reason == "length"``);
             truncated calls are excluded from regression stats. A
             ``prompts[].max_tokens`` entry overrides this per prompt.
+        samples_per_example: How many times each ``(prompt, example)`` is
+            dispatched to *each* model. Default ``1``: one call per side.
+            Above ``1`` every sample is a separate live call (the cache keys
+            on the sample index), each sample pair is scored on its own, and
+            the per-example row in ``scores.jsonl`` becomes the mean over
+            samples with the within-pair spread recorded under
+            ``metadata.samples`` — so the statistical ``n`` stays the number
+            of examples and repeated sampling never inflates power. Only
+            worth turning on when a model samples non-deterministically;
+            cost and call count multiply by it.
     """
 
     source_model: str | None = None
@@ -616,6 +626,7 @@ class Defaults(_StrictModel):
     cache: bool = True
     max_cost_usd: float = Field(default=50.0, ge=0.0)
     max_tokens: int = Field(default=4096, gt=0)
+    samples_per_example: int = Field(default=1, ge=1, le=20)
 
 
 class Retention(_StrictModel):

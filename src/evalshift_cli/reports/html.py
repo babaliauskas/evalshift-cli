@@ -499,6 +499,7 @@ def render_html(report: ReportData, *, insight: Insight | None = None) -> str:
         methodology_notes=report.methodology_notes,
         non_deterministic_models=report.non_deterministic_models,
         dropped_params=report.dropped_params,
+        samples_per_example=report.samples_per_example,
         suite_name=_suite_name(report.suite_path),
         source_cost_usd=role_totals["source"]["cost"],
         target_cost_usd=role_totals["target"]["cost"],

@@ -60,6 +60,7 @@ def cache_key(
     generation_config: Mapping[str, Any] | None = None,
     toolset_fingerprint: str | None = None,
     round_index: int | None = None,
+    sample_index: int | None = None,
 ) -> str:
     """Compute the SHA-256 cache key for a call.
 
@@ -101,6 +102,14 @@ def cache_key(
             nothing passes this; it exists so that when tool-call caching
             lands the round dimension is already in the key and no cache
             migration is needed.
+        sample_index: 0-based sample of a repeated-sampling run
+            (``defaults.samples_per_example > 1``). Same inclusion rule as
+            ``round_index``: hashed only when not ``None``, so every
+            single-sample run keeps its pre-existing keys. The orchestrator
+            passes ``None`` whenever ``samples_per_example == 1`` and the real
+            index otherwise — with the cache on, the second sample of an
+            example would otherwise be served from the first's cached
+            response, and repeating the call is the whole point.
     """
     payload: dict[str, Any] = {
         "model_id": model_id,
@@ -117,6 +126,8 @@ def cache_key(
         payload["toolset_fingerprint"] = toolset_fingerprint
     if round_index is not None:
         payload["round_index"] = round_index
+    if sample_index is not None:
+        payload["sample_index"] = sample_index
     serialised = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(serialised.encode("utf-8")).hexdigest()
 

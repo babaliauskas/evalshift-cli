@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `defaults.samples_per_example` (default `1`, max `20`): send every
+  `(prompt, example)` to each model N times. Each sample is its own live call
+  (`raw.jsonl` rows carry `sample_index`; the cache key includes it, so a
+  single-sample run keeps every existing cache entry and resume skips per
+  sample). `evaluate` scores source sample *i* against target sample *i* and
+  folds the samples of one example into one `scores.jsonl` row: the mean
+  `source_score` / `target_score` / `delta` over the samples that scored, the
+  per-sample lists and the population `delta_variance` under
+  `metadata.samples`, and the explanation prefixed `mean of k samples`. The
+  paired tests still run over examples, so `n` is unchanged. The report shows
+  an `N samples per example` pill, `report.json` carries
+  `samples_per_example`, the non-determinism banner suggests the setting on a
+  single-sample run, and example rows (report, bundle, insights, `inspect`)
+  show sample 0. The cost estimate and pre-flight call count multiply by N.
 - Teacher-forced multi-round replay. `capture promote` / `capture sync
   --rounds all` now carry the recorded tool results on the promoted example as
   `tool_result_fixtures` — one inner list per covered round, positionally

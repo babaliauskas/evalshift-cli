@@ -11,7 +11,8 @@ This is the place where every Phase 0-3 piece comes together:
    the threshold (skip with ``--yes``).
 5. Open the local cache (Phase 3.3) and the model client (Phase 3.4).
 6. Build the work list (one :class:`WorkItem` per
-   ``(prompt x example x {source, target})``).
+   ``(prompt x example x {source, target} x sample)`` — one sample unless
+   ``defaults.samples_per_example`` asks for repeats).
 7. Skip work items already recorded in ``raw.jsonl`` (resume support).
 8. Process the rest under a concurrency semaphore, writing each
    completed :class:`Call` to disk and checkpointing the run state
@@ -103,8 +104,10 @@ class WorkItem:
     ``tool_result_fixtures``, which is replayed teacher-forced over
     :meth:`SuiteExample.rounds_to_replay` rounds — one call per round, merged
     into the one :class:`Call` this item produces. Either way a ``WorkItem``
-    maps 1:1 to a ``(prompt, example, role)`` row of ``raw.jsonl``, which is
-    what resume, evaluate pairing and the progress bar all count.
+    maps 1:1 to a ``(prompt, example, role, sample)`` row of ``raw.jsonl``,
+    which is what resume, evaluate pairing and the progress bar all count.
+    ``sample_index`` is ``0`` unless ``defaults.samples_per_example`` repeats
+    the example, in which case each repeat is its own item.
 
     When ``tools`` is non-empty, the orchestrator dispatches to
     ``ModelClient.complete_with_tools`` and the resulting :class:`Call`
@@ -122,6 +125,7 @@ class WorkItem:
     model_id: str  # canonical id, post-alias resolution
     tools: tuple[ToolSpec, ...] = ()
     max_tokens: int | None = None  # effective cap; None → registry default
+    sample_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,8 +273,11 @@ async def run_orchestrator(
         canonical_target=canonical_target,
         tools_by_example=tools_by_example,
         max_tokens_by_prompt=max_tokens_by_prompt,
+        samples_per_example=config.defaults.samples_per_example,
     )
-    pending = [w for w in work if (w.prompt.id, w.example.id, w.role) not in completed_keys]
+    pending = [
+        w for w in work if (w.prompt.id, w.example.id, w.role, w.sample_index) not in completed_keys
+    ]
 
     # Cost estimate + confirmation. We only show the prompt for *new*
     # runs above the threshold; a resume is implicitly already approved.
@@ -280,6 +287,7 @@ async def run_orchestrator(
             suite=suite,
             canonical_source=canonical_source,
             canonical_target=canonical_target,
+            samples_per_example=config.defaults.samples_per_example,
         )
         if (
             not yes
@@ -308,6 +316,7 @@ async def run_orchestrator(
             total=len(work),
             concurrency=config.defaults.concurrency,
             cache_enabled=config.defaults.cache,
+            samples_per_example=config.defaults.samples_per_example,
             on_progress=on_progress,
         )
     finally:
@@ -363,11 +372,13 @@ def preflight_cost(
         suite=suite,
         canonical_source=canonical_source,
         canonical_target=canonical_target,
+        samples_per_example=config.defaults.samples_per_example,
     )
     # LLM calls, not ``Call`` rows: a teacher-forced example costs one call per
     # replayed round. ``_estimate`` already computed exactly that shape
-    # (``n_prompts x sum(rounds_to_replay) x 2``), so read it off there rather
-    # than recomputing ``len(templates) * len(suite) * 2`` and drifting.
+    # (``n_prompts x sum(rounds_to_replay) x 2 x samples_per_example``), so read
+    # it off there rather than recomputing ``len(templates) * len(suite) * 2``
+    # and drifting.
     return CostPlan(
         estimated_usd=estimate.estimated_usd,
         total_calls=estimate.total_calls,
@@ -556,7 +567,7 @@ def _setup_run(
     run_slug: str | None = None,
     suite_name: str | None = None,
     tools_by_example: Mapping[str, Sequence[ToolSpec]] | None = None,
-) -> tuple[Path, RunState, set[tuple[str, str, str]]]:
+) -> tuple[Path, RunState, set[tuple[str, str, str, int]]]:
     """Create a fresh run directory or resume the latest in-progress one."""
     if resume:
         existing = find_latest_in_progress(runs_base)
@@ -569,7 +580,8 @@ def _setup_run(
 
     run_id = generate_run_id(suite_slug=run_slug)
     run_dir = run_dir_for(run_id, runs_base)
-    total = len(templates) * len(suite) * 2  # source + target
+    samples = config.defaults.samples_per_example
+    total = len(templates) * len(suite) * 2 * samples  # (source + target) x samples
     state = RunState(
         run_id=run_id,
         config_hash=config_hash,
@@ -579,6 +591,7 @@ def _setup_run(
         suite_path=str(suite_path),
         suite_name=suite_name,
         total_evaluations=total,
+        samples_per_example=samples,
         non_deterministic_models=detect_non_deterministic_models(
             source=canonical_source,
             target=canonical_target,
@@ -782,7 +795,15 @@ def _build_work_list(
     # signature, not just the docstring.
     tools_by_example: Mapping[str, tuple[ToolSpec, ...]],
     max_tokens_by_prompt: dict[str, int] | None = None,
+    samples_per_example: int = 1,
 ) -> list[WorkItem]:
+    """One item per ``(prompt, example, role, sample)``.
+
+    ``samples_per_example`` (``defaults.samples_per_example``) repeats every
+    ``(prompt, example)`` that many times per role, ``sample_index`` running
+    ``0..N-1``. The default of ``1`` reproduces the single-sample list
+    exactly.
+    """
     max_tokens_by_prompt = max_tokens_by_prompt or {}
 
     work: list[WorkItem] = []
@@ -790,26 +811,29 @@ def _build_work_list(
         max_tokens = max_tokens_by_prompt.get(tmpl.id)
         for example in suite.examples:
             tools = tools_by_example[example.id]
-            work.append(
-                WorkItem(
-                    prompt=tmpl,
-                    example=example,
-                    role="source",
-                    model_id=canonical_source,
-                    tools=tools,
-                    max_tokens=max_tokens,
-                ),
-            )
-            work.append(
-                WorkItem(
-                    prompt=tmpl,
-                    example=example,
-                    role="target",
-                    model_id=canonical_target,
-                    tools=tools,
-                    max_tokens=max_tokens,
-                ),
-            )
+            for sample_index in range(samples_per_example):
+                work.append(
+                    WorkItem(
+                        prompt=tmpl,
+                        example=example,
+                        role="source",
+                        model_id=canonical_source,
+                        tools=tools,
+                        max_tokens=max_tokens,
+                        sample_index=sample_index,
+                    ),
+                )
+                work.append(
+                    WorkItem(
+                        prompt=tmpl,
+                        example=example,
+                        role="target",
+                        model_id=canonical_target,
+                        tools=tools,
+                        max_tokens=max_tokens,
+                        sample_index=sample_index,
+                    ),
+                )
     return work
 
 
@@ -819,6 +843,7 @@ def _estimate(
     suite: Suite,
     canonical_source: str,
     canonical_target: str,
+    samples_per_example: int = 1,
 ) -> CostEstimate:
     # Pick the longest-looking template as the representative for the
     # estimate so we err on the side of an over-estimate.
@@ -848,6 +873,8 @@ def _estimate(
         # SuiteExample.rounds_to_replay). Every example is 1 unless its
         # fixtures ask for a teacher-forced loop.
         per_example_calls=[e.rounds_to_replay() for e in suite.examples],
+        # Every one of those calls repeats per sample (defaults.samples_per_example).
+        samples_per_example=samples_per_example,
     )
 
 
@@ -1042,9 +1069,16 @@ async def _process_work(
     total: int,
     concurrency: int,
     cache_enabled: bool,
+    samples_per_example: int = 1,
     on_progress: Callable[[ProgressEvent], None] | None = None,
 ) -> RunResult:
-    """Process every pending work item under the concurrency semaphore."""
+    """Process every pending work item under the concurrency semaphore.
+
+    ``samples_per_example`` decides whether the cache key carries the sample
+    dimension: on a single-sample run it must not, so every existing cache
+    entry stays valid; on a repeated-sampling run it must, or every sample
+    after the first would be served from the first's cached response.
+    """
     sem = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
     completed = already_done
@@ -1089,6 +1123,7 @@ async def _process_work(
                 item=item,
                 prompt_text=prompt_text,
                 cache_enabled=cache_enabled,
+                cache_sample_index=item.sample_index if samples_per_example > 1 else None,
             )
 
             async with write_lock:
@@ -1162,8 +1197,13 @@ async def _execute(
     item: WorkItem,
     prompt_text: str,
     cache_enabled: bool,
+    cache_sample_index: int | None = None,
 ) -> Call:
     """Cache-check → live call → record. Returns the constructed Call.
+
+    ``cache_sample_index`` is the sample dimension of the cache key: ``None``
+    on a single-sample run (keys unchanged), ``item.sample_index`` when
+    ``defaults.samples_per_example > 1`` so each sample is its own live call.
 
     For agent-style work items (``item.tools`` non-empty), dispatches to
     :meth:`ModelClient.complete_with_tools` and stores the parsed
@@ -1224,6 +1264,7 @@ async def _execute(
         # v0.2), so nothing passes a real round today — the key's round
         # dimension exists so tool-call caching can land without a migration.
         round_index=None,
+        sample_index=cache_sample_index,
     )
 
     if cache_enabled:
@@ -1240,6 +1281,7 @@ async def _execute(
                 example_id=item.example.id,
                 model_id=meta.id,
                 role=item.role,
+                sample_index=item.sample_index,
                 text=hit.response_text,
                 input_tokens=hit.input_tokens,
                 output_tokens=hit.output_tokens,
@@ -1273,6 +1315,7 @@ async def _execute(
             example_id=item.example.id,
             model_id=meta.id,
             role=item.role,
+            sample_index=item.sample_index,
             error=str(exc),
         )
 
@@ -1282,6 +1325,7 @@ async def _execute(
         example_id=item.example.id,
         model_id=meta.id,
         role=item.role,
+        sample_index=item.sample_index,
         text=result.text,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
@@ -1388,6 +1432,7 @@ async def _execute_with_tools(
                 example_id=item.example.id,
                 model_id=canonical_id,
                 role=item.role,
+                sample_index=item.sample_index,
                 error=f"round {round_index + 1}/{rounds}: {exc}" if rounds > 1 else str(exc),
             )
 
@@ -1438,6 +1483,7 @@ async def _execute_with_tools(
         example_id=item.example.id,
         model_id=canonical_id,
         role=item.role,
+        sample_index=item.sample_index,
         text=trace.final_text or "",
         input_tokens=input_tokens,
         output_tokens=output_tokens,

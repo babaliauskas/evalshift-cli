@@ -7,7 +7,7 @@ from pathlib import Path
 from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
 from evalshift_cli.evaluators.base import EvalRecord
 from evalshift_cli.runner.checkpoint import iter_calls, run_dir_for
-from evalshift_cli.runner.models import Call
+from evalshift_cli.runner.models import Call, representative_calls
 from evalshift_cli.traces.loader import TRACES_FILENAME, load_traces_jsonl
 from evalshift_cli.traces.models import AgentTrace
 
@@ -25,9 +25,13 @@ def load_scores(run_dir: Path) -> list[EvalRecord]:
 
 
 def calls_for_example(run_dir: Path, example_id: str) -> dict[str, Call]:
-    """Return source/target calls for one example id."""
+    """Return source/target calls for one example id.
+
+    Sample 0's on a repeated-sampling run (``defaults.samples_per_example``):
+    the debug views show one output per side.
+    """
     out: dict[str, Call] = {}
-    for call in iter_calls(run_dir):
+    for call in representative_calls(iter_calls(run_dir)):
         if call.example_id == example_id:
             out[call.role] = call
     return out

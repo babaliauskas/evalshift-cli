@@ -2031,3 +2031,214 @@ class TestTeacherForcedRunnerLoop:
         for row in iter_calls(result.run_dir):
             assert row.trace is not None
             assert row.trace.round_count == 1
+
+
+# ---------------------------------------------------------------------------
+# samples_per_example (Task 7.1) — repeated sampling per example
+# ---------------------------------------------------------------------------
+
+
+def _template() -> Any:
+    from evalshift_cli.parsers.manual import ManualParser
+
+    return ManualParser().parse(_config().prompts[0], Path("."))
+
+
+class TestSamplesWorkList:
+    def test_default_emits_one_sample_per_role(self) -> None:
+        suite = _suite(n=2)
+        work = _build_work_list(
+            templates=[_template()],
+            suite=suite,
+            canonical_source="src",
+            canonical_target="tgt",
+            tools_by_example={e.id: () for e in suite.examples},
+        )
+        assert len(work) == 4
+        assert {w.sample_index for w in work} == {0}
+
+    def test_three_samples_emit_three_items_per_role(self) -> None:
+        suite = _suite(n=2)
+        work = _build_work_list(
+            templates=[_template()],
+            suite=suite,
+            canonical_source="src",
+            canonical_target="tgt",
+            tools_by_example={e.id: () for e in suite.examples},
+            samples_per_example=3,
+        )
+        assert len(work) == 12
+        per_example_role = sorted(
+            (w.example.id, w.role, w.sample_index) for w in work if w.example.id == "ex0"
+        )
+        assert per_example_role == [
+            ("ex0", "source", 0),
+            ("ex0", "source", 1),
+            ("ex0", "source", 2),
+            ("ex0", "target", 0),
+            ("ex0", "target", 1),
+            ("ex0", "target", 2),
+        ]
+
+
+def _config_with_samples(samples: int) -> EvalShiftConfig:
+    return EvalShiftConfig(
+        prompts=list(_config().prompts),
+        defaults=Defaults(concurrency=4, max_cost_usd=100.0, samples_per_example=samples),
+    )
+
+
+class TestSamplesRun:
+    async def test_run_dispatches_every_sample_live_and_records_the_index(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        """With the cache on, sample 1 must not be served from sample 0's
+        response — that is the whole point of repeating the call."""
+        counter = _make_fake_client(monkeypatch)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+
+        result = await run_orchestrator(
+            config=_config_with_samples(2),
+            config_path=config_path,
+            suite=_suite(n=2),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        # 1 prompt x 2 examples x 2 samples x 2 models
+        assert result.total_calls == 8
+        assert result.completed_calls == 8
+        assert counter["calls"] == 8
+        assert result.cached_calls == 0
+
+        state = read_state(result.run_dir)
+        assert state.samples_per_example == 2
+        assert state.total_evaluations == 8
+
+        rows = list(iter_calls(result.run_dir))
+        assert sorted((r.example_id, r.role, r.sample_index) for r in rows) == sorted(
+            (ex, role, s) for ex in ("ex0", "ex1") for role in ("source", "target") for s in (0, 1)
+        )
+
+    async def test_single_sample_run_still_hits_the_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        """N == 1 keys exactly as before: a second identical run is all cache hits."""
+        counter = _make_fake_client(monkeypatch)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+        kwargs: dict[str, Any] = {
+            "config": _config_with_samples(1),
+            "config_path": config_path,
+            "suite": _suite(n=2),
+            "suite_path": suite_path,
+            "source_model": "gemini-2.5-flash",
+            "target_model": "gemini-2.5-pro",
+            "runs_base": runs_base,
+            "yes": True,
+            "cache": cache,
+        }
+        await run_orchestrator(**kwargs)
+        second = await run_orchestrator(**kwargs)
+        assert counter["calls"] == 4
+        assert second.cached_calls == 4
+
+    async def test_resume_skips_by_sample_index(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        from datetime import datetime
+
+        from evalshift_cli.runner import checkpoint as cp_mod
+        from evalshift_cli.runner.models import Call, RunModels, RunState
+
+        config = _config_with_samples(2)
+        suite = _suite(n=1)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+
+        run_dir = runs_base / "r_20260601_dead00"
+        state = RunState(
+            run_id="r_20260601_dead00",
+            status="in_progress",
+            config_hash=cp_mod.compute_config_hash(config, str(suite_path)),
+            started_at=datetime(2026, 6, 1, tzinfo=UTC),
+            models=RunModels(source="gemini/gemini-2.5-flash", target="gemini/gemini-2.5-pro"),
+            prompt_ids=["greet"],
+            suite_path=str(suite_path),
+            total_evaluations=4,
+            completed_evaluations=3,
+            samples_per_example=2,
+        )
+        cp_mod.write_state(run_dir, state)
+        for role, sample in (("source", 0), ("source", 1), ("target", 0)):
+            cp_mod.append_call(
+                run_dir,
+                Call(
+                    run_id="r_20260601_dead00",
+                    prompt_id="greet",
+                    example_id="ex0",
+                    model_id="gemini/gemini-2.5-flash"
+                    if role == "source"
+                    else "gemini/gemini-2.5-pro",
+                    role=role,  # type: ignore[arg-type]
+                    text="from previous run",
+                    sample_index=sample,
+                ),
+            )
+        counter = _make_fake_client(monkeypatch)
+
+        result = await run_orchestrator(
+            config=config,
+            config_path=config_path,
+            suite=suite,
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            resume=True,
+            yes=True,
+            cache=cache,
+        )
+
+        assert counter["calls"] == 1
+        assert result.completed_calls == 4
+        rows = list(iter_calls(result.run_dir))
+        assert sorted((r.role, r.sample_index) for r in rows) == [
+            ("source", 0),
+            ("source", 1),
+            ("target", 0),
+            ("target", 1),
+        ]
+
+    def test_preflight_cost_counts_samples(self, tmp_path: Path) -> None:
+        from evalshift_cli.runner.orchestrator import preflight_cost
+
+        config_path, _suite_path, _runs_base = _writeable_paths(tmp_path)
+        one = preflight_cost(
+            config=_config_with_samples(1),
+            config_path=config_path,
+            suite=_suite(n=3),
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+        )
+        three = preflight_cost(
+            config=_config_with_samples(3),
+            config_path=config_path,
+            suite=_suite(n=3),
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+        )
+        assert one.total_calls == 6
+        assert three.total_calls == 18
+        assert three.estimated_usd == pytest.approx(one.estimated_usd * 3)

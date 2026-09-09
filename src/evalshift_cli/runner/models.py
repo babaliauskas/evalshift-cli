@@ -25,6 +25,7 @@ and not per round — because:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Literal
 
@@ -176,6 +177,11 @@ class RunState(_StrictModel):
             written by the ``evaluate`` stage rather than the orchestrator —
             it is the one piece of run-level state only scoring knows. Empty
             until the run has been scored. See :class:`EvaluatorCoverage`.
+        samples_per_example: ``defaults.samples_per_example`` at run start —
+            how many :class:`Call` rows each ``(prompt, example, role)`` has.
+            Recorded so evaluate and report can read the run's shape without
+            the config that launched it. ``1`` for every run made before the
+            field existed.
     """
 
     run_id: str = Field(min_length=1)
@@ -201,6 +207,9 @@ class RunState(_StrictModel):
     # finishes. Defaulted because every state.json is written by the
     # orchestrator first, long before any evaluator has run.
     evaluator_coverage: list[EvaluatorCoverage] = Field(default_factory=list)
+    # Defaulted so state.json files written before this field existed still
+    # load under extra="forbid".
+    samples_per_example: int = Field(default=1, ge=1)
 
 
 class Call(_StrictModel):
@@ -226,6 +235,12 @@ class Call(_StrictModel):
         example_id: Suite example whose inputs were rendered.
         model_id: Canonical id of the model that was called.
         role: ``"source"`` or ``"target"``.
+        sample_index: Which repeat of this ``(prompt, example, role)`` the
+            row is, ``0``-based (see ``defaults.samples_per_example``).
+            Always ``0`` on a single-sample run, and on every row written
+            before the field existed. Part of the resume key and of the
+            evaluate stage's pairing key: sample *i* of the source is scored
+            against sample *i* of the target.
         text: The model's response text — the *last* round's, for a
             multi-round replay. Empty string on error.
         input_tokens / output_tokens: From the provider response, summed
@@ -255,6 +270,8 @@ class Call(_StrictModel):
     example_id: str
     model_id: str
     role: CallRole
+    # Defaulted so pre-existing raw.jsonl lines still validate on resume.
+    sample_index: int = Field(default=0, ge=0)
     text: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
@@ -284,6 +301,25 @@ class Call(_StrictModel):
         return self.finish_reason == "length"
 
 
+def representative_calls(calls: Iterable[Call]) -> list[Call]:
+    """The one call per ``(prompt, example, role)`` a consumer should display.
+
+    Every consumer that shows *an* output per example — the report's example
+    rows, the bundle, the insights facts, ``inspect`` — reads sample ``0``,
+    in the order the rows were written. On a single-sample run this is the
+    whole list, unchanged. Totals (cost, tokens, call counts) must keep
+    summing over every row; this is for the places that would otherwise
+    overwrite one sample with another in a dict keyed by role.
+
+    Args:
+        calls: Rows of ``raw.jsonl``, in any order.
+
+    Returns:
+        The rows whose ``sample_index`` is ``0``.
+    """
+    return [c for c in calls if c.sample_index == 0]
+
+
 __all__ = [
     "Call",
     "CallRole",
@@ -292,4 +328,5 @@ __all__ = [
     "RunState",
     "RunStatus",
     "UnmeasuredPair",
+    "representative_calls",
 ]

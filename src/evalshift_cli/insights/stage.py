@@ -46,7 +46,7 @@ from evalshift_cli.models.client import ModelClient
 from evalshift_cli.models.registry import PROVIDER_ENV_VARS, resolve_model
 from evalshift_cli.reports.economics import build_economics
 from evalshift_cli.runner.checkpoint import iter_calls, read_state
-from evalshift_cli.runner.models import Call, RunState
+from evalshift_cli.runner.models import Call, RunState, representative_calls
 from evalshift_cli.suite.loader import SuiteError, load_jsonl
 from evalshift_cli.suite.models import Suite
 
@@ -333,7 +333,8 @@ def _example_facts(
         for example in suite.examples
     }
     texts: dict[tuple[str, str], dict[str, str]] = {}
-    for call in calls:
+    # Sample 0's text on a repeated-sampling run; the fact is one per example.
+    for call in representative_calls(calls):
         texts.setdefault((call.prompt_id, call.example_id), {})[call.role] = call.text
     worst: dict[tuple[str, str], float] = {}
     for score in scores:

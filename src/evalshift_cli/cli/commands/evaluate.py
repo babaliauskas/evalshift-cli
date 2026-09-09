@@ -1,9 +1,19 @@
 """Implementation of ``evalshift evaluate <run-id>``.
 
 Loads ``raw.jsonl`` from a completed run, pairs source and target calls
-by ``(prompt_id, example_id)``, runs every configured evaluator, and
-appends one :class:`EvalRecord` per (pair x evaluator) to
-``scores.jsonl``.
+by ``(prompt_id, example_id, sample_index)``, runs every configured
+evaluator, and appends one :class:`EvalRecord` per (example x evaluator)
+to ``scores.jsonl``.
+
+A repeated-sampling run (``defaults.samples_per_example > 1``) has several
+sample pairs per example. Each is scored on its own, exactly as a
+single-sample pair is, and the cells are then folded back to **one row per
+example**: the scores become the mean over the successful samples, with
+the per-sample values and the within-pair variance kept under
+``metadata.samples``. Every downstream consumer — analysis, policy,
+slicing, report, bundle — therefore still sees one row per example, so the
+statistical ``n`` stays the number of examples and repeated sampling
+never inflates power. See :func:`_reduce_sample_cells`.
 
 Failed source or target calls (those with ``error != None`` in
 ``raw.jsonl``) are recorded with ``error="upstream call failed"`` and a
@@ -28,9 +38,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -94,12 +104,18 @@ SCORES_FILENAME: str = "scores.jsonl"
 
 @dataclass(frozen=True, slots=True)
 class _PairedCalls:
-    """Source + target calls for one (prompt, example) pair."""
+    """Source + target calls for one (prompt, example, sample) pair.
+
+    ``sample_index`` is ``0`` on a single-sample run. On a repeated-sampling
+    run sample *i* of the source is paired with sample *i* of the target —
+    never cross-sample — so each pair is a like-for-like comparison.
+    """
 
     prompt_id: str
     example_id: str
     source: Call
     target: Call
+    sample_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +135,9 @@ class _ScoredCell:
     kind: str
     record: EvalRecord | None
     blocking: bool = True
+    #: Which sample pair produced the cell; ``0`` after
+    #: :func:`_reduce_sample_cells` has folded the samples of one example.
+    sample_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +147,7 @@ class EvaluateResult:
     run_id: str
     output_path: Path
     n_records: int
+    #: Distinct ``(prompt, example)`` pairs scored — not sample pairs.
     n_pairs: int
     evaluator_names: tuple[str, ...]
     #: Per-(evaluator, axis) attempted-vs-recorded counts, also persisted
@@ -256,7 +276,7 @@ def run_evaluate(
         run_id=run_id,
         output_path=output_path,
         n_records=len(records),
-        n_pairs=len(pairs),
+        n_pairs=len({(pair.prompt_id, pair.example_id) for pair in pairs}),
         evaluator_names=tuple(e.name for e in evaluators),
         coverage=tuple(coverage),
         harness_check=harness_check,
@@ -526,12 +546,19 @@ def _is_agent_trace_evaluator(evaluator: Evaluator) -> bool:
 
 
 def _pair_calls(run_dir: Path) -> list[_PairedCalls]:
-    by_key: dict[tuple[str, str], dict[str, Call]] = {}
+    """Pair each source row with the target row of the same sample.
+
+    Sorted by ``(prompt_id, example_id, sample_index)``, so the samples of
+    one example are adjacent and in order — which is what lets
+    :func:`_reduce_sample_cells` keep ``scores.jsonl`` in the same
+    example-major order a single-sample run writes.
+    """
+    by_key: dict[tuple[str, str, int], dict[str, Call]] = {}
     for call in iter_calls(run_dir):
-        key = (call.prompt_id, call.example_id)
+        key = (call.prompt_id, call.example_id, call.sample_index)
         by_key.setdefault(key, {})[call.role] = call
     pairs: list[_PairedCalls] = []
-    for (prompt_id, example_id), sides in sorted(by_key.items()):
+    for (prompt_id, example_id, sample_index), sides in sorted(by_key.items()):
         if "source" in sides and "target" in sides:
             pairs.append(
                 _PairedCalls(
@@ -539,6 +566,7 @@ def _pair_calls(run_dir: Path) -> list[_PairedCalls]:
                     example_id=example_id,
                     source=sides["source"],
                     target=sides["target"],
+                    sample_index=sample_index,
                 ),
             )
     return pairs
@@ -696,7 +724,110 @@ async def _score_all(
         per_combination = await asyncio.gather(
             *(_score_bounded(pair, evaluator) for pair, evaluator in work),
         )
-    return [cell for cells in per_combination for cell in cells]
+    return _reduce_sample_cells([cell for cells in per_combination for cell in cells])
+
+
+def _reduce_sample_cells(cells: list[_ScoredCell]) -> list[_ScoredCell]:
+    """Fold the per-sample cells of each example into one cell.
+
+    Grouped by ``(prompt_id, example_id, evaluator_name, kind)`` in
+    first-seen order — pair-major input keeps the output example-major, the
+    order a single-sample run already writes. A group of one cell (every
+    group on a single-sample run, and every agent-trace cell) is returned
+    untouched, so ``scores.jsonl`` is byte-identical to before repeated
+    sampling existed.
+
+    For a group of several samples:
+
+    * samples that measured nothing (no record) are ignored; a group with no
+      record at all stays one recordless cell, so coverage still counts the
+      example as attempted and unmeasured;
+    * ``source_score`` / ``target_score`` / ``delta`` are the means over the
+      samples that scored without error;
+    * ``metadata`` is the first successful sample's, plus ``samples`` —
+      ``n`` (sample pairs attempted), ``scored`` (without error), the three
+      per-sample lists, and ``delta_variance`` (population variance of the
+      deltas, ``0.0`` for one);
+    * ``explanation`` is the first successful sample's, prefixed with
+      ``mean of k samples``;
+    * ``error`` is set only when every scored sample errored, joining the
+      distinct messages; the neutral 0.5/0.5 row is kept.
+
+    Args:
+        cells: One cell per ``(sample pair x evaluator axis)``.
+
+    Returns:
+        One cell per ``(example x evaluator axis)``, ``sample_index`` 0.
+    """
+    groups: dict[tuple[str, str, str, str], list[_ScoredCell]] = {}
+    for cell in cells:
+        key = (cell.prompt_id, cell.example_id, cell.evaluator_name, cell.kind)
+        groups.setdefault(key, []).append(cell)
+    return [_reduce_one_group(group) for group in groups.values()]
+
+
+def _reduce_one_group(group: list[_ScoredCell]) -> _ScoredCell:
+    if len(group) == 1:
+        return group[0]
+    first = group[0]
+    records = [cell.record for cell in group if cell.record is not None]
+    if not records:
+        return replace(first, record=None, sample_index=0)
+
+    successful = [record for record in records if record.error is None]
+    if not successful:
+        errors = list(dict.fromkeys(record.error for record in records if record.error))
+        reduced = records[0].model_copy(
+            update={
+                "error": "; ".join(errors),
+                "metadata": {
+                    **records[0].metadata,
+                    "samples": _samples_metadata(len(group), []),
+                },
+            },
+        )
+        return replace(first, record=reduced, sample_index=0)
+
+    lead = successful[0]
+    explanation = f"mean of {len(successful)} samples"
+    if lead.explanation:
+        explanation = f"{explanation} · {lead.explanation}"
+    reduced = lead.model_copy(
+        update={
+            "source_score": _mean([r.source_score for r in successful]),
+            "target_score": _mean([r.target_score for r in successful]),
+            "delta": _mean([r.delta for r in successful]),
+            "explanation": explanation,
+            "metadata": {
+                **lead.metadata,
+                "samples": _samples_metadata(len(group), successful),
+            },
+        },
+    )
+    return replace(first, record=reduced, sample_index=0)
+
+
+def _samples_metadata(n: int, successful: list[EvalRecord]) -> dict[str, Any]:
+    deltas = [r.delta for r in successful]
+    return {
+        "n": n,
+        "scored": len(successful),
+        "source_scores": [r.source_score for r in successful],
+        "target_scores": [r.target_score for r in successful],
+        "deltas": deltas,
+        "delta_variance": _population_variance(deltas),
+    }
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values)
+
+
+def _population_variance(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = _mean(values)
+    return sum((v - mean) ** 2 for v in values) / len(values)
 
 
 def _cells_for(
@@ -732,6 +863,7 @@ def _cells_for(
             kind=kind,
             record=record,
             blocking=_evaluator_blocking(evaluator),
+            sample_index=pair.sample_index,
         )
         for kind, record in by_kind.items()
     ]
@@ -754,9 +886,11 @@ async def _score_agent_traces(
         traces = load_traces_jsonl(traces_path)
     except TraceLoadError as exc:
         raise EvaluatorError(str(exc)) from exc
+    # Imported traces have no sample dimension: one trace pair per example,
+    # however many sample pairs the run produced.
     trace_pairs = pairs_for_prompt_examples(
         traces,
-        prompt_examples=[(pair.prompt_id, pair.example_id) for pair in pairs],
+        prompt_examples=list(dict.fromkeys((pair.prompt_id, pair.example_id) for pair in pairs)),
     )
     cells: list[_ScoredCell] = []
     for trace_pair in trace_pairs:

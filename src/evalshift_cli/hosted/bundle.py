@@ -44,7 +44,7 @@ from evalshift_cli.runner.checkpoint import (
     read_state,
     run_dir_for,
 )
-from evalshift_cli.runner.models import Call
+from evalshift_cli.runner.models import Call, representative_calls
 from evalshift_cli.suite.loader import SuiteError, load_jsonl
 from evalshift_cli.suite.models import Suite, SuiteExample
 
@@ -359,8 +359,10 @@ def _build_examples(
     target minus source, with latency forced to 0 and flagged as
     incomparable whenever either side replayed from cache.
     """
+    # One output per (prompt, example, role) — sample 0 on a repeated-sampling
+    # run — so a later sample never overwrites the one shown.
     calls_by_pair: dict[tuple[str, str], dict[str, Call]] = defaultdict(dict)
-    for call in calls:
+    for call in representative_calls(calls):
         calls_by_pair[(call.prompt_id, call.example_id)][call.role] = call
     scores_by_pair: dict[tuple[str, str], list[EvalRecord]] = defaultdict(list)
     for score in scores:

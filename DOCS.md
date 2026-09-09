@@ -329,6 +329,7 @@ suites: {}
 | `cache` | `true` | Use the SQLite response cache |
 | `max_cost_usd` | `50.0` | Soft ceiling reserved for future enforcement — not yet enforced at run time. The pre-flight cost prompt currently triggers above $10 (skip with `--yes`) |
 | `max_tokens` | `4096` | Completion cap per call (per-prompt `prompts[].max_tokens` overrides). Truncated calls are excluded from the regression statistics |
+| `samples_per_example` | `1` (1–20) | Repeats each (prompt, example) this many times per model. Each sample pair is scored on its own; `scores.jsonl` keeps one row per example holding the mean over samples, with the per-sample scores and `delta_variance` under `metadata.samples`. Paired tests run over examples, so `n` is unchanged. Cost and calls multiply by it; the cache keys on the sample index so every sample is a live call |
 
 ### `slices`
 

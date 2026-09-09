@@ -35,7 +35,7 @@ from evalshift_cli.reports.economics import (
     role_economics_to_dict,
 )
 from evalshift_cli.runner.checkpoint import iter_calls, read_state
-from evalshift_cli.runner.models import Call
+from evalshift_cli.runner.models import Call, representative_calls
 from evalshift_cli.suite.loader import SuiteError, load_jsonl
 from evalshift_cli.suite.models import Suite, SuiteExample
 from evalshift_cli.traces.diff import TraceDiff, diff_traces
@@ -254,6 +254,10 @@ class ReportData:
     # Canonical model id -> generation parameters LiteLLM dropped on that arm
     # because the model does not accept them; drives the second banner.
     dropped_params: dict[str, list[str]] = field(default_factory=dict)
+    # ``defaults.samples_per_example`` the run was made with: how many
+    # ``raw.jsonl`` rows each (prompt, example, role) has. Every example row
+    # below shows sample 0; the totals above count every sample.
+    samples_per_example: int = 1
 
 
 def build_report_payload(
@@ -318,6 +322,7 @@ def build_report_payload(
         methodology_notes=methodology_notes(state),
         non_deterministic_models=list(state.non_deterministic_models),
         dropped_params={k: list(v) for k, v in state.dropped_params.items()},
+        samples_per_example=state.samples_per_example,
     )
 
 
@@ -449,6 +454,9 @@ def _build_prompt_sections(
     tool_evaluator_names: frozenset[str],
     agent_traces: dict[TraceKey, AgentTrace],
 ) -> list[PromptSection]:
+    # One displayed output per (prompt, example, role): sample 0. Keyed by
+    # role below, so every sample must not overwrite the one before it.
+    calls = representative_calls(calls)
     by_prompt_calls: dict[tuple[str, str], dict[str, Call]] = {}
     for c in calls:
         by_prompt_calls.setdefault((c.prompt_id, c.example_id), {})[c.role] = c
@@ -1030,6 +1038,7 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
         "methodology_notes": report.methodology_notes,
         "non_deterministic_models": report.non_deterministic_models,
         "dropped_params": report.dropped_params,
+        "samples_per_example": report.samples_per_example,
     }
 
 

@@ -35,6 +35,7 @@ def _scaffold_full_run(
     *,
     non_deterministic_models: list[str] | None = None,
     dropped_params: dict[str, list[str]] | None = None,
+    samples_per_example: int = 1,
 ) -> tuple[Path, str]:
     """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json."""
     run_id = "r_20260601_aaaaaa"
@@ -66,44 +67,51 @@ def _scaffold_full_run(
             completed_evaluations=4,
             non_deterministic_models=non_deterministic_models or [],
             dropped_params=dropped_params or {},
+            samples_per_example=samples_per_example,
         ),
     )
 
-    # raw.jsonl with two pairs.
+    # raw.jsonl with two pairs (times ``samples_per_example`` samples each; a
+    # later sample's text is suffixed so a consumer that shows the wrong one
+    # is caught).
     for ex_id, src_text, tgt_text in (
         ("ex1", "Hello there!", "Hi"),
         ("ex2", "Greetings, friend.", "yo"),
     ):
-        append_call(
-            run_dir,
-            Call(
-                run_id=run_id,
-                prompt_id="greet",
-                example_id=ex_id,
-                model_id="gemini/gemini-2.5-flash",
-                role="source",
-                text=src_text,
-                cost_usd=0.0001,
-                latency_ms=100,
-                input_tokens=20,
-                output_tokens=10,
-            ),
-        )
-        append_call(
-            run_dir,
-            Call(
-                run_id=run_id,
-                prompt_id="greet",
-                example_id=ex_id,
-                model_id="gemini/gemini-2.5-pro",
-                role="target",
-                text=tgt_text,
-                cost_usd=0.0002,
-                latency_ms=120,
-                input_tokens=22,
-                output_tokens=15,
-            ),
-        )
+        for sample in range(samples_per_example):
+            suffix = f" [sample {sample}]" if sample else ""
+            append_call(
+                run_dir,
+                Call(
+                    run_id=run_id,
+                    prompt_id="greet",
+                    example_id=ex_id,
+                    model_id="gemini/gemini-2.5-flash",
+                    role="source",
+                    text=src_text + suffix,
+                    cost_usd=0.0001,
+                    latency_ms=100,
+                    input_tokens=20,
+                    output_tokens=10,
+                    sample_index=sample,
+                ),
+            )
+            append_call(
+                run_dir,
+                Call(
+                    run_id=run_id,
+                    prompt_id="greet",
+                    example_id=ex_id,
+                    model_id="gemini/gemini-2.5-pro",
+                    role="target",
+                    text=tgt_text + suffix,
+                    cost_usd=0.0002,
+                    latency_ms=120,
+                    input_tokens=22,
+                    output_tokens=15,
+                    sample_index=sample,
+                ),
+            )
 
     # scores.jsonl
     rows = [
@@ -2226,3 +2234,58 @@ class TestPerRoundToolDiffs:
         diffs = _build_tool_diffs(source, target)
 
         assert diffs[0].message == "Position 1: source called a, target called b."
+
+
+class TestSamplesPerExampleInReport:
+    """``samples_per_example`` (Task 7.1)."""
+
+    def test_single_sample_run_shows_no_samples_pill(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+        assert payload.samples_per_example == 1
+        assert "samples per example" not in render_html(payload)
+
+    def test_repeated_sampling_run_shows_the_pill_and_keeps_one_row_per_example(
+        self, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, samples_per_example=3)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        assert payload.samples_per_example == 3
+        assert payload.n_examples == 2
+        assert payload.n_calls == 12
+        html = render_html(payload)
+        assert "3 samples per example" in html
+        # Example rows show sample 0's output, once per example.
+        (section,) = payload.prompt_sections
+        assert len(section.example_rows) == 2
+        assert "[sample 1]" not in html
+        assert "[sample 2]" not in html
+
+    def test_report_json_carries_the_sample_count(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, samples_per_example=2)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir)
+        write_report_json(payload, run_dir)
+        data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+        assert data["samples_per_example"] == 2
+
+    def test_determinism_banner_suggests_repeated_sampling_only_when_n_is_one(
+        self, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, non_deterministic_models=["gemini/gemini-2.5-pro"]
+        )
+        html = render_html(build_report_payload(cwd / ".evalshift" / "runs" / run_id))
+        assert "samples_per_example" in html
+
+        again = tmp_path / "again"
+        again.mkdir()
+        cwd, run_id = _scaffold_full_run(
+            again,
+            non_deterministic_models=["gemini/gemini-2.5-pro"],
+            samples_per_example=2,
+        )
+        html = render_html(build_report_payload(cwd / ".evalshift" / "runs" / run_id))
+        assert "Sampling is not controlled" in html
+        assert "samples_per_example" not in html

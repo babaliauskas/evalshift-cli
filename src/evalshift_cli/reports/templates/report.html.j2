@@ -54,6 +54,7 @@
       <span class="pill">{{ source_model }} <span class="faint">→</span> <span style="color:var(--fg)">{{ target_model }}</span></span>
       {% if suite_name %}<span class="pill">suite {{ suite_name }}</span>{% endif %}
       <span class="pill">{{ n_examples }} examples · {{ n_calls }} calls</span>
+      {% if samples_per_example > 1 %}<span class="pill" title="Each (prompt, example) was sent to each model this many times; every score below is the mean over its samples, and the paired tests still run over examples, not samples">{{ samples_per_example }} samples per example</span>{% endif %}
       <span class="pill">${{ "%.4f"|format(total_cost_usd) }} total</span>
     </div>
     <p class="hdr-suite">{{ suite_path }}</p>
@@ -76,6 +77,10 @@
     {{ "Its" if solo else "Their" }} output varies between identical calls, so differences measured
     on {{ "this arm" if solo else "these arms" }} mix model change with sampling noise: paired tests
     are under-powered and non-significant results are weaker evidence than they appear.
+    {%- if samples_per_example == 1 %}
+    Set <code>defaults.samples_per_example</code> above 1 to average each example over
+    repeated calls and record the within-example spread.
+    {%- endif %}
   </p>
 </div>
 {% endif %}

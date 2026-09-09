@@ -82,8 +82,15 @@ Cache: SQLite ~/.evalshift/cache.db, key = SHA-256 of canonical JSON
 {model, prompt, inputs, temperature, max_tokens[, history]}, TTL 7 days. defaults.cache: false
 disables; `evalshift cache clear` wipes.
 Resume: `run --resume` continues newest in_progress run; requires config_hash match (config +
-suite byte-identical), skips (prompt_id, example_id, role) keys already in raw.jsonl; errored
-calls count as done and are NOT retried.
+suite byte-identical), skips (prompt_id, example_id, role, sample_index) keys already in
+raw.jsonl; errored calls count as done and are NOT retried.
+Repeated sampling: defaults.samples_per_example (default 1, max 20) sends every (prompt, example)
+to each model N times (raw.jsonl rows carry sample_index; the cache keys on it, so each sample is
+a live call). evaluate scores source sample i against target sample i, then folds the samples
+of one example into ONE scores.jsonl row: mean source/target/delta over the samples that scored,
+per-sample lists + population delta_variance under metadata.samples, explanation prefixed
+"mean of k samples". Paired tests run over examples, so n is unchanged. Report shows a
+"N samples per example" pill; example rows show sample 0. Cost estimate x N.
 Retention: after each completed run, per-suite pruning keeps newest retention.max_runs_per_suite
 (default 20; 0 disables) and evicts runs older than run_ttl_days (default off). Never prunes
 in-progress or just-finished runs. EVALSHIFT_MAX_RUNS overrides; `evalshift runs clean` on demand.
@@ -386,6 +393,7 @@ defaults:
   cache: bool = true              # covers completions, embeddings, judge verdicts
   max_cost_usd: float = 50.0        # soft ceiling, reserved for future enforcement
   max_tokens: int = 4096            # truncated calls are EXCLUDED from stats
+  samples_per_example: int = 1 (1..20)  # repeats per (prompt, example) per model; scores averaged per example
 evaluators:                         # every evaluator config also takes blocking: bool = true
   structural:                       # list; free, no API calls
     - type: json_schema | regex | length

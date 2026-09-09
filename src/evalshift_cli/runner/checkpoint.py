@@ -444,15 +444,19 @@ def iter_calls(run_dir: Path) -> Iterator[Call]:
                 continue
 
 
-def completed_call_keys(run_dir: Path) -> set[tuple[str, str, str]]:
-    """Return ``(prompt_id, example_id, role)`` tuples already recorded.
+def completed_call_keys(run_dir: Path) -> set[tuple[str, str, str, int]]:
+    """Return ``(prompt_id, example_id, role, sample_index)`` tuples already recorded.
 
     The orchestrator skips work items whose key is in this set. Errored
     calls count as "done" — we don't auto-retry across resumes because
     the most common cause of a single-call error is deterministic
     (auth, malformed input) and would just fail again.
+
+    The sample index is part of the key so a repeated-sampling run
+    (``defaults.samples_per_example > 1``) resumes sample by sample; rows
+    written before the field existed load as sample ``0``.
     """
-    return {(c.prompt_id, c.example_id, c.role) for c in iter_calls(run_dir)}
+    return {(c.prompt_id, c.example_id, c.role, c.sample_index) for c in iter_calls(run_dir)}
 
 
 # ---------------------------------------------------------------------------

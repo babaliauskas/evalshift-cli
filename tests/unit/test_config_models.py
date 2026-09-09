@@ -614,3 +614,16 @@ class TestFailOnDroppedParams:
         """A dropped parameter is a property of the model, not of a slice."""
         with pytest.raises(ValidationError):
             SliceMigrationPolicy.model_validate({"fail_on_dropped_params": True})
+
+
+class TestSamplesPerExample:
+    def test_defaults_to_one(self) -> None:
+        assert Defaults().samples_per_example == 1
+
+    def test_accepts_repeated_sampling(self) -> None:
+        assert Defaults(samples_per_example=3).samples_per_example == 3
+
+    @pytest.mark.parametrize("bad", [0, -1, 21])
+    def test_bounds(self, bad: int) -> None:
+        with pytest.raises(ValidationError):
+            Defaults(samples_per_example=bad)

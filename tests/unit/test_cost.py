@@ -357,3 +357,41 @@ class TestEstimateCallCost:
         monkeypatch.setattr(cost_module.litellm, "cost_per_token", boom)
 
         assert cost_module.estimate_call_cost("gpt-4o-mini", 10, 10) == 0.0
+
+
+class TestSamplesPerExample:
+    def test_default_and_one_agree_exactly(self) -> None:
+        default = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+        )
+        one = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            samples_per_example=1,
+        )
+        assert default == one
+
+    def test_samples_multiply_calls_and_cost(self) -> None:
+        single = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[3, 1, 2],
+        )
+        triple = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[3, 1, 2],
+            samples_per_example=3,
+        )
+        assert single.total_calls == 24
+        assert triple.total_calls == 72
+        assert triple.estimated_usd == pytest.approx(single.estimated_usd * 3)

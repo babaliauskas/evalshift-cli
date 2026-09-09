@@ -645,3 +645,32 @@ class TestCacheClearCommand:
     def test_cache_help_lists_clear(self) -> None:
         result = runner.invoke(app, ["cache", "--help"])
         assert "clear" in result.stdout
+
+
+class TestCacheKeySampleIndex:
+    """``samples_per_example`` (Task 7.1): the sample index follows ``round_index``'s
+    inclusion rule, so a single-sample run keeps every key it already had, while a
+    repeated-sampling run forks one key per sample instead of serving every sample
+    from the first cached response."""
+
+    def _key(self, sample_index: int | None) -> str:
+        return cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            sample_index=sample_index,
+        )
+
+    def test_none_keeps_the_existing_key(self) -> None:
+        legacy = cache_key(
+            model_id="m", prompt_text="hi", inputs={}, temperature=0.0, max_tokens=1024
+        )
+        assert self._key(None) == legacy
+
+    def test_zero_differs_from_none(self) -> None:
+        assert self._key(0) != self._key(None)
+
+    def test_different_samples_produce_different_keys(self) -> None:
+        assert self._key(0) != self._key(1)
