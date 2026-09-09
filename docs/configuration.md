@@ -344,6 +344,16 @@ noise would otherwise dominate the verdict. Flip them to `blocking: true`
 once your suite is large enough that you trust their calls. Deterministic
 evaluators (structural, tool-call) default to blocking.
 
+Note the asymmetry: the **library default** for every evaluator, `semantic`
+and `llm_judge` included, is `blocking: true`, so a hand-written config
+that omits the key gates on them while an `init`-generated one does not.
+That is deliberate — flipping the library default would silently turn a
+failing migration into a passing one for every existing config that relies
+on the omitted key, and a gate loosened under a minor release is worse than
+the asymmetry. It stays until a `version: 2` schema. Write `blocking: false`
+explicitly when you want init's behaviour in a hand-written file (see the
+[FAQ](faq.md#why-does-a-hand-written-config-block-on-semantic-when-init-does-not)).
+
 ### `evaluators.structural`
 
 A list. Each entry has a `type` and the fields that type needs.
@@ -369,6 +379,8 @@ A single object (not a list).
 The semantic evaluator scores the **target's similarity to the source**:
 target_score = cosine(source, target), source_score = 1.0. A
 negative `delta` means the target drifted from the source's meaning.
+`blocking` defaults to `true` in the library but `init` writes `false` —
+see [`blocking`](#blocking-every-evaluator) for why.
 
 ### `evaluators.tool_selection`
 
@@ -544,7 +556,8 @@ The judge sees both outputs (with random A/B order to defang positional
 bias) and produces strict-JSON `{"winner": "A"|"B"|"tie", "reason":
 "..."}`. Target wins → `(0.0, 1.0)`; tie → `(0.5, 0.5)`; source wins →
 `(1.0, 0.0)`. Malformed responses degrade to `(0.5, 0.5)` with the
-error preserved.
+error preserved. `blocking` defaults to `true` in the library but `init`
+writes `false` — see [`blocking`](#blocking-every-evaluator) for why.
 
 ## `slices`
 
