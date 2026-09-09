@@ -2,10 +2,12 @@
   "name": "cap_7ca7d4f3a9e94b73bb8960451c1ba07b",
   "suite": "oncall_triage",
   "from_capture": "cap_7ca7d4f3a9e94b73bb8960451c1ba07b",
-  "promoted_at": "2026-09-08T21:42:43.230915+00:00",
+  "promoted_at": "2026-09-09T15:38:57.231182+00:00",
   "source_input_hash": "c46a3ad6b99405eed54341baa177112a5cd619336f02cd3c90d0201ee13166e7",
   "code_version": "",
   "promotion_source": "executed",
+  "cost_usd": 0.0,
+  "cost_source": null,
   "conversation_id": null,
   "turn_index": null,
   "example": {
@@ -82,6 +84,7 @@
         }
       ]
     ],
+    "tool_result_fixtures": null,
     "expected_tool_count": null,
     "expected_no_tools": false,
     "expected_parallel": null,
