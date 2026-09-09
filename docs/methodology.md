@@ -514,6 +514,12 @@ backing it up.
   `dropped_params`, with one `WARNING` per (model, parameter) and a
   **Constraints not honoured** banner beside the sampling one. Uncertainty
   from LiteLLM records nothing, on the same reasoning as the sampling probe.
+  The probe has one blind spot, covered by a hard-coded table: a parameter
+  LiteLLM reports as supported and then drops while building the provider's
+  request body. Two Gemini cases are known — `parallel_tool_calls`, and a
+  tool's `strict` flag, recorded as **`tools.strict`** because it is a field
+  on the `tools` array rather than a generation parameter — and they land in
+  the same `dropped_params` record.
   Read such an arm as *model change plus a missing constraint*: a difference
   there is not attributable to the model alone, so either accept the caveat,
   pick a target that supports the constraint, or set

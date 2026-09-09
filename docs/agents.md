@@ -198,11 +198,24 @@ which is the whole point of a migration run.
 
 Two constraints have no equivalent on a Gemini target: **`parallel_tool_calls`**
 (`generateContent` has no such switch) and a tool's **`strict`** flag (Gemini
-function declarations have no strict mode). Neither is dropped quietly — the
-run logs a warning naming the model, the key, and the value, once per model and
-key. A recorded `tool_choice` on an example with no toolset is likewise dropped
-with a warning: there is nothing to constrain. Recorded keys the runner does not
-translate at all (`top_p`, `max_tokens`, …) get one warning listing them.
+function declarations have no strict mode). LiteLLM accepts both and reports
+them as supported, then discards them while building the Gemini request body,
+so no capability probe can see the loss — EvalShift keeps a short hard-coded
+table of these gaps instead. Neither is dropped quietly: an affected arm is
+recorded at run start in `state.json` under `dropped_params`, alongside the
+parameters a model genuinely does not accept, and gets the report's
+**Constraints not honoured** banner. The tool flag is recorded under the
+pseudo-parameter name **`tools.strict`**, because it is a field on the `tools`
+array rather than a generation parameter. See
+[Configuration → `fail_on_dropped_params`](configuration.md).
+
+A recorded `tool_choice` on an example with no toolset is dropped with a
+warning: there is nothing to constrain. That one stays out of `dropped_params`
+— it says something about the *suite* (an example whose capture pinned tool use
+but whose toolset is empty), not about either target's capabilities, and it
+would otherwise be recorded identically against both arms. Recorded keys the
+runner does not translate at all (`top_p`, `max_tokens`, …) get one warning
+listing them.
 
 ### Where `expected` text comes from
 

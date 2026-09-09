@@ -610,6 +610,29 @@ evidence; fix with more examples, not a looser threshold. EvalShift does NOT inj
 guidance into the system prompt: that would change the prompt under test, and for one arm only,
 confounding the comparison it was meant to protect.
 
+Dropped constraints (state.json dropped_params, model id -> sorted param names): a promoted
+capture can pin response_format, tool_choice, parallel_tool_calls, top_p or a completion cap,
+and drop_params=True lets a model that never accepted one answer anyway, minus the constraint.
+At run start EvalShift collects the OpenAI-param names the suite's generation_configs actually
+recorded (Gemini spellings mapped first: response_mime_type/response_schema -> response_format,
+tool_config -> tool_choice, max_output_tokens -> max_tokens; temperature belongs to
+non_deterministic_models above) and checks both arms two ways:
+  1. PROBE - litellm.get_supported_openai_params. Uncertainty (raise/None/empty) records
+     nothing, same asymmetry as the sampling probe.
+  2. KNOWN LITELLM GAPS - a hard-coded provider->params table in models/capabilities.py for
+     params LiteLLM CLAIMS to support and then discards while building the provider body, which
+     no probe can see. Verified against litellm 1.100.0: gemini drops parallel_tool_calls
+     (vertex_ai/gemini/transformation.py filters optional params against
+     GenerationConfig.__annotations__) and a tool's strict flag (_map_function; Gemini function
+     declarations have no strict field). The tool flag is recorded as the PSEUDO-PARAM
+     "tools.strict" -- it is a field on the tools array, not a generation param, so it is never
+     sent to the probe. Delete a table entry when litellm fixes it.
+Both sources merge into one sorted list per model, warn once per (model, param), flow to
+report.json as dropped_params, and render a "Constraints not honoured" banner beside the
+sampling one. migration_policy.fail_on_dropped_params: true turns the caveat into a failing
+verdict. A tool_choice on a TOOL-LESS example is not recorded here: it is stripped at dispatch
+with a warning, and it says something about the suite, not about either target's capabilities.
+
 ## Migration policy verdict algorithm
 
 Verdicts: pass | conditional_pass | fail | inconclusive. Written to migration_decision.json.
@@ -872,11 +895,13 @@ content leaves the machine.
   top-level strict (canonical/Anthropic); to_openai emits function.strict, to_anthropic emits
   top-level strict -- both ONLY when true, so non-strict tools serialise byte-identically and
   toolset fingerprints (fingerprint_tools over to_anthropic() output) stay stable.
-- Constraints a target cannot honour are WARNED (model, key, value; once per model+key), never
-  dropped in silence: (gemini, parallel_tool_calls) -- generateContent has no such switch, and
-  LiteLLM filters the param out of the request body; (gemini, strict) -- Gemini function
-  declarations have no strict mode. A tool_choice reaching a TOOL-LESS example is dropped with
-  a warning (nothing to constrain).
+- Constraints a target cannot honour are never dropped in silence: (gemini,
+  parallel_tool_calls) -- generateContent has no such switch, and LiteLLM filters the param out
+  of the request body; (gemini, strict) -- Gemini function declarations have no strict mode.
+  Both are recorded per model at RUN START in state.json dropped_params (the strict flag as the
+  pseudo-param "tools.strict"), not warned per dispatch -- see "Dropped constraints" above. A
+  tool_choice reaching a TOOL-LESS example IS dropped at dispatch with a warning (nothing to
+  constrain) and is deliberately not in dropped_params.
 - capture sync recovers history VERBATIM when the capture recorded a full messages list, else
   RECONSTRUCTS from sibling turns (approximation; earliest turn's system prompt wins, warns on
   disagreement). capture promote (single) never cross-reconstructs.

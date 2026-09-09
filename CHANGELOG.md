@@ -31,6 +31,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `non_deterministic_models`, which owns its own banner and probes
   unconditionally. Calls are unaffected: `drop_params` is still on, so nothing
   that used to succeed now fails.
+  Alongside the probe, a small hard-coded table
+  (`models.capabilities._KNOWN_LITELLM_GAPS`) covers what the probe cannot see:
+  parameters LiteLLM *reports as supported* and then discards while building
+  the provider's request body. Verified against litellm 1.100.0, that is two
+  Gemini cases — `parallel_tool_calls` (filtered out against
+  `GenerationConfig`'s fields) and a tool's `strict` flag (dropped by
+  `_map_function`, since Gemini function declarations have no strict mode) —
+  and both now land in `dropped_params` for a Gemini arm whose suite recorded
+  them, where previously they only produced a per-dispatch log line. The tool
+  flag is recorded under the pseudo-parameter name **`tools.strict`**, because
+  it is a field on the `tools` array rather than a generation parameter. Probe
+  and table merge into one sorted list per model. The two dispatch-time
+  warnings in `models/client.py` are gone, since the run-start record now says
+  the same thing and reaches the report and the policy; a `tool_choice` on a
+  tool-less example is still stripped with a warning at dispatch and is
+  deliberately *not* recorded as a dropped parameter — it is a fact about the
+  suite, not about either target.
 - `migration_policy.fail_on_dropped_params` (bool, default `false`) turns that
   record into a gate: when set and `dropped_params` is non-empty, the verdict
   is `fail` with a reason naming each model and parameter, whatever the scores

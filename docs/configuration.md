@@ -221,7 +221,11 @@ Two behaviours to know:
   model that never accepted one still answers, minus the constraint. The run
   probes both arms at start and records the shortfall in `state.json` under
   `dropped_params`; the report shows a **Constraints not honoured** banner
-  either way. Setting this to `true` makes a non-empty `dropped_params` fail
+  either way. Recorded alongside the probe's answer are the constraints LiteLLM
+  claims to support and then never sends — on Gemini, `parallel_tool_calls` and
+  a tool's `strict` flag, the latter under the pseudo-parameter name
+  **`tools.strict`** since it lives on the `tools` array rather than in the
+  generation config. Setting this to `true` makes a non-empty `dropped_params` fail
   the verdict outright, whatever the scores said, with a reason naming each
   model and parameter. Turn it on when the constraint *is* the contract — a
   suite of captures that pinned `response_format` measures nothing useful

@@ -1033,33 +1033,28 @@ class TestToolConstraintsReachLiteLLM:
         )
         assert captured["kwargs"]["tools"][0]["strict"] is True
 
-    async def test_gemini_parallel_tool_calls_warns_but_still_dispatches(
+    async def test_gemini_gaps_dispatch_without_a_second_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
+        """The two constraints Gemini silently loses are a run-start record now.
+
+        ``detect_dropped_params`` names them per model in ``state.json``, warns
+        once, banners the report, and can fail the verdict; a per-dispatch line
+        here would only repeat that, worse. The call itself is unchanged —
+        LiteLLM accepts both, and Gemini's own body is where they vanish.
+        """
         captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
         with caplog.at_level(logging.WARNING, logger="evalshift_cli.models.client"):
             await ModelClient().complete_messages_with_tools(
                 model="gemini-2.5-flash",
                 messages=[{"role": "user", "content": "hi"}],
-                tools=[_DEMO_TOOL],
+                tools=[_STRICT_TOOL],
                 extra={"tool_choice": "auto", "parallel_tool_calls": False},
             )
-        assert "parallel_tool_calls" in caplog.text
-        assert "gemini/gemini-2.5-flash" in caplog.text
-        # Still sent: LiteLLM accepts the param, Gemini's body has no slot for it.
+        assert caplog.text == ""
         assert captured["kwargs"]["tool_choice"] == "auto"
-
-    async def test_gemini_strict_tool_warns(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
-        with caplog.at_level(logging.WARNING, logger="evalshift_cli.models.client"):
-            await ModelClient().complete_messages_with_tools(
-                model="gemini-2.5-flash",
-                messages=[{"role": "user", "content": "hi"}],
-                tools=[_STRICT_TOOL],
-            )
-        assert "strict" in caplog.text
+        assert captured["kwargs"]["parallel_tool_calls"] is False
+        assert captured["kwargs"]["tools"][0]["function"]["strict"] is True
 
     async def test_no_warning_for_expressible_constraints(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

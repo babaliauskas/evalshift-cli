@@ -354,34 +354,6 @@ class RetryPolicy:
 #: them (loudly) rather than sending a parameter the provider would 400 on.
 _TOOL_CONSTRAINT_KEYS: Final = ("tool_choice", "parallel_tool_calls")
 
-#: Constraints a provider genuinely cannot express, keyed by provider.
-#:
-#: LiteLLM translates OpenAI-style ``tool_choice`` / ``parallel_tool_calls`` into
-#: each provider's own shape — Anthropic's ``tool_choice`` object (with
-#: ``disable_parallel_tool_use``) and Gemini's ``toolConfig`` — so the CLI sends
-#: the OpenAI-style form and lets LiteLLM do the mapping (pinned by
-#: ``TestLiteLLMTranslatesToolChoice``). Two pairs survive that translation
-#: unhonoured, and are warned about instead of dropped in silence:
-#:
-#: * ``("gemini", "parallel_tool_calls")`` — ``generateContent`` has no
-#:   parallel-tool switch. LiteLLM keeps the param in ``optional_params`` but
-#:   the Gemini request builder filters it against ``GenerationConfig``'s
-#:   fields, where it does not appear, so it never reaches the wire.
-#: * ``("gemini", "strict")`` — a Gemini ``function_declaration`` has no
-#:   ``strict`` field; LiteLLM's ``_map_function`` drops it.
-_UNEXPRESSIBLE_CONSTRAINTS: Final[dict[str, dict[str, str]]] = {
-    "gemini": {
-        "parallel_tool_calls": (
-            "the Gemini generateContent body has no parallel-tool-calls switch, "
-            "so the target may call tools in parallel regardless"
-        ),
-        "strict": (
-            "Gemini function declarations have no strict mode, so tool arguments "
-            "are not schema-constrained on this target"
-        ),
-    },
-}
-
 
 class ModelClient:
     """Thin async wrapper around :func:`litellm.acompletion`.
@@ -583,9 +555,10 @@ class ModelClient:
                 string or ``{"type": "function", "function": {"name": ...}}``)
                 and ``parallel_tool_calls`` are forwarded as-is — LiteLLM's
                 provider configs map them onto Anthropic's ``tool_choice``
-                object and Gemini's ``toolConfig`` — with a warning for any
-                pair this provider cannot express
-                (:data:`_UNEXPRESSIBLE_CONSTRAINTS`).
+                object and Gemini's ``toolConfig``. Pairs a provider cannot
+                express are recorded at run start, per model, in
+                :data:`~evalshift_cli.models.capabilities._KNOWN_LITELLM_GAPS`
+                — not warned about here.
 
         Returns:
             A :class:`ToolCompletionResult` with the parsed
@@ -645,9 +618,10 @@ class ModelClient:
                 string or ``{"type": "function", "function": {"name": ...}}``)
                 and ``parallel_tool_calls`` are forwarded as-is — LiteLLM's
                 provider configs map them onto Anthropic's ``tool_choice``
-                object and Gemini's ``toolConfig`` — with a warning for any
-                pair this provider cannot express
-                (:data:`_UNEXPRESSIBLE_CONSTRAINTS`).
+                object and Gemini's ``toolConfig``. Pairs a provider cannot
+                express are recorded at run start, per model, in
+                :data:`~evalshift_cli.models.capabilities._KNOWN_LITELLM_GAPS`
+                — not warned about here.
 
         Returns:
             A :class:`ToolCompletionResult` with the parsed
@@ -684,20 +658,12 @@ class ModelClient:
 
         # tool_choice / parallel_tool_calls go out in OpenAI-style form: LiteLLM's
         # provider configs translate them (Anthropic tool_choice object, Gemini
-        # toolConfig). Anything that survives that translation unhonoured gets a
-        # warning naming the model, key, and value.
-        unexpressible = _UNEXPRESSIBLE_CONSTRAINTS.get(provider, {})
-        for key in _TOOL_CONSTRAINT_KEYS:
-            if key in kwargs and key in unexpressible:
-                self._warn_constraint(canonical, key, kwargs[key], unexpressible[key])
-        if "strict" in unexpressible and any(t.strict for t in tools):
-            self._warn_constraint(
-                canonical,
-                "strict",
-                sorted(t.name for t in tools if t.strict),
-                unexpressible["strict"],
-            )
-
+        # toolConfig). The two pairs LiteLLM accepts and then never puts on the
+        # wire (Gemini's parallel_tool_calls and tool strictness) are not warned
+        # about here: the orchestrator records them per model at run start via
+        # capabilities._KNOWN_LITELLM_GAPS, which warns once, lands in
+        # state.json's dropped_params, banners the report, and can fail the
+        # verdict. A second dispatch-time line would say the same thing worse.
         response, latency_ms = await self._dispatch_with_retry(
             canonical, kwargs, log_suffix=" (tools)"
         )

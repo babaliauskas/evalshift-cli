@@ -18,12 +18,17 @@ from typing import Any
 
 import pytest
 
+from evalshift_cli.evaluators.tool_models import ToolSpec
 from evalshift_cli.runner import orchestrator
 from evalshift_cli.runner.models import RunModels, RunState
 from evalshift_cli.suite.models import Suite, SuiteExample
 
 _SOURCE = "gemini/gemini-2.5-flash"
 _TARGET = "openai/gpt-4o-mini"
+
+
+def _strict_tool() -> ToolSpec:
+    return ToolSpec(name="lookup", strict=True)
 
 
 def _state(**overrides: Any) -> RunState:
@@ -215,3 +220,151 @@ class TestDetectionAtRunStart:
         assert _TARGET in rendered
         assert "tool_choice" in rendered
         assert "response_format" in rendered
+
+
+class TestKnownLiteLLMGaps:
+    """Constraints LiteLLM accepts, claims to support, and then never sends.
+
+    The probe alone cannot see these: ``get_supported_openai_params`` lists
+    ``parallel_tool_calls`` for Gemini, and tool strictness is not an OpenAI
+    generation parameter at all, so it has no probe to fail. Both are dropped
+    inside LiteLLM's Gemini transformer, which makes them exactly as invisible
+    to the replay as a genuinely unsupported parameter — and therefore the
+    same kind of caveat on the report.
+    """
+
+    @staticmethod
+    def _no_probe_result(monkeypatch: pytest.MonkeyPatch) -> None:
+        """LiteLLM says everything is supported; only the gap table can speak."""
+        monkeypatch.setattr(orchestrator, "unsupported_params", lambda model_id, params: [])
+
+    def test_gemini_target_records_parallel_tool_calls(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._no_probe_result(monkeypatch)
+        assert orchestrator.detect_dropped_params(
+            source=_TARGET,
+            target=_SOURCE,
+            suite=_suite({"parallel_tool_calls": False}),
+        ) == {_SOURCE: ["parallel_tool_calls"]}
+
+    def test_parallel_tool_calls_only_when_a_capture_recorded_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The gap is only a loss if the replay was going to send the constraint."""
+        self._no_probe_result(monkeypatch)
+        assert (
+            orchestrator.detect_dropped_params(
+                source=_TARGET, target=_SOURCE, suite=_suite({"tool_choice": "any"})
+            )
+            == {}
+        )
+
+    def test_gemini_target_records_strict_tools(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._no_probe_result(monkeypatch)
+        assert orchestrator.detect_dropped_params(
+            source=_TARGET,
+            target=_SOURCE,
+            suite=_suite(None),
+            tools_by_example={"ex0": [_strict_tool()]},
+        ) == {_SOURCE: ["tools.strict"]}
+
+    def test_non_strict_tools_record_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._no_probe_result(monkeypatch)
+        assert (
+            orchestrator.detect_dropped_params(
+                source=_TARGET,
+                target=_SOURCE,
+                suite=_suite(None),
+                tools_by_example={"ex0": [ToolSpec(name="lookup")]},
+            )
+            == {}
+        )
+
+    def test_one_strict_example_is_enough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._no_probe_result(monkeypatch)
+        assert orchestrator.detect_dropped_params(
+            source=_TARGET,
+            target=_SOURCE,
+            suite=_suite(None, None),
+            tools_by_example={"ex0": [ToolSpec(name="lookup")], "ex1": [_strict_tool()]},
+        ) == {_SOURCE: ["tools.strict"]}
+
+    def test_non_gemini_arms_are_unaffected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._no_probe_result(monkeypatch)
+        assert (
+            orchestrator.detect_dropped_params(
+                source=_TARGET,
+                target="anthropic/claude-4.5-sonnet",
+                suite=_suite({"parallel_tool_calls": False}),
+                tools_by_example={"ex0": [_strict_tool()]},
+            )
+            == {}
+        )
+
+    def test_probe_and_table_merge_into_one_sorted_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            orchestrator,
+            "unsupported_params",
+            lambda model_id, params: ["response_format"] if model_id == _SOURCE else [],
+        )
+        assert orchestrator.detect_dropped_params(
+            source=_TARGET,
+            target=_SOURCE,
+            suite=_suite({"parallel_tool_calls": False, "response_mime_type": "application/json"}),
+            tools_by_example={"ex0": [_strict_tool()]},
+        ) == {_SOURCE: ["parallel_tool_calls", "response_format", "tools.strict"]}
+
+    def test_the_pseudo_param_is_never_probed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``tools.strict`` is not an OpenAI parameter; LiteLLM has no answer for it."""
+        asked: list[list[str]] = []
+
+        def fake(model_id: str, params: Any) -> list[str]:
+            asked.append(list(params))
+            return []
+
+        monkeypatch.setattr(orchestrator, "unsupported_params", fake)
+        orchestrator.detect_dropped_params(
+            source=_TARGET,
+            target=_SOURCE,
+            suite=_suite({"tool_choice": "any"}),
+            tools_by_example={"ex0": [_strict_tool()]},
+        )
+        assert asked and all("tools.strict" not in params for params in asked)
+
+    def test_strict_tools_alone_still_skip_the_probe_entirely(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No recorded generation_config means nothing to ask LiteLLM about."""
+        seen: list[str] = []
+
+        def fake(model_id: str, params: Any) -> list[str]:
+            seen.append(model_id)
+            return []
+
+        monkeypatch.setattr(orchestrator, "unsupported_params", fake)
+        orchestrator.detect_dropped_params(
+            source=_TARGET,
+            target=_SOURCE,
+            suite=_suite(None),
+            tools_by_example={"ex0": [_strict_tool()]},
+        )
+        assert seen == []
+
+    def test_warns_about_table_entries_too(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        self._no_probe_result(monkeypatch)
+        with caplog.at_level(logging.WARNING, logger="evalshift_cli.runner.orchestrator"):
+            orchestrator.detect_dropped_params(
+                source=_TARGET,
+                target=_SOURCE,
+                suite=_suite({"parallel_tool_calls": False}),
+                tools_by_example={"ex0": [_strict_tool()]},
+            )
+        rendered = " ".join(r.getMessage() for r in caplog.records)
+        assert "parallel_tool_calls" in rendered
+        assert "tools.strict" in rendered
+        assert _SOURCE in rendered

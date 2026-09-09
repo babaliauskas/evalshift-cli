@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, MutableMapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -50,7 +50,12 @@ from evalshift_cli.captures.reader import CaptureError, capture_base, load_tools
 from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.config.models import EvalShiftConfig
 from evalshift_cli.evaluators.tool_models import ToolSpec
-from evalshift_cli.models.capabilities import honors_temperature, unsupported_params
+from evalshift_cli.models.capabilities import (
+    TOOL_STRICT_PARAM,
+    honors_temperature,
+    silently_unsent_params,
+    unsupported_params,
+)
 from evalshift_cli.models.client import ModelClient, ModelClientError
 from evalshift_cli.models.registry import resolve_model
 from evalshift_cli.parsers.base import PromptParseError, PromptTemplate
@@ -215,6 +220,10 @@ async def run_orchestrator(
     # base directories actually holds its sidecar; never assumed to be
     # ``.evalshift`` (see toolset_base_candidates).
     toolset_bases = toolset_base_candidates(suite_path=suite_path)
+    # Resolved once for the whole run, before anything else needs them: the
+    # work list dispatches them, and the run-start capability record reads
+    # their ``strict`` flags. Resolving twice would re-read sidecars from disk.
+    tools_by_example = resolve_suite_tools(suite, toolset_bases=toolset_bases)
 
     # Effective completion cap per prompt: the prompt's own override, else
     # the run-wide default. Fed into both the client call and the cache key.
@@ -240,6 +249,7 @@ async def run_orchestrator(
         resume=resume,
         run_slug=run_slug,
         suite_name=suite_name,
+        tools_by_example=tools_by_example,
     )
 
     # Build the full work list (every required call) and filter out
@@ -249,7 +259,7 @@ async def run_orchestrator(
         suite=suite,
         canonical_source=canonical_source,
         canonical_target=canonical_target,
-        toolset_bases=toolset_bases,
+        tools_by_example=tools_by_example,
         max_tokens_by_prompt=max_tokens_by_prompt,
     )
     pending = [w for w in work if (w.prompt.id, w.example.id, w.role) not in completed_keys]
@@ -472,6 +482,42 @@ def resolve_example_tools(
     return tuple(_load_toolset_from_candidates(example.toolset_ref, toolset_bases, toolset_cache))
 
 
+def resolve_suite_tools(
+    suite: Suite,
+    *,
+    toolset_bases: Sequence[Path],
+) -> dict[str, tuple[ToolSpec, ...]]:
+    """Resolve every example's toolset once, for the whole run.
+
+    A suite runs against every prompt, so an example is dispatched N times but
+    its toolset must be read from disk at most once; the run-start capability
+    record needs the same resolved specs. Both callers share this result rather
+    than resolving independently.
+
+    Args:
+        suite: The suite about to be replayed.
+        toolset_bases: Candidate directories for ``toolset_ref`` sidecars,
+            tried in order — see :func:`toolset_base_candidates`.
+
+    Returns:
+        Example id → that example's resolved toolset, possibly empty.
+
+    Raises:
+        CaptureError: An example names a ``toolset_ref`` no candidate base
+            resolves. Raised here, before the run directory exists, because a
+            run that cannot offer its tools has nothing to record.
+    """
+    toolset_cache: dict[str, list[ToolSpec]] = {}
+    return {
+        example.id: resolve_example_tools(
+            example,
+            toolset_bases=toolset_bases,
+            toolset_cache=toolset_cache,
+        )
+        for example in suite.examples
+    }
+
+
 def _fingerprint_toolset(tools: Sequence[ToolSpec]) -> str:
     """Content-address a resolved toolset the same way regardless of its source.
 
@@ -498,6 +544,7 @@ def _setup_run(
     resume: bool,
     run_slug: str | None = None,
     suite_name: str | None = None,
+    tools_by_example: Mapping[str, Sequence[ToolSpec]] | None = None,
 ) -> tuple[Path, RunState, set[tuple[str, str, str]]]:
     """Create a fresh run directory or resume the latest in-progress one."""
     if resume:
@@ -529,6 +576,7 @@ def _setup_run(
             source=canonical_source,
             target=canonical_target,
             suite=suite,
+            tools_by_example=tools_by_example,
         ),
     )
     write_state(run_dir, state)
@@ -614,7 +662,13 @@ def requested_generation_params(suite: Suite) -> list[str]:
     return sorted(names)
 
 
-def detect_dropped_params(*, source: str, target: str, suite: Suite) -> dict[str, list[str]]:
+def detect_dropped_params(
+    *,
+    source: str,
+    target: str,
+    suite: Suite,
+    tools_by_example: Mapping[str, Sequence[ToolSpec]] | None = None,
+) -> dict[str, list[str]]:
     """Return each arm's generation parameters LiteLLM will silently drop.
 
     ``ModelClient`` sets ``drop_params=True`` so a call carrying a parameter
@@ -623,30 +677,55 @@ def detect_dropped_params(*, source: str, target: str, suite: Suite) -> dict[str
     pinned, and the arm measures the model change *plus* a missing constraint.
     Recording it here is what lets the report say so.
 
-    Both arms are probed because either can be the affected one — a source
+    Two sources feed one record. Most parameters are *probed*
+    (:func:`~evalshift_cli.models.capabilities.unsupported_params` asks
+    LiteLLM). A short enumerated list is not probeable, because LiteLLM
+    positively claims support and then discards the value while building the
+    provider body — those come from
+    :func:`~evalshift_cli.models.capabilities.silently_unsent_params`. Either
+    way the constraint is missing from the wire, so the two results merge into
+    one sorted list per model.
+
+    Both arms are checked because either can be the affected one — a source
     model is replayed too, not merely recorded — and an A/A run may name the
-    same model twice, so a model is probed and listed at most once.
+    same model twice, so a model is checked and listed at most once.
 
     Args:
         source: Canonical id of the source model.
         target: Canonical id of the target model.
         suite: The suite being replayed; supplies the parameters to ask about.
+        tools_by_example: The run's already-resolved toolsets, example id →
+            specs (see :func:`resolve_suite_tools`). Passed in rather than
+            re-resolved because resolving reads sidecars from disk. Only the
+            specs' ``strict`` flags are read: a strict tool anywhere in the
+            suite means the replay asks for schema-exact arguments, which is
+            recorded under the :data:`~evalshift_cli.models.capabilities.TOOL_STRICT_PARAM`
+            pseudo-name. ``None`` (the default) asks about generation
+            parameters only.
 
     Returns:
-        Canonical model id → sorted parameter names that model does not
-        accept. Models that honour every recorded constraint are absent, so an
-        empty dict means nothing is being dropped (and is also what an
+        Canonical model id → sorted parameter names that model will not
+        receive. Models that honour every recorded constraint are absent, so
+        an empty dict means nothing is being dropped (and is also what an
         uncertain LiteLLM returns — see
         :func:`~evalshift_cli.models.capabilities.unsupported_params`).
     """
-    requested = requested_generation_params(suite)
-    if not requested:
+    probed = requested_generation_params(suite)
+    # The pseudo-parameter never goes to the probe: LiteLLM has no answer for a
+    # name outside its OpenAI vocabulary, and asking would only invite one.
+    constraints = set(probed)
+    if _suite_asks_for_strict_tools(tools_by_example):
+        constraints.add(TOOL_STRICT_PARAM)
+    if not constraints:
         return {}
     dropped: dict[str, list[str]] = {}
     for model_id in (source, target):
         if model_id in dropped:
             continue
-        missing = unsupported_params(model_id, requested)
+        found = set(silently_unsent_params(model_id, constraints))
+        if probed:
+            found |= set(unsupported_params(model_id, probed))
+        missing = sorted(found)
         if not missing:
             continue
         dropped[model_id] = missing
@@ -655,12 +734,26 @@ def detect_dropped_params(*, source: str, target: str, suite: Suite) -> dict[str
             # dispatched call: a per-call debug line for something that
             # invalidates a whole arm is both unreadable and unread.
             log.warning(
-                "%s does not accept %r; LiteLLM drops it from every call on that arm "
-                "(drop_params=True), so this run does not replay the recorded constraint",
+                "%s will not receive %r; it is dropped before the request reaches the "
+                "provider, so this run does not replay the recorded constraint on that arm",
                 model_id,
                 param,
             )
     return dropped
+
+
+def _suite_asks_for_strict_tools(
+    tools_by_example: Mapping[str, Sequence[ToolSpec]] | None,
+) -> bool:
+    """Report whether any resolved toolset in the run carries ``strict``.
+
+    One strict tool is enough: the flag is per-tool, but the record is per
+    model, and a model that cannot express strictness cannot express it for
+    any of them.
+    """
+    if not tools_by_example:
+        return False
+    return any(tool.strict for tools in tools_by_example.values() for tool in tools)
 
 
 def _build_work_list(
@@ -670,28 +763,16 @@ def _build_work_list(
     canonical_source: str,
     canonical_target: str,
     # No default (M3 of the final review): the one caller (run_orchestrator)
-    # always computes real candidates via toolset_base_candidates first,
-    # which is never empty -- an omitted argument here would silently run
-    # with zero candidate bases rather than fail loudly, so "never default"
-    # is enforced by the signature, not just the docstring.
-    toolset_bases: Sequence[Path],
+    # resolves every example's toolset up front via resolve_suite_tools --
+    # once for the whole run, however many templates each example is
+    # dispatched under -- and the run-start capability record reads the same
+    # mapping. An omitted argument here would silently dispatch every example
+    # tool-less rather than fail loudly, so "never default" is enforced by the
+    # signature, not just the docstring.
+    tools_by_example: Mapping[str, tuple[ToolSpec, ...]],
     max_tokens_by_prompt: dict[str, int] | None = None,
 ) -> list[WorkItem]:
     max_tokens_by_prompt = max_tokens_by_prompt or {}
-
-    # Resolve every example's own toolset exactly once, regardless of how many
-    # templates it gets dispatched under (a suite runs against every prompt).
-    # toolset_cache is shared across the whole pass so N examples that
-    # reference the same toolset_ref read and parse its sidecar once.
-    toolset_cache: dict[str, list[ToolSpec]] = {}
-    tools_by_example: dict[str, tuple[ToolSpec, ...]] = {
-        example.id: resolve_example_tools(
-            example,
-            toolset_bases=toolset_bases,
-            toolset_cache=toolset_cache,
-        )
-        for example in suite.examples
-    }
 
     work: list[WorkItem] = []
     for tmpl in templates:
@@ -1186,6 +1267,7 @@ __all__ = [
     "history_for_cache_key",
     "preflight_cost",
     "resolve_example_tools",
+    "resolve_suite_tools",
     "run_orchestrator",
     "toolset_base_candidates",
 ]
