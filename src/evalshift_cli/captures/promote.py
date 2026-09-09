@@ -552,10 +552,17 @@ def _requested_tool_rounds(
         ``None`` to mean "use the executed calls instead". ``None`` covers two
         cases: no ``model_call`` recorded the field at all (a capture written
         before the SDK had it — silent, this is the normal legacy path), and a
-        capture where only *some* did. The latter cannot come from one SDK
-        version, so rather than promote half the trace against one yardstick
-        and half against another, the whole capture falls back to the executed
-        calls and the inconsistency is named in ``warnings``.
+        capture where only *some* did.
+
+        The second is a recording gap, not a version skew: the SDK stores
+        ``None`` for an omitted ``record_model_call(requested_tool_calls=...)``
+        argument, so a capture goes mixed as soon as one call in the run leaves
+        it off — typically the final, text-only call, where the app has no
+        tool calls to pass and omits the argument instead of passing ``[]``.
+        Since ``None`` there means "not recorded" and not "requested nothing",
+        the round cannot be read either way, so rather than promote half the
+        trace against one yardstick and half against another the whole capture
+        falls back to the executed calls, with the fix named in ``warnings``.
     """
     model_calls = [e for e in events if isinstance(e, ModelCallEvent)]
     with_field = [e for e in model_calls if e.requested_tool_calls is not None]
@@ -564,10 +571,10 @@ def _requested_tool_rounds(
     if len(with_field) != len(model_calls):
         warnings.append(
             f"{len(with_field)} of {len(model_calls)} model_call event(s) recorded "
-            "requested_tool_calls — one SDK version records it on all of them or on none, so "
-            "this capture is internally inconsistent. Ground truth fell back to the executed "
-            "tool calls for the whole capture; re-capture with a single evalshift-sdk version "
-            "to score against the model's own requested calls.",
+            "requested_tool_calls — pass it on every model call in the run, using [] for a "
+            "round in which the model requested no tools (None means 'not recorded', not "
+            "'nothing requested'). Ground truth fell back to the executed tool calls for the "
+            "whole capture.",
         )
         return None
     return [list(e.requested_tool_calls or []) for e in model_calls if e.requested_tool_calls]

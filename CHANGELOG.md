@@ -29,12 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requested path each `model_call` is one round (rounds that requested nothing
   are dropped, exactly as tool-less executed rounds are) and arguments are
   carried verbatim: wrapper unwrapping never runs on them, because nothing
-  stands between the model and its own requested call. Fallback to the executed
-  calls is silent for a capture that predates the field, and warns for one where
-  only *some* `model_call` events carry it (impossible from a single SDK
-  version, so the whole capture falls back rather than mixing yardsticks).
-  When requested and executed calls disagree, the requested ones win and
-  promotion warns, naming the tools on both sides.
+  stands between the model and its own requested call. Every `model_call` in a
+  run has to carry the field for the capture to be scored against requested
+  calls — pass `[]` for a round in which the model requested no tools, since
+  `null` means *not recorded* rather than *nothing requested*. Fallback to the
+  executed calls is silent for a capture that predates the field, and warns for
+  one where only *some* `model_call` events carry it (the whole capture falls
+  back rather than mixing yardsticks). When requested and executed calls
+  disagree, the requested ones win and promotion warns, naming the tools on
+  both sides.
 - `doctor` row `evalshift-sdk`: reports the SDK version the `evalshift` import
   name resolves to in this environment; `warn` (never a failure) when the SDK
   is missing, fails to import, or is shadowed by an older CLI's leftover files

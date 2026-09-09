@@ -266,11 +266,17 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   filtering/retries/re-ordering and its own function signatures -- they show what the APP did;
   a golden case must state what a MODEL should produce. With requested calls present each
   model_call IS a round (empty ones dropped, as tool-less executed rounds are) and arguments
-  are carried VERBATIM -- wrapper unwrapping (below) never runs on them. Fallback to executed:
-  SILENT when no model_call carries the field (pre-2.1.0 capture); WARNS and falls back for the
-  WHOLE capture when only some do (impossible from one SDK version -- never mix yardsticks
-  within one trace). Requested vs executed disagreement (different tool, argument, or round
-  grouping) -> requested wins + warning naming the tools on both sides.
+  are carried VERBATIM -- wrapper unwrapping (below) never runs on them. EVERY model_call in
+  the run must carry the field for the capture to be scored against requested calls: pass []
+  for a round where the model requested no tools -- null means NOT RECORDED, not "nothing
+  requested", and the two are indistinguishable afterwards. Fallback to executed: SILENT when
+  no model_call carries the field (pre-2.1.0 capture); WARNS and falls back for the WHOLE
+  capture when only some do (never mix yardsticks within one trace). That mixed case is a
+  RECORDING GAP, not version skew -- the SDK stores null for an omitted
+  record_model_call(requested_tool_calls=...) argument, and the usual cause is an app that
+  passes it on tool-picking calls but omits it on the final text-only call. Requested vs
+  executed disagreement (different tool, argument, or round grouping) -> requested wins +
+  warning naming the tools on both sides.
   Rounds: tool calls are grouped into agent rounds (split at each recorded model_call). Every
   round -> expected_tool_rounds; expected_tools (and --tool-count) are scoped to ROUND 1, the
   only round a single-shot replay can produce. Multi-round captures warn; --rounds all flattens

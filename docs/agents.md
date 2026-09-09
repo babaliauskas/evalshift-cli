@@ -211,10 +211,22 @@ measures. Two cases fall back to the executed calls:
 
 - **A capture with no requested calls at all** — written before the SDK
   recorded them. This is the legacy path below, and it is silent.
-- **A capture where only *some* `model_call` events carry them.** One SDK
-  version records the field on all of them or on none, so this is an
-  inconsistency; rather than score half the trace against one yardstick and
-  half against another, the whole capture falls back and `capture sync` says so.
+- **A capture where only *some* `model_call` events carry them.** The whole
+  capture falls back and `capture sync` says so, rather than score half the
+  trace against one yardstick and half against another.
+
+The second case is the one to watch, because it is a recording gap rather than
+anything about SDK versions. The SDK records the field only when your code
+passes it, and an omitted argument becomes `null`:
+
+> **Every `model_call` in the run must carry `requested_tool_calls` for the
+> capture to be scored against requested calls.** Pass `[]` for a round in
+> which the model requested no tools — `null` means *not recorded*, not
+> *nothing requested*, and the two cannot be told apart after the fact.
+
+The usual way a capture goes mixed is an agent that passes the field on its
+tool-picking calls and omits it on the final, text-only one, where there are no
+tool calls to hand over. Pass `[]` there.
 
 When requested calls are present *and* the executed ones disagree — a different
 tool, a different argument value, a different round grouping — the requested

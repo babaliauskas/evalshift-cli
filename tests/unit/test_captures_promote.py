@@ -1877,7 +1877,14 @@ def test_absent_requested_calls_keep_the_executed_behaviour() -> None:
 
 
 def test_a_mixed_capture_falls_back_to_executed_calls_and_warns() -> None:
-    """One SDK version records the field on every model call or on none of them."""
+    """The usual cause is an app that omits the argument on its final, text-only call.
+
+    The SDK records ``None`` for an omitted argument, so a capture goes mixed
+    the moment one ``record_model_call`` in the run leaves it off — most often
+    the last, answer-producing call. The warning has to name *that* fix
+    (``[]``, not omission) rather than send the reader looking for two SDK
+    versions installed side by side.
+    """
     envelope = _envelope(
         events=[
             _model_call(0, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
@@ -1892,7 +1899,16 @@ def test_a_mixed_capture_falls_back_to_executed_calls_and_warns() -> None:
 
     assert built.promotion_source == "executed"
     assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
-    assert any("1 of 2" in w and "requested_tool_calls" in w for w in built.warnings)
+    [warning] = [w for w in built.warnings if "requested_tool_calls" in w]
+    assert "1 of 2" in warning
+    # Names the real fix: record the field on every call, [] for a round that
+    # requested nothing. None means "not recorded", never "nothing requested".
+    assert "every model call" in warning
+    assert "[]" in warning
+    assert "not recorded" in warning
+    assert "fell back to the executed tool calls for the whole capture" in warning
+    # And no longer sends the reader hunting for a second SDK install.
+    assert "evalshift-sdk" not in warning
 
 
 def test_requested_calls_win_over_disagreeing_executed_calls_and_warn() -> None:
