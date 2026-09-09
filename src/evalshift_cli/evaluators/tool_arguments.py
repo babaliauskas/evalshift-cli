@@ -48,6 +48,12 @@ from evalshift_cli.config.models import ToolArgumentsEvaluatorConfig
 from evalshift_cli.evaluators.base import EvalRecord, PairedScore
 from evalshift_cli.evaluators.failures import ARGUMENT_VALUE_DRIFT
 from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
+from evalshift_cli.evaluators.tool_rounds import (
+    expected_rounds,
+    is_multi_round,
+    padded_rounds,
+    replayed_rounds,
+)
 from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 
 # Type for the embeddings function: (a, b) -> cosine similarity in [0, 1].
@@ -95,8 +101,20 @@ class ToolArgumentsEvaluator:
         Returns ``None`` when ``against: expected`` and the example carries
         no ground-truth arguments — nothing was measured, so no row.
         """
+        multi_round = is_multi_round(source_trace, target_trace)
         if self.config.against == "expected":
-            return await self._score_against_expected(
+            scorer = (
+                self._score_against_expected_rounds if multi_round else self._score_against_expected
+            )
+            return await scorer(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                example=example,
+                source_trace=source_trace,
+                target_trace=target_trace,
+            )
+        if multi_round:
+            return await self._score_against_source_rounds(
                 run_id=run_id,
                 prompt_id=prompt_id,
                 example=example,
@@ -307,6 +325,189 @@ class ToolArgumentsEvaluator:
             keys=keys,
             tools=tools,
             unmeasured=unmeasured,
+        )
+
+    # ------------------------------------------------------------------
+    # Teacher-forced multi-round replay
+    # ------------------------------------------------------------------
+
+    async def _score_against_expected_rounds(
+        self,
+        *,
+        run_id: str,
+        prompt_id: str,
+        example: SuiteExample,
+        source_trace: ToolTrace,
+        target_trace: ToolTrace,
+    ) -> EvalRecord | None:
+        """Score round *k*'s arguments against ``expected_tool_rounds[k]``.
+
+        Pairing happens inside a round, which is the point: a target that
+        made the right call in the wrong round answered a different question,
+        and the flattened match forgave exactly that.
+
+        Returns:
+            One record whose scores are the mean over the rounds that had
+            recorded arguments to score, or ``None`` when no replayed round
+            did — the multi-round form of "nothing was measured".
+        """
+        ground_truth = expected_rounds(example)
+        count = replayed_rounds(source_trace, target_trace)
+        source_split = padded_rounds(source_trace, count)
+        target_split = padded_rounds(target_trace, count)
+        tools = self._resolve_tools(example)
+
+        detail: list[dict[str, Any]] = []
+        scored_expected: list[ExpectedToolCall] = []
+        source_scores: list[float] = []
+        target_scores: list[float] = []
+        source_meta: list[dict[str, Any]] = []
+        target_meta: list[dict[str, Any]] = []
+        for index in range(count):
+            round_truth = ground_truth[index] if index < len(ground_truth) else []
+            expected = [call for call in round_truth if call.arguments]
+            if not expected:
+                continue
+            (
+                round_source,
+                round_source_meta,
+                round_target,
+                round_target_meta,
+            ) = await self._score_sides(
+                expected,
+                source_split[index],
+                target_split[index],
+                tools,
+            )
+            scored_expected.extend(expected)
+            source_scores.append(round_source)
+            target_scores.append(round_target)
+            source_meta.extend(round_source_meta)
+            target_meta.extend(round_target_meta)
+            detail.append(
+                {
+                    "round": index,
+                    "expected_calls": len(expected),
+                    "source_score": round_source,
+                    "target_score": round_target,
+                    "per_call_source": round_source_meta,
+                    "per_call": round_target_meta,
+                },
+            )
+
+        if not scored_expected:
+            return None
+
+        source_score = sum(source_scores) / len(source_scores)
+        target_score = sum(target_scores) / len(target_scores)
+        return self._record(
+            run_id=run_id,
+            prompt_id=prompt_id,
+            example_id=example.id,
+            paired=PairedScore(
+                source_score=source_score,
+                target_score=target_score,
+                metadata={
+                    "against": "expected",
+                    "expected_calls": len(scored_expected),
+                    "gt_provenance": _ground_truth_provenance(scored_expected),
+                    "per_call_source": source_meta,
+                    "per_call": target_meta,
+                    "rounds": detail,
+                    "failure_categories": (
+                        [ARGUMENT_VALUE_DRIFT] if target_score < source_score else []
+                    ),
+                },
+            ),
+        )
+
+    async def _score_against_source_rounds(
+        self,
+        *,
+        run_id: str,
+        prompt_id: str,
+        example: SuiteExample,
+        source_trace: ToolTrace,
+        target_trace: ToolTrace,
+    ) -> EvalRecord:
+        """Match same-named calls inside each round, then average the rounds.
+
+        A round where neither side called anything measured nothing and is
+        left out of the mean; a round only one side called in keeps the
+        single-shot verdict — 1.0 when the target stayed silent, 0.0 when it
+        made calls the source never made.
+        """
+        count = replayed_rounds(source_trace, target_trace)
+        source_split = padded_rounds(source_trace, count)
+        target_split = padded_rounds(target_trace, count)
+        tools = self._resolve_tools(example)
+
+        detail: list[dict[str, Any]] = []
+        round_scores: list[float] = []
+        per_call_meta: list[dict[str, Any]] = []
+        for index in range(count):
+            source_round = source_split[index]
+            target_round = target_split[index]
+            matched = _match_calls(source_round, target_round)
+            if matched:
+                scores: list[float] = []
+                round_meta: list[dict[str, Any]] = []
+                for src_call, tgt_call in matched:
+                    score, call_detail = await self._score_call_args(
+                        src_call.tool_name,
+                        src_call.arguments,
+                        tgt_call.arguments,
+                        tools=tools,
+                    )
+                    scores.append(score)
+                    round_meta.append(call_detail)
+                round_score = sum(scores) / len(scores)
+                per_call_meta.extend(round_meta)
+                detail.append({"round": index, "target_score": round_score, "per_call": round_meta})
+            elif source_round.calls or target_round.calls:
+                round_score = 1.0 if target_round.call_count == 0 else 0.0
+                detail.append(
+                    {
+                        "round": index,
+                        "target_score": round_score,
+                        "per_call": [],
+                        "reason": "no matched calls between source and target",
+                    },
+                )
+            else:
+                continue
+            round_scores.append(round_score)
+
+        if not round_scores:
+            return self._record(
+                run_id=run_id,
+                prompt_id=prompt_id,
+                example_id=example.id,
+                paired=PairedScore(
+                    source_score=1.0,
+                    target_score=1.0,
+                    metadata={
+                        "reason": "no matched calls between source and target",
+                        "rounds": detail,
+                        "failure_categories": [],
+                    },
+                ),
+            )
+
+        target_score = sum(round_scores) / len(round_scores)
+        return self._record(
+            run_id=run_id,
+            prompt_id=prompt_id,
+            example_id=example.id,
+            paired=PairedScore(
+                source_score=1.0,
+                target_score=target_score,
+                metadata={
+                    "per_call": per_call_meta,
+                    "rounds": detail,
+                    "failure_categories": [ARGUMENT_VALUE_DRIFT] if target_score < 1.0 else [],
+                },
+            ),
         )
 
     # ------------------------------------------------------------------
