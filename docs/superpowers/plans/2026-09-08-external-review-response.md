@@ -192,7 +192,8 @@ Phases are ordered by (validity × user harm) ÷ cost. Phase 0 is all documentat
 
 - [ ] **Step 1:** Add a short "What 'expected' means" paragraph to the semantic evaluator docs: the yardstick is the source model, so a correct-but-reworded target reads as drift; that is why init ships it advisory; use the judge criterion for correctness.
 - [ ] **Step 2:** Add two sentences to `docs/configuration.md` explaining that `prompts` is the template axis and `suites` the dataset axis, that both are always present, and that the init `replay` prompt is the passthrough that makes captured inputs replayable.
-- [ ] **Step 3:** FAQ entry: "Why does a hand-written config block on semantic when init does not?" (library default `blocking: true`, `config/models.py:177`).
+- [x] **Step 3:** FAQ entry: "Why does a hand-written config block on semantic when init does not?" (library default `blocking: true`, `config/models.py:177`).
+  Done as part of Task 7.3 (c253027).
 - [ ] **Step 4:** Commit: `docs: explain drift vs correctness and prompts vs suites`.
 
 ---
@@ -431,26 +432,36 @@ Options already named by the author:
 
 **Files:** `config/models.py` (`defaults`), `runner/orchestrator.py:588-600` (`_build_work_list`), cache key `:911-920`, `analysis/statistics.py`, `reports/html.py` + template, `docs/methodology.md:469-472`, `docs/configuration.md`, tests.
 
-- [ ] **Step 1:** Failing tests: `defaults.samples_per_example: 3` emits three source and three target items per pair, cache key includes the sample index, and the per-pair score is the mean with within-pair variance recorded.
-- [ ] **Step 2:** Implement; default stays 1. Cost pre-flight multiplies by the sample count.
-- [ ] **Step 3:** Report: show "samples per example: N" next to the pair count; when N == 1 and any model is non-deterministic, reuse the existing banner text.
-- [ ] **Step 4:** Update `docs/methodology.md` (replace the "run multiple seeds upstream" advice).
-- [ ] **Step 5:** Commit: `feat(runner): samples_per_example for repeated sampling`.
+- [x] **Step 1:** Failing tests: `defaults.samples_per_example: 3` emits three source and three target items per pair, cache key includes the sample index, and the per-pair score is the mean with within-pair variance recorded.
+- [x] **Step 2:** Implement; default stays 1. Cost pre-flight multiplies by the sample count.
+- [x] **Step 3:** Report: show "samples per example: N" next to the pair count; when N == 1 and any model is non-deterministic, reuse the existing banner text.
+- [x] **Step 4:** Update `docs/methodology.md` (replace the "run multiple seeds upstream" advice).
+- [x] **Step 5:** Commit: `feat(runner): samples_per_example for repeated sampling`.
+  Done in ba9a128 (cli). `Defaults.samples_per_example` (1–20). `WorkItem.sample_index` / `Call.sample_index` (defaulted, so old `raw.jsonl` resumes); resume key and `total_evaluations` include the sample; `RunState.samples_per_example` recorded at run start. `cache_key(sample_index=None)` follows the `round_index` inclusion rule and the orchestrator passes the real index only when N > 1, so N == 1 keys are byte-identical and an N > 1 run is never served one cached response N times. Source sample *i* is paired with target sample *i*; scoring runs per sample pair with the evaluators untouched, then `_reduce_sample_cells` folds them into **one** `EvalRecord` per (prompt, example, evaluator, kind): means over the successful samples, `metadata.samples = {n, scored, source_scores, target_scores, deltas, delta_variance}`, `error` only when every sample failed. So analysis, policy, slicing, report and bundle still see one row per example and statistical *n* stays the example count — repeats never inflate power. Downstream consumers of `raw.jsonl` (report example rows, hosted bundle, insights, `inspect`) use `representative_calls()` = sample 0; economics and policy sum over every row.
 
 ### Task 7.2 `[cli]` Runtime warning when the judge shares a family with source or target
 
 **Files:** `cli/commands/doctor.py`, `cli/commands/validate.py`, `evaluators/llm_judge.py`, `reports/html.py` + template, tests.
 
-- [ ] **Step 1:** Failing tests: `doctor`/`validate` emit a warning when `judge_model` resolves to the same provider prefix as `source_model` or `target_model`; the HTML report shows a one-line "judge shares a model family with the target" note.
-- [ ] **Step 2:** Implement using `models/registry.py` provider resolution. Warning only; never fail.
-- [ ] **Step 3:** Commit: `feat(doctor): warn when the judge shares a model family with a compared model`.
+- [x] **Step 1:** Failing tests: `doctor`/`validate` emit a warning when `judge_model` resolves to the same provider prefix as `source_model` or `target_model`; the HTML report shows a one-line "judge shares a model family with the target" note.
+- [x] **Step 2:** Implement using `models/registry.py` provider resolution. Warning only; never fail.
+- [x] **Step 3:** Commit: `feat(doctor): warn when the judge shares a model family with a compared model`.
+  Done in 6e0bec7 (merged 0edcedf). New `models/family.py` (`shared_judge_family`, `judge_family_overlaps`, `configured_judge_models` — top-level plus every `suites:` override — and `describe_overlap`); provider `other` never matches. `doctor` prints one warn `judge family` row per overlapping judge and an `ok` "from a third family" row otherwise; no row when no `llm_judge` is configured or either `defaults.source_model`/`target_model` is unset (doctor has no `--from/--to`). `validate` prints the same sentence as a `⚠` line. The report adds a third banner and a `report.json` `judge_family_overlap` field, only for judges that actually wrote `scores.jsonl` rows. Deviations: `defaults.judge_model` is *not* treated as a judge — it only seeds `insights_model`, never a pairwise verdict; `evaluators/llm_judge.py` is unchanged because the evaluator never sees the arms at construction.
 
 ### Task 7.3 `[cli]` Consider flipping the library default for semantic `blocking`
 
 **Files:** `config/models.py:177`, `docs/configuration.md:304-318`, CHANGELOG.
 
-- [ ] **Step 1:** Decide whether `SemanticEvaluatorConfig.blocking` should default to `False` to match init. This is a behaviour change for hand-written configs; if done, note it under a versioned `version: 1` semantics change in CHANGELOG, or defer to a `version: 2` schema.
-- [ ] **Step 2:** If flipped: update defaults table, the FAQ entry from Task 1.2, and tests in `tests/unit/test_config_models.py`.
+- [x] **Step 1:** Decided **not to flip** in `version: 1`: the flip would silently turn a gating evaluator advisory for every hand-written config that omits the key, so a migration that failed yesterday would pass today with no config change. A loosened gate under a minor bump is worse than the init/library asymmetry. Revisit under a `version: 2` schema.
+- [x] **Step 2:** Not flipped, so instead the asymmetry is documented: `blocking` docstrings on `SemanticEvaluatorConfig`/`LLMJudgeConfig`, `docs/configuration.md` (blocking, semantic and llm_judge sections), and the FAQ entry from Task 1.2 Step 3 (c253027). No CHANGELOG entry.
+
+#### Maintainer decisions to confirm (Phase 7)
+
+1. **Samples are collapsed at `evaluate` time** into one `scores.jsonl` row per example (means; per-sample scores under `metadata.samples`). `EvalRecord` has no `sample_index`; the hosted bundle and report example rows show sample 0 only. `BUNDLE_SPEC.md` has no sample concept, so shipping per-sample outputs is a server-side spec question.
+2. **`delta_variance` is recorded but not rendered**: a "noisy example" marker in the HTML example table could use it.
+3. **`defaults.judge_model` is exempt from the family warning** because it only seeds `insights_model`.
+4. **Semantic `blocking` stays `True`** (Task 7.3) until a `version: 2` schema.
+5. **`doctor` cannot warn when arms come only from `--from/--to` on `run`**; a warn at `run` start would close that gap. The report note also needs a loadable config at report time; recording `judge_model` in each `llm_judge` row's metadata would make it config-independent.
 
 ---
 
@@ -470,4 +481,5 @@ Options already named by the author:
 | 2026-09-09 | 5.1–5.5 | Phase 5 complete. Shared base written by the coordinator (sdk 42e3c78), then four parallel agents: openai, anthropic and genai wrappers in SDK worktrees, cost estimation on cli main. sdk: 42e3c78, e062a58, 6098bdc, 0afee20 (merge), 2d4e65b (pre-existing mypy failure in `tests/test_toolset.py`), 9f58ab7, 5ceb191, ad025f6 (docs). cli: 0638b61. Gates green in both repos (sdk 709 tests, cli 2049). Version bump deferred to the release commit (SDK 0.4.0: `[openai]`/`[anthropic]`/`[google-genai]` extras). Open: `toolset._normalize_gemini_tool` should read `parameters_json_schema`; `validate --suite-name` (Task 0.7) still missing. |
 | 2026-09-09 | 4.1–4.3 | Phase 4 complete, run as three parallel Opus agents (sdk; cli main; cli worktree for 4.3) plus one follow-up to fold the Gemini gaps into `dropped_params`. sdk: 781bf46, 387f975. cli: e9894c9, 23f42c0, 8e8f211 (merge), d0f356f. End-to-end verified with the dev SDK: an OpenAI-shaped strict tool + `tool_choice: required` + `parallel_tool_calls: false` capture promotes with those keys and a `strict: true` sidecar; `translate_generation_config` emits both; `detect_dropped_params` reports `['parallel_tool_calls', 'tools.strict']` for a Gemini target and nothing for Anthropic. Open: `validate --suite-name` (Task 0.7) still missing; the capture-first example still records executed-only until SDK 0.4.0 ships. |
 | 2026-09-09 | 2.1–2.4, 1.1 | Phase 2 complete. Spec + model contract by the coordinator (1c3abbe, d20e2db), then three parallel Opus agents: promotion on main (abbe3a5, 2b6d153), runner in a worktree (14c57da, merged a288dfd, follow-up 7034b71), scoring/report/bundle in a worktree (c9e5a4b, ab2247e, dbc0400, merged 38d83dc); docs pass 4c3db27 also closes Task 1.1. Gates green: ruff, format, `mypy --strict`, 2156 tests, pre-commit. End-to-end verified on the capture-first captures synced with `--rounds all` against a fake client: 10 model calls for 6 rows, round-2 messages carry the recorded calls plus fixture results, per-round scores in `scores.jsonl`, and the report reads "Round 1: Target omitted page_oncall / Round 2: Target added search_logs". Five maintainer decisions listed under Task 2.4. Open: Task 0.7 (`validate --suite-name`), Task 1.2, Phase 7; the capture-first example stays on `--rounds first`. |
+| 2026-09-09 | 7.1–7.3 | Phase 7 complete, run as two parallel agents (7.1 on main; 7.2+7.3 in a worktree, merged 0edcedf with additive conflicts in `reports/`). cli: ba9a128, 6e0bec7, c253027. Gates green: ruff, format, `mypy --strict`, 2219 tests, pre-commit. Smoke: `doctor` and `validate` on capture-first with `target_model` set print the judge-family warning. Task 1.2 Step 3 closed by the 7.3 FAQ entry. Open: Task 0.7 (`validate --suite-name`), Task 1.2 Steps 1–2, the five Phase 7 decisions above, version bump at release. |
 | 2026-09-09 | 3.0–3.4 | Phase 3 complete, run as three parallel Opus agents (cli; sdk core; sdk helpers in a worktree) then one for LangChain. cli: 6b8f210, 76a8c43, 3222b6a. sdk: aad7a21, ba8bffa, ff7a272, d69d397, 19964ee, 836ea92. Task 3.0 added: the CLI's `extra="forbid"` trace model must accept the field before the SDK writes it. End-to-end verified with the dev SDK: 2.1.0 envelopes with requested calls promote with `promotion_source: requested`. Open: whole-capture fallback when only some model calls carry the field (per-round hybrid considered, not done); capture-first example still records executed-only until SDK 0.4.0 ships the kwarg. |
