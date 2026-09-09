@@ -339,34 +339,46 @@ Constraint: stdlib-only runtime (D-deps). Each wrapper is an import-guarded opti
 
 ### Task 5.1 `[sdk]` Design note
 
+  Done in 42e3c78 (sdk): D-wrappers in `docs/DECISIONS.md`, the three extras, and a shared base `adapters/_wrap.py` (ClientProxy, `instrument`, StreamProxy/AsyncStreamProxy) so each provider module only contributes `describe` / `complete` / `on_chunk`. One rule added beyond the plan: a wrapper always asserts `tools` per call (`[]` when the request carried none), never inherits the session's.
+
 **Files:** `docs/DECISIONS.md` (new D-wrappers).
 
-- [ ] **Step 1:** Record: wrappers are proxies over the user's client object (`wrap_openai(client)`, `wrap_anthropic(client)`, `wrap_genai(client)`); they populate `model_id`, `tools`, `input`, `output`, `input_tokens`, `output_tokens`, `latency_ms`, `generation_config` (incl. Phase 4 keys), and `requested_tool_calls` (Phase 3); `cost_usd` stays 0 in the SDK — pricing belongs to the CLI (`utils/cost.py`, litellm's price table) and is applied at promote/report time. Streaming: wrap the iterator; usage taken from the final chunk.
-- [ ] **Step 2:** Decide extra names: `evalshift-sdk[openai]`, `[anthropic]`, `[google-genai]`.
+- [x] **Step 1:** Record: wrappers are proxies over the user's client object (`wrap_openai(client)`, `wrap_anthropic(client)`, `wrap_genai(client)`); they populate `model_id`, `tools`, `input`, `output`, `input_tokens`, `output_tokens`, `latency_ms`, `generation_config` (incl. Phase 4 keys), and `requested_tool_calls` (Phase 3); `cost_usd` stays 0 in the SDK — pricing belongs to the CLI (`utils/cost.py`, litellm's price table) and is applied at promote/report time. Streaming: wrap the iterator; usage taken from the final chunk.
+- [x] **Step 2:** Decide extra names: `evalshift-sdk[openai]`, `[anthropic]`, `[google-genai]`.
+- [x] **Step 3:** Record open-source coverage: no dedicated wrapper. Ollama, vLLM, llama.cpp server, LM Studio, TGI, Together, Groq, Fireworks and OpenRouter expose OpenAI-compatible endpoints, so `wrap_openai(OpenAI(base_url=...))` covers them unchanged; `model_id` is whatever string the caller passed, and a server that omits `usage` yields zero tokens (never gates promotion). Native non-OpenAI clients (the `ollama` package, in-process transformers) keep using `record_model_call` / a manual `model_call` span. Replay of open-model targets is the CLI's job via litellm prefixes and is independent of this phase.
 
 ### Task 5.2 `[sdk]` OpenAI wrapper
 
+  Done in 6098bdc (sdk). Responses-API `input`/`instructions` are recorded as a messages-style list (a dict would be taken verbatim by `_recover_inputs`); flat Responses tools are translated to the nested chat shape because `toolset._normalize_dict` reads `input_schema`. Chat-stream usage needs `stream_options={"include_usage": True}`. Base fixes found here and by 5.3: Stainless SDKs wrap async `create` in a sync `@required_args` wrapper, so `instrument` checks `inspect.unwrap` and also resolves a plain `def` that returns an awaitable.
+
 **Files:** new `src/evalshift/adapters/openai.py`, `pyproject.toml` extras, `tests/adapters/test_openai.py` (synthetic response objects; one `importorskip`-guarded real-client smoke test like langchain), `README.md`, `DOCS.md`.
 
-- [ ] **Step 1:** Failing tests: sync `chat.completions.create`, async, and streaming each produce one `model_call` with usage, latency, offered tools, requested tool calls.
-- [ ] **Step 2:** Implement as a proxy that forwards everything and intercepts only `chat.completions.create` / `responses.create`. Fail-open: any wrapper error logs and returns the real response.
-- [ ] **Step 3:** Commit: `feat(adapters): OpenAI client wrapper`.
+- [x] **Step 1:** Failing tests: sync `chat.completions.create`, async, and streaming each produce one `model_call` with usage, latency, offered tools, requested tool calls.
+- [x] **Step 2:** Implement as a proxy that forwards everything and intercepts only `chat.completions.create` / `responses.create`. Fail-open: any wrapper error logs and returns the real response.
+- [x] **Step 3:** Commit: `feat(adapters): OpenAI client wrapper`.
 
 ### Task 5.3 `[sdk]` Anthropic wrapper
 
-- [ ] Same shape as 5.2 for `messages.create` and `messages.stream`. Tool calls from `content[].type == "tool_use"`. Commit: `feat(adapters): Anthropic client wrapper`.
+  Done in e062a58 (sdk). `system` is prepended as a `{"role": "system"}` message (the only place the CLI's replay looks for it). `messages.stream` is a manager proxy: yields the real `MessageStream` unchanged and records on `__exit__` from `get_final_message()` (or `current_message_snapshot` when the body raised).
+
+- [x] Same shape as 5.2 for `messages.create` and `messages.stream`. Tool calls from `content[].type == "tool_use"`. Commit: `feat(adapters): Anthropic client wrapper`.
 
 ### Task 5.4 `[sdk]` Google GenAI wrapper
 
-- [ ] Same shape for `models.generate_content` (sync/async/stream). Reuse the existing duck-typed Gemini toolset handling in `capture/toolset.py`. Commit: `feat(adapters): google-genai client wrapper`.
+  Done in 9f58ab7 (sdk). `contents` + `system_instruction` are folded into a messages-style list (a dumped `Content` is `{role, parts}`, which `_looks_like_messages_list` rejects). Callable tools (AFC) are declared through the SDK's `FunctionDeclaration.from_callable_with_api_option` via a lazy guarded import; a built-in-only `Tool` leaves the toolset unstamped. Follow-up: `toolset._normalize_gemini_tool` ignores `parameters_json_schema`, so manual `record_model_call(tools=[Tool(...)])` callers get less fidelity than the wrapper.
+
+- [x] Same shape for `models.generate_content` (sync/async/stream). Reuse the existing duck-typed Gemini toolset handling in `capture/toolset.py`. Commit: `feat(adapters): google-genai client wrapper`.
 
 ### Task 5.5 `[cli]` Fill cost at promotion when the capture has tokens but no cost
 
+  Done in 0638b61 (cli). `PromotedCase` gains `cost_usd` and `cost_source: recorded | estimated | null` (not on `SuiteExample`: provenance of the run, not something replay reproduces). Per event: keep a non-zero recorded cost, else price by that event's own `model_id`; sum; mixed → `estimated`. `litellm.cost_per_token` is gated on a pure `litellm.model_cost` lookup because a blind call prints a provider banner for unknown ids and opens a socket to localhost for `ollama/` ids.
+
 **Files:** `captures/promote.py`, `utils/cost.py`, tests, `docs/agents.md`.
 
-- [ ] **Step 1:** Failing test: capture with `input_tokens>0`, `cost_usd==0` is promoted with a cost estimate derived from litellm's price table for `model_id`, tagged `cost_source: "estimated"`.
-- [ ] **Step 2:** Implement; leave recorded non-zero costs untouched.
-- [ ] **Step 3:** Commit: `feat(promote): estimate cost from tokens when the SDK recorded none`.
+- [x] **Step 1:** Failing test: capture with `input_tokens>0`, `cost_usd==0` is promoted with a cost estimate derived from litellm's price table for `model_id`, tagged `cost_source: "estimated"`.
+- [x] **Step 2:** Failing test: capture whose `model_id` has no entry in litellm's price table (local / self-hosted, e.g. `llama3.1:8b`) promotes with `cost_usd` left at 0 and no `cost_source` tag, without a warning or error. A missing price is the normal case for open-source models, not a failure.
+- [x] **Step 3:** Implement; leave recorded non-zero costs untouched.
+- [x] **Step 4:** Commit: `feat(promote): estimate cost from tokens when the SDK recorded none`.
 
 ---
 
@@ -442,5 +454,6 @@ Options already named by the author:
 | 2026-09-08 | — | Plan written from verified findings. |
 | 2026-09-08 | 0.1–0.6 | Phase 0 complete. cli: a2c8f24, cef4c85, 1861439, 54ff55f. sdk: 647e09f, 7853167. Found and logged Task 0.7 (validate lacks --suite-name). |
 | 2026-09-09 | 6.1–6.2 | Phase 6 done out of order (before 2–4, at the maintainer's request). cli: 3dbf245, 1e1de65, 5da36c1, d9c4eba. sdk: ea54c0a. Version bump deferred to the 0.14.0 release commit. |
+| 2026-09-09 | 5.1–5.5 | Phase 5 complete. Shared base written by the coordinator (sdk 42e3c78), then four parallel agents: openai, anthropic and genai wrappers in SDK worktrees, cost estimation on cli main. sdk: 42e3c78, e062a58, 6098bdc, 0afee20 (merge), 2d4e65b (pre-existing mypy failure in `tests/test_toolset.py`), 9f58ab7, 5ceb191, ad025f6 (docs). cli: 0638b61. Gates green in both repos (sdk 709 tests, cli 2049). Version bump deferred to the release commit (SDK 0.4.0: `[openai]`/`[anthropic]`/`[google-genai]` extras). Open: `toolset._normalize_gemini_tool` should read `parameters_json_schema`; `validate --suite-name` (Task 0.7) still missing. |
 | 2026-09-09 | 4.1–4.3 | Phase 4 complete, run as three parallel Opus agents (sdk; cli main; cli worktree for 4.3) plus one follow-up to fold the Gemini gaps into `dropped_params`. sdk: 781bf46, 387f975. cli: e9894c9, 23f42c0, 8e8f211 (merge), d0f356f. End-to-end verified with the dev SDK: an OpenAI-shaped strict tool + `tool_choice: required` + `parallel_tool_calls: false` capture promotes with those keys and a `strict: true` sidecar; `translate_generation_config` emits both; `detect_dropped_params` reports `['parallel_tool_calls', 'tools.strict']` for a Gemini target and nothing for Anthropic. Open: `validate --suite-name` (Task 0.7) still missing; the capture-first example still records executed-only until SDK 0.4.0 ships. |
 | 2026-09-09 | 3.0–3.4 | Phase 3 complete, run as three parallel Opus agents (cli; sdk core; sdk helpers in a worktree) then one for LangChain. cli: 6b8f210, 76a8c43, 3222b6a. sdk: aad7a21, ba8bffa, ff7a272, d69d397, 19964ee, 836ea92. Task 3.0 added: the CLI's `extra="forbid"` trace model must accept the field before the SDK writes it. End-to-end verified with the dev SDK: 2.1.0 envelopes with requested calls promote with `promotion_source: requested`. Open: whole-capture fallback when only some model calls carry the field (per-round hybrid considered, not done); capture-first example still records executed-only until SDK 0.4.0 ships the kwarg. |
