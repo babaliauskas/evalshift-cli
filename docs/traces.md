@@ -54,7 +54,7 @@ Every event has `type`, `sequence_index` (integer, ≥ 0), `timestamp`, and
 
 | `type` | Required | Optional (default) |
 | --- | --- | --- |
-| `model_call` | `model_id` (non-empty) | `input`, `output` (`null`), `input_tokens`, `output_tokens`, `latency_ms` (`0`), `cost_usd` (`0.0`) |
+| `model_call` | `model_id` (non-empty) | `input`, `output` (`null`), `input_tokens`, `output_tokens`, `latency_ms` (`0`), `cost_usd` (`0.0`), `toolset_ref`, `tools_offered`, `requested_tool_calls` (`null`) |
 | `tool_call` | `name` (non-empty) | `arguments` (`{}`), `call_id`, `parent_call_id` (`null`) |
 | `tool_result` | `name` (non-empty) | `call_id`, `result`, `error` (`null`) |
 | `retrieval` | `source` (non-empty) | `query` (`""`), `documents` (`[]`) |
@@ -73,6 +73,22 @@ who has the trace, not by the CLI.
 Numeric fields cannot be negative. Trace models are strict, like the rest of the
 config contract: an unknown key anywhere in the line is an error, not a
 warning.
+
+A `model_call` distinguishes three things that are easy to conflate:
+
+- **offered** — `toolset_ref` (content-addressed pointer to the toolset sidecar)
+  and `tools_offered` (the display-only tool-name list): what was passed *to*
+  the model;
+- **requested** — `requested_tool_calls`, a list of
+  `{"name": ..., "arguments": {...}, "call_id": ...}` (`arguments` defaults to
+  `{}`, `call_id` to `null`): what the model asked to call *in its response*;
+- **executed** — the `tool_call` / `tool_result` events: what the application
+  actually ran.
+
+Requested and executed legitimately differ — an app may filter, re-order, or
+wrap the calls it runs. `requested_tool_calls` is `null` on a trace recorded
+before the field existed, which is not the same as `[]` ("the model requested
+no tools").
 
 EvalShift sorts events by `sequence_index` and rejects duplicate indices. A
 `tool_result` with a `call_id` must match a `tool_call` that carried the same

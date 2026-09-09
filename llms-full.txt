@@ -285,6 +285,13 @@ evalshift traces import RUN_ID --source FILE --target FILE [--strict]
   ...+02:00): offsets are converted to UTC on import, a naive timestamp is rejected with its
   file:line (assuming UTC would silently relabel a trace recorded in another zone, and the
   bundle contract requires UTC).
+  A model_call event keeps OFFERED / REQUESTED / EXECUTED apart: toolset_ref + tools_offered
+  are what was passed TO the model; requested_tool_calls ([{name, arguments, call_id}],
+  arguments defaults {}, call_id defaults null) is what the model asked for IN ITS RESPONSE;
+  the tool_call/tool_result events are what the app actually ran. They can legitimately
+  differ. requested_tool_calls: null means the trace predates the field (SDK capture schema
+  2.1.0 added it), NOT that the model requested nothing -- that is []. The capture reader
+  gates on the schema MAJOR only, so a 2.1.0 capture loads on a 2.0.0-era CLI.
 evalshift inspect RUN_ID [--failed] | evalshift inspect case RUN_ID EXAMPLE_ID
 evalshift diff case RUN_ID EXAMPLE_ID          (trace diff when traces exist, else text diff)
 evalshift replay case RUN_ID EXAMPLE_ID [--model source|target (default target)] [--trace]

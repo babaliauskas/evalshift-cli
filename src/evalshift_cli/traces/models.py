@@ -51,6 +51,37 @@ class _BaseEvent(_StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class RequestedToolCall(_StrictModel):
+    """One tool call the model *asked for* in a single model response.
+
+    Distinct from :class:`ToolCallEvent`, which records a tool the application
+    actually *executed*. The three notions are separate on purpose:
+
+    * **offered** — the tools passed to the model (``ModelCallEvent.tools_offered``
+      / ``.toolset_ref``);
+    * **requested** — what the model asked to call in its response (this model,
+      carried on :attr:`ModelCallEvent.requested_tool_calls`);
+    * **executed** — the ``tool_call`` / ``tool_result`` events the app recorded
+      while running tools.
+
+    Requested and executed legitimately differ: an app may filter, re-order,
+    de-duplicate, or wrap the calls it runs, and only the requested list is
+    evidence of what a candidate model would have to reproduce.
+
+    Attributes:
+        name: The tool the model asked to call.
+        arguments: The arguments the model produced, verbatim. Empty for a
+            no-argument call.
+        call_id: The provider's id for this request, when it reported one.
+            Not part of promoted ground truth — a candidate model invents its
+            own ids, so matching on them would fail every replay.
+    """
+
+    name: str = Field(min_length=1)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    call_id: str | None = None
+
+
 class ModelCallEvent(_BaseEvent):
     """A model invocation inside an agent timeline."""
 
@@ -70,6 +101,17 @@ class ModelCallEvent(_BaseEvent):
     # useful error can name the capture instead of a generic parse failure.
     toolset_ref: str | None = None
     tools_offered: list[str] | None = None
+    # Cross-repo contract, fixed: `requested_tool_calls` sits IMMEDIATELY after
+    # `tools_offered`, with these exact names, and `RequestedToolCall` is
+    # `{name, arguments, call_id}`. The evalshift-sdk mirrors this model field
+    # for field -- its conformance suite vendors this very file and compares
+    # field order -- so position and naming here are the contract, not style.
+    # The CLI accepts the field FIRST (SDK schema 2.0.0 -> 2.1.0 writes it):
+    # these models are extra="forbid", so an SDK that wrote it before the CLI
+    # accepted it would make every existing CLI install reject every new
+    # capture. `None` means "this capture predates the field" and is not the
+    # same as `[]`, which means "the model requested no tools".
+    requested_tool_calls: list[RequestedToolCall] | None = None
 
 
 class ToolCallEvent(_BaseEvent):
@@ -185,6 +227,7 @@ __all__ = [
     "FinalOutputEvent",
     "GuardrailEvent",
     "ModelCallEvent",
+    "RequestedToolCall",
     "RetrievalEvent",
     "ToolCallEvent",
     "ToolResultEvent",

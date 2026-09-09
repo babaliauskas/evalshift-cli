@@ -208,6 +208,49 @@ def test_load_capture_rejects_unsupported_major_version(tmp_path: Path) -> None:
     assert exc.value.kind == "unsupported_version"
 
 
+def test_load_capture_accepts_a_newer_minor_schema_version(tmp_path: Path) -> None:
+    """The reader gates on the MAJOR only, so an SDK MINOR bump must keep loading.
+
+    The SDK bumps its capture schema to ``2.1.0`` to add
+    ``ModelCallEvent.requested_tool_calls``. Nothing in a 2.1.0 capture is
+    unreadable by a 2.0.0-era CLI, so refusing it would strand every install
+    on the older SDK for no reason.
+    """
+    path = _write_capture(tmp_path, _capture_dict(schema_version="2.1.0"))
+
+    envelope = load_capture(path)
+
+    assert envelope.schema_version == "2.1.0"
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "3.0.0"])
+def test_load_capture_rejects_other_major_schema_versions(tmp_path: Path, version: str) -> None:
+    """Only the 2.x major is readable — either side of it is refused loudly."""
+    path = _write_capture(tmp_path, _capture_dict(schema_version=version))
+
+    with pytest.raises(CaptureError) as exc:
+        load_capture(path)
+    assert exc.value.kind == "unsupported_version"
+
+
+def test_load_capture_round_trips_requested_tool_calls(tmp_path: Path) -> None:
+    """A 2.1.0 capture's model-requested calls survive the whole read path."""
+    event = _model_call(0)
+    event["requested_tool_calls"] = [
+        {"name": "search", "arguments": {"q": "x"}, "call_id": "c1"},
+        {"name": "issue_refund", "arguments": {}, "call_id": None},
+    ]
+    path = _write_capture(tmp_path, _capture_dict(schema_version="2.1.0", events=[event]))
+
+    envelope = load_capture(path)
+
+    model_call = envelope.trace.events[0]
+    assert isinstance(model_call, ModelCallEvent)
+    assert model_call.requested_tool_calls is not None
+    assert [c.name for c in model_call.requested_tool_calls] == ["search", "issue_refund"]
+    assert model_call.requested_tool_calls[0].arguments == {"q": "x"}
+
+
 def test_load_capture_round_trips_toolset_fields(tmp_path: Path) -> None:
     """A 2.0.0 capture's toolset_ref and tools_offered survive load_capture unchanged."""
     event = _model_call(

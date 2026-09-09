@@ -47,6 +47,10 @@ _DEFAULT_BASE = ".evalshift"
 # capture predates those fields entirely. There is no migration and no
 # dual-major support, so it is refused loudly rather than read as if the
 # fields were simply absent.
+#
+# Deliberately the MAJOR only: an SDK MINOR bump adds optional fields the trace
+# models already accept (2.1.0 adds ``ModelCallEvent.requested_tool_calls``),
+# so refusing it would strand every install on the older SDK for no reason.
 _SUPPORTED_MAJOR = 2
 
 CaptureErrorKind = Literal[

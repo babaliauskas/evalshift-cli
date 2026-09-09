@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Trace models accept `requested_tool_calls` on a `model_call` event — the tool
+  calls the model asked for *in its response*, as
+  `{name, arguments, call_id}` entries. It sits alongside the two notions that
+  already existed and is none of them: `toolset_ref` / `tools_offered` is what
+  was **offered** to the model, the `tool_call` / `tool_result` events are what
+  the app **executed**, and this is what was **requested**. `null` (the default)
+  means the trace predates the field; `[]` means the model requested no tools.
+  The capture reader gates on the schema *major* only, so a capture written at
+  the SDK's new `2.1.0` schema loads unchanged. Trace models are `extra="forbid"`,
+  so the CLI has to accept the field before any SDK writes it.
 - `doctor` row `evalshift-sdk`: reports the SDK version the `evalshift` import
   name resolves to in this environment; `warn` (never a failure) when the SDK
   is missing, fails to import, or is shadowed by an older CLI's leftover files
