@@ -163,6 +163,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name resolves to in this environment; `warn` (never a failure) when the SDK
   is missing, fails to import, or is shadowed by an older CLI's leftover files
   or a local `evalshift/` directory.
+- Judge-family warning (`evalshift_cli.models.family`): when an `llm_judge`
+  `judge_model` resolves to the same provider as `defaults.source_model` or
+  `target_model`, `doctor` prints a warn-level `judge family` row (one per
+  distinct judge; `ok` "from a third family" when none overlaps; no row when
+  either arm is unset) and `validate` prints the same line after its success
+  line — LLM judges prefer their own relatives' output (self-preference bias),
+  so verdicts lean toward that arm. Advisory, never a failure: `init` scaffolds
+  a same-provider judge on purpose. The report repeats the note as a third
+  banner, only for judges that actually contributed `scores.jsonl` rows, and
+  `report.json` carries it as `judge_family_overlap`. Provider `other` (an id
+  the registry cannot place) never matches.
 - CI pin-drift check (`evalshift_cli.utils.ci_pin`): `capture sync`, `init` (without
   `--ci`), `doctor` (new `ci pin` row), and `validate` now parse
   `.github/workflows/*.yml` for `babaliauskas/evalshift-action` steps and warn

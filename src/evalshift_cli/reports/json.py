@@ -15,6 +15,7 @@ so external tools can read the report data without parsing HTML.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
 from evalshift_cli.evaluators.base import EvalRecord
 from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
 from evalshift_cli.evaluators.tool_selection import KIND_DIVERGENCE
+from evalshift_cli.models.family import judge_family_overlaps
 from evalshift_cli.reports.economics import (
     PromptEconomics,
     RoleEconomics,
@@ -258,12 +260,18 @@ class ReportData:
     # ``raw.jsonl`` rows each (prompt, example, role) has. Every example row
     # below shows sample 0; the totals above count every sample.
     samples_per_example: int = 1
+    # Judges that scored this run and share a provider with an arm, each
+    # ``{"judge_model", "provider", "roles"}`` — drives the one-line
+    # self-preference note under the banners. Empty when no judge overlaps,
+    # no judge contributed a score, or the report ran without a config.
+    judge_family_overlap: list[dict[str, Any]] = field(default_factory=list)
 
 
 def build_report_payload(
     run_dir: Path,
     *,
     tool_evaluator_names: frozenset[str] = frozenset(),
+    judge_models: Mapping[str, str] | None = None,
 ) -> ReportData:
     """Assemble :class:`ReportData` from the artefacts in ``run_dir``.
 
@@ -275,6 +283,11 @@ def build_report_payload(
             evalshift.yaml). Used to populate the per-example
             ``tool_match`` flag. Empty set is fine — every example's
             ``tool_match`` will then be ``None``.
+        judge_models: Configured ``llm_judge`` evaluator name →
+            ``judge_model``, for the suite the run was scored with. Only
+            judges that actually wrote a ``scores.jsonl`` row are checked
+            for a family overlap with the arms. ``None`` (no config) leaves
+            ``judge_family_overlap`` empty.
 
     Raises:
         FileNotFoundError: If any required artefact is missing. The
@@ -323,7 +336,41 @@ def build_report_payload(
         non_deterministic_models=list(state.non_deterministic_models),
         dropped_params={k: list(v) for k, v in state.dropped_params.items()},
         samples_per_example=state.samples_per_example,
+        judge_family_overlap=_judge_family_overlap(
+            scores,
+            judge_models or {},
+            source_model=state.models.source,
+            target_model=state.models.target,
+        ),
     )
+
+
+def _judge_family_overlap(
+    scores: list[EvalRecord],
+    judge_models: Mapping[str, str],
+    *,
+    source_model: str,
+    target_model: str,
+) -> list[dict[str, Any]]:
+    """Family overlaps for the judges that contributed at least one row.
+
+    Selected on ``kind == "llm_judge"``, falling back to the legacy
+    ``llm_judge.`` name prefix for rows checkpointed before ``kind`` existed.
+    A judge that is configured but scored nothing (``applies_to`` matched no
+    prompt, or the criterion post-dates the run) has no verdict to caveat.
+    """
+    contributed = {
+        r.evaluator_name
+        for r in scores
+        if r.kind == "llm_judge" or (not r.kind and r.evaluator_name.startswith("llm_judge."))
+    }
+    judges = [judge_models[name] for name in sorted(contributed) if name in judge_models]
+    return [
+        {"judge_model": o.judge_model, "provider": o.provider, "roles": list(o.roles)}
+        for o in judge_family_overlaps(
+            judge_models=judges, source_model=source_model, target_model=target_model
+        )
+    ]
 
 
 def write_report_json(report: ReportData, run_dir: Path) -> Path:
@@ -1039,6 +1086,7 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
         "non_deterministic_models": report.non_deterministic_models,
         "dropped_params": report.dropped_params,
         "samples_per_example": report.samples_per_example,
+        "judge_family_overlap": report.judge_family_overlap,
     }
 
 

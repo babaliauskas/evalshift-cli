@@ -167,7 +167,16 @@ class SemanticEvaluatorConfig(_StrictModel):
         applies_to: Glob list of prompt IDs this evaluator applies to.
         blocking: Whether regressions from this evaluator can fail the
             migration verdict. Advisory evaluators (``blocking: false``) still
-            score and appear in reports but never gate the decision.
+            score and appear in reports but never gate the decision. The
+            library default is ``True``; ``evalshift init`` writes ``false``
+            for this evaluator, because its yardstick is the *source* output
+            (drift, not correctness) — a correct answer in different words
+            reads as a regression, and at the suite sizes a fresh capture
+            starts with that noise would dominate the verdict. The library
+            default is deliberately not flipped to match: a hand-written
+            config that omits the key relies on the gate it has today, and a
+            minor release must not silently turn a failing migration into a
+            passing one. Revisit under a ``version: 2`` schema.
     """
 
     embedding_model: str = "text-embedding-3-small"
@@ -189,7 +198,12 @@ class LLMJudgeConfig(_StrictModel):
         applies_to: Glob list of prompt IDs this evaluator applies to.
         blocking: Whether regressions from this evaluator can fail the
             migration verdict. Advisory evaluators (``blocking: false``) still
-            score and appear in reports but never gate the decision.
+            score and appear in reports but never gate the decision. The
+            library default is ``True``; ``evalshift init`` writes ``false``
+            here for the same reason as :class:`SemanticEvaluatorConfig` —
+            judge noise on a small fresh suite would dominate the verdict —
+            and the library default stays ``True`` so a hand-written config
+            that omits the key keeps the gate it has today.
     """
 
     criterion_name: str = Field(min_length=1)

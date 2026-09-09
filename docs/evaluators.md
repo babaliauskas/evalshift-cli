@@ -75,6 +75,14 @@ sentence ("which output preserves more factual detail?"). Multiple
 Tool-only turns (both outputs empty) are skipped without spending a
 judge call.
 
+Pick the judge from a **third model family**. A judge prefers output
+that reads like its own (self-preference bias), and A/B randomisation
+does nothing against that. `doctor` and `validate` warn when a
+`judge_model` shares a provider with the source or target, and the
+report notes it above the verdict when such a judge contributed rows —
+advisory only; the `init` scaffold ships a same-provider judge on
+purpose so a first run needs one API key.
+
 ## Tool-call evaluators (agent migrations)
 
 For a dispatched example whose own toolset (`toolset_ref` or inline `tools`
