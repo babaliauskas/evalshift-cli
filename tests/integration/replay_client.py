@@ -14,6 +14,7 @@ Fixture format (JSONL, one record per line):
       "model": "<canonical model id>",
       "match": "<substring that must appear in the rendered prompt>",
       "kind": "text" | "tools",
+      "round": 0,                       # optional; see "Round matching"
       "result": { ... }
     }
 
@@ -35,8 +36,23 @@ For ``kind: "tools"``, ``result`` carries:
     }
 
 Matching: a fixture is selected when ``model`` equals the canonical id
-the orchestrator dispatched and ``match`` is a substring of the rendered
-prompt. Exactly one fixture must match — zero or two raise.
+the orchestrator dispatched, ``match`` is a substring of the rendered
+prompt, and its ``round`` (when it has one) equals the dispatched round.
+Exactly one fixture must match — zero or two raise.
+
+Round matching: a teacher-forced multi-round replay dispatches the same
+example several times (see
+``SuiteExample.rounds_to_replay`` / ``orchestrator.build_round_messages``),
+each time with the same rendered prompt and one more recorded round fed
+back, so ``match`` alone cannot tell round 2 from round 3. A fixture may
+carry ``"round": k`` to match only round *k*; a fixture without ``round``
+matches every round, which is what every pre-existing fixture does and why
+single-shot fixtures are unaffected. The dispatched round is derived from
+the messages themselves — the number of ``assistant`` messages carrying
+``tool_calls`` *after* the last ``user`` message is exactly the number of
+recorded rounds fed back, i.e. the round index — so nothing has to be
+threaded through ``ModelClient``'s signature. A plain-prompt dispatch
+(``complete`` / ``complete_with_tools``) is always round 0.
 
 Message-mode calls (``complete_messages`` / ``complete_messages_with_tools``,
 used by the orchestrator for multi-turn examples that carry a ``history``
@@ -78,6 +94,7 @@ class _Fixture:
     kind: str  # "text" | "tools"
     result: dict[str, Any]
     line_no: int
+    round: int | None = None  # None → matches every round
 
 
 class ReplayClient(ModelClient):
@@ -151,7 +168,12 @@ class ReplayClient(ModelClient):
         extra: dict[str, Any] | None = None,
     ) -> CompletionResult:
         target = _last_user_content(messages)
-        fix = self._find(model=model, prompt=target, kind="text")
+        fix = self._find(
+            model=model,
+            prompt=target,
+            kind="text",
+            round_index=_round_index(messages),
+        )
         r = fix.result
         return CompletionResult(
             text=str(r.get("text", "")),
@@ -174,7 +196,12 @@ class ReplayClient(ModelClient):
         extra: dict[str, Any] | None = None,
     ) -> ToolCompletionResult:
         target = _last_user_content(messages)
-        fix = self._find(model=model, prompt=target, kind="tools")
+        fix = self._find(
+            model=model,
+            prompt=target,
+            kind="tools",
+            round_index=_round_index(messages),
+        )
         r = fix.result
         trace = _build_trace(r, fixture_line=fix.line_no)
         return ToolCompletionResult(
@@ -188,23 +215,29 @@ class ReplayClient(ModelClient):
             finish_reason=_opt_str(r.get("finish_reason")),
         )
 
-    def _find(self, *, model: str, prompt: str, kind: str) -> _Fixture:
+    def _find(self, *, model: str, prompt: str, kind: str, round_index: int = 0) -> _Fixture:
         candidates = [
-            f for f in self._fixtures if f.model == model and f.kind == kind and f.match in prompt
+            f
+            for f in self._fixtures
+            if f.model == model
+            and f.kind == kind
+            and f.match in prompt
+            and (f.round is None or f.round == round_index)
         ]
         if len(candidates) == 1:
             return candidates[0]
         preview = prompt[:160].replace("\n", " ")
         if not candidates:
             raise ReplayError(
-                f"no {kind} fixture matched (model={model!r}, prompt~={preview!r}) "
-                f"in {self._fixtures_path}",
+                f"no {kind} fixture matched (model={model!r}, round={round_index}, "
+                f"prompt~={preview!r}) in {self._fixtures_path}",
             )
         lines = ", ".join(str(c.line_no) for c in candidates)
         raise ReplayError(
             f"{len(candidates)} {kind} fixtures matched (model={model!r}, "
-            f"prompt~={preview!r}) at lines {lines} in {self._fixtures_path} "
-            f"— make 'match' substrings unique",
+            f"round={round_index}, prompt~={preview!r}) at lines {lines} in "
+            f"{self._fixtures_path} — make 'match' substrings unique, or pin "
+            f"them to a 'round'",
         )
 
 
@@ -228,6 +261,23 @@ def _last_user_content(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _round_index(messages: list[dict[str, Any]]) -> int:
+    """The teacher-forced round this message list is asking for.
+
+    Every recorded round fed back adds exactly one ``assistant`` message
+    carrying ``tool_calls`` after the current turn's ``user`` message (see
+    ``orchestrator.build_round_messages``), so counting those is counting the
+    round index. Recorded ``history`` tool turns sit *before* that ``user``
+    message and are correctly ignored.
+    """
+    tail = messages
+    for position in range(len(messages) - 1, -1, -1):
+        if messages[position].get("role") == "user":
+            tail = messages[position + 1 :]
+            break
+    return sum(1 for m in tail if m.get("role") == "assistant" and m.get("tool_calls"))
+
+
 def _load_fixtures(path: Path) -> list[_Fixture]:
     if not path.exists():
         raise ReplayError(f"fixtures file not found: {path}")
@@ -248,6 +298,7 @@ def _load_fixtures(path: Path) -> list[_Fixture]:
                     kind=str(rec["kind"]),
                     result=dict(rec["result"]),
                     line_no=line_no,
+                    round=None if rec.get("round") is None else int(rec["round"]),
                 )
             except KeyError as exc:
                 raise ReplayError(

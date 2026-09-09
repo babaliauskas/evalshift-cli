@@ -405,6 +405,98 @@ class TestCacheKey:
         )
         assert a == b
 
+    # -- round_index (teacher-forced multi-round replay) --
+
+    def test_no_round_index_is_byte_identical_to_pre_round_payload(self) -> None:
+        """Omitting ``round_index`` must not change the hashed payload.
+
+        Same inclusion rule as ``history`` / ``generation_config`` /
+        ``toolset_fingerprint``: hashed only when not ``None``, so every key
+        minted before the round dimension existed stays valid.
+        """
+        import hashlib
+        import json
+
+        model_id = "gemini/gemini-2.5-flash"
+        prompt_text = "hi"
+        inputs = {"x": 1}
+        temperature = 0.0
+        max_tokens = 1024
+
+        old_payload = json.dumps(
+            {
+                "model_id": model_id,
+                "prompt_text": prompt_text,
+                "inputs": inputs,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        expected = hashlib.sha256(old_payload.encode("utf-8")).hexdigest()
+
+        assert (
+            cache_key(
+                model_id=model_id,
+                prompt_text=prompt_text,
+                inputs=inputs,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            == expected
+        )
+        assert (
+            cache_key(
+                model_id=model_id,
+                prompt_text=prompt_text,
+                inputs=inputs,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                round_index=None,
+            )
+            == expected
+        )
+
+    def test_round_index_zero_differs_from_none(self) -> None:
+        """``0`` is a real round, not "no round": it must hash differently to ``None``."""
+        base = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=None,
+        )
+        round_zero = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=0,
+        )
+        assert base != round_zero
+
+    def test_different_rounds_produce_different_keys(self) -> None:
+        a = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=0,
+        )
+        b = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=1,
+        )
+        assert a != b
+
 
 # ---------------------------------------------------------------------------
 # CacheStore — async round-trip

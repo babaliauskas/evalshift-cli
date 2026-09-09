@@ -59,6 +59,7 @@ def cache_key(
     history: Sequence[Mapping[str, str]] | None = None,
     generation_config: Mapping[str, Any] | None = None,
     toolset_fingerprint: str | None = None,
+    round_index: int | None = None,
 ) -> str:
     """Compute the SHA-256 cache key for a call.
 
@@ -89,6 +90,17 @@ def cache_key(
             :func:`evalshift_cli.runner.orchestrator._fingerprint_toolset` — so
             the two spellings of one toolset never fork the cache, while two
             genuinely different toolsets always produce different keys.
+        round_index: 0-based round of a teacher-forced multi-round replay
+            (see :meth:`evalshift_cli.suite.models.SuiteExample.rounds_to_replay`).
+            Same inclusion rule as the three above: hashed only when not
+            ``None``, so a single-shot call keeps its pre-existing key. ``0``
+            is a real round and hashes *differently* from ``None`` — round 0
+            of a replayed loop is dispatched with a different message list
+            than the same example replayed single-shot would be. The tool
+            path bypasses the cache entirely (unchanged since v0.2), so today
+            nothing passes this; it exists so that when tool-call caching
+            lands the round dimension is already in the key and no cache
+            migration is needed.
     """
     payload: dict[str, Any] = {
         "model_id": model_id,
@@ -103,6 +115,8 @@ def cache_key(
         payload["generation_config"] = dict(generation_config)
     if toolset_fingerprint is not None:
         payload["toolset_fingerprint"] = toolset_fingerprint
+    if round_index is not None:
+        payload["round_index"] = round_index
     serialised = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(serialised.encode("utf-8")).hexdigest()
 

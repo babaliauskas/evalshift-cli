@@ -32,11 +32,12 @@ from evalshift_cli.config.models import (
     EvalShiftConfig,
     PromptDefinition,
 )
-from evalshift_cli.evaluators.tool_models import ToolSpec, ToolTrace
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
 from evalshift_cli.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
+    ModelClientError,
     ToolCompletionResult,
 )
 from evalshift_cli.runner.checkpoint import (
@@ -50,13 +51,20 @@ from evalshift_cli.runner.orchestrator import (
     _build_work_list,
     _fingerprint_toolset,
     build_messages,
+    build_round_messages,
     history_for_cache_key,
     resolve_example_tools,
     run_orchestrator,
     toolset_base_candidates,
 )
 from evalshift_cli.suite.loader import load_jsonl
-from evalshift_cli.suite.models import ChatMessage, HistoryToolCall, Suite
+from evalshift_cli.suite.models import (
+    ChatMessage,
+    ExpectedToolCall,
+    HistoryToolCall,
+    Suite,
+    ToolResultFixture,
+)
 from tests.unit.suite_examples import suite_example
 
 IN_MEMORY_DB = "sqlite+aiosqlite:///:memory:"
@@ -1569,3 +1577,455 @@ class TestRuntimeTemperatureRejectionReporting:
 
         state = read_state(result.run_dir)
         assert state.non_deterministic_models.count("openai/gpt-5.6-terra") == 1
+
+
+# ---------------------------------------------------------------------------
+# Teacher-forced multi-round replay
+# ---------------------------------------------------------------------------
+
+_ROUND_TOOL = ToolSpec(
+    name="search",
+    description="Search the corpus.",
+    input_schema={"type": "object", "properties": {}},
+)
+_ROUND_TOOL_2 = ToolSpec(
+    name="fetch",
+    description="Fetch a document.",
+    input_schema={"type": "object", "properties": {}},
+)
+
+
+def _round_config() -> EvalShiftConfig:
+    return EvalShiftConfig(
+        prompts=[
+            PromptDefinition(
+                id="agent",
+                detection="manual",
+                content="Hello {name}",
+                variables=["name"],
+            ),
+        ],
+        defaults=Defaults(concurrency=4, max_cost_usd=100.0),
+    )
+
+
+def _two_round_example(**overrides: Any) -> Any:
+    """An example whose fixtures cover two tool rounds → three replayed rounds."""
+    kwargs: dict[str, Any] = {
+        "id": "ex0",
+        "inputs": {"name": "Alex"},
+        "tools": [_ROUND_TOOL, _ROUND_TOOL_2],
+        "expected_tool_rounds": [
+            [ExpectedToolCall(tool_name="search", arguments={"q": "alpha"})],
+            [
+                ExpectedToolCall(tool_name="fetch", arguments={"id": 1}),
+                ExpectedToolCall(tool_name="fetch", arguments={"id": 2}),
+            ],
+        ],
+        "tool_result_fixtures": [
+            [ToolResultFixture(tool_name="search", result={"hits": 2})],
+            [
+                ToolResultFixture(tool_name="fetch", result="raw document text"),
+                ToolResultFixture(tool_name="fetch", error="not found"),
+            ],
+        ],
+    }
+    kwargs.update(overrides)
+    return suite_example(**kwargs)
+
+
+def _install_round_recorder(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    trace_for: Any = None,
+    error_at: int | None = None,
+    finish_reason_for: Any = None,
+) -> list[dict[str, Any]]:
+    """Record every tool-path dispatch; replay a canned per-round response.
+
+    Both tool entry points are patched with the same fake so a test can assert
+    on the whole per-example sequence regardless of which one carried a given
+    round (round 0 of a single-turn example goes through ``complete_with_tools``,
+    every later round through ``complete_messages_with_tools``). The round index
+    is derived from how many dispatches that model has already made — rounds of
+    one example are strictly sequential, and source/target run on distinct models.
+    """
+    seen: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+
+    async def fake(self: ModelClient, **kwargs: Any) -> ToolCompletionResult:
+        model = str(kwargs["model"])
+        round_index = counts.get(model, 0)
+        counts[model] = round_index + 1
+        seen.append(
+            {
+                "model": model,
+                "round": round_index,
+                "prompt": kwargs.get("prompt"),
+                "messages": kwargs.get("messages"),
+            },
+        )
+        if error_at is not None and round_index == error_at:
+            raise ModelClientError(f"upstream exploded in round {round_index}")
+        trace = (
+            trace_for(round_index)
+            if trace_for is not None
+            else ToolTrace(calls=[], final_text=f"round {round_index}")
+        )
+        return ToolCompletionResult(
+            trace=trace,
+            model_id=model,
+            input_tokens=2,
+            output_tokens=3,
+            cost_usd=0.5,
+            latency_ms=10,
+            raw_provider_response={},
+            finish_reason=None if finish_reason_for is None else finish_reason_for(round_index),
+        )
+
+    monkeypatch.setattr(ModelClient, "complete_with_tools", fake)
+    monkeypatch.setattr(ModelClient, "complete_messages_with_tools", fake)
+    return seen
+
+
+class TestBuildRoundMessages:
+    """The pure message builder — what a candidate is shown for round *k*."""
+
+    def test_round_zero_is_todays_dispatch_for_a_single_turn_example(self) -> None:
+        example = _two_round_example()
+        assert build_round_messages(example, "Hello Alex", 0) is None
+        assert build_round_messages(example, "Hello Alex", 0) == build_messages(
+            example, "Hello Alex"
+        )
+
+    def test_round_zero_of_a_history_example_matches_build_messages(self) -> None:
+        example = _two_round_example(
+            history=[
+                ChatMessage(role="user", content="earlier turn"),
+                ChatMessage(role="assistant", content="earlier reply"),
+            ],
+        )
+        assert build_round_messages(example, "Hello Alex", 0) == build_messages(
+            example, "Hello Alex"
+        )
+
+    def test_round_one_replays_round_zero_as_assistant_and_tool_turns(self) -> None:
+        messages = build_round_messages(_two_round_example(), "Hello Alex", 1)
+        assert messages == [
+            {"role": "user", "content": "Hello Alex"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_r0_0",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": '{"q": "alpha"}'},
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_r0_0", "content": '{"hits": 2}'},
+        ]
+
+    def test_round_two_replays_both_recorded_rounds(self) -> None:
+        messages = build_round_messages(_two_round_example(), "Hello Alex", 2)
+        assert messages is not None
+        assert messages[:3] == build_round_messages(_two_round_example(), "Hello Alex", 1)
+        assert messages[3] == {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_r1_0",
+                    "type": "function",
+                    "function": {"name": "fetch", "arguments": '{"id": 1}'},
+                },
+                {
+                    "id": "call_r1_1",
+                    "type": "function",
+                    "function": {"name": "fetch", "arguments": '{"id": 2}'},
+                },
+            ],
+        }
+        # A str result is sent verbatim; a recorded error becomes {"error": ...}.
+        assert messages[4] == {
+            "role": "tool",
+            "tool_call_id": "call_r1_0",
+            "content": "raw document text",
+        }
+        assert messages[5] == {
+            "role": "tool",
+            "tool_call_id": "call_r1_1",
+            "content": '{"error": "not found"}',
+        }
+        assert len(messages) == 6
+
+    def test_history_prefix_comes_before_the_prompt_and_the_rounds(self) -> None:
+        example = _two_round_example(
+            history=[
+                ChatMessage(role="system", content="be helpful"),
+                ChatMessage(role="user", content="earlier turn"),
+                ChatMessage(role="assistant", content="earlier reply"),
+            ],
+        )
+        messages = build_round_messages(example, "Hello Alex", 1)
+        assert messages is not None
+        assert messages[:3] == [
+            {"role": "system", "content": "be helpful"},
+            {"role": "user", "content": "earlier turn"},
+            {"role": "assistant", "content": "earlier reply"},
+        ]
+        assert messages[3] == {"role": "user", "content": "Hello Alex"}
+        assert messages[4]["role"] == "assistant"
+        assert messages[5]["role"] == "tool"
+
+    def test_argumentless_expected_call_renders_as_empty_object(self) -> None:
+        """``--names-only`` promotion leaves ``arguments`` unset; send ``{}``."""
+        example = suite_example(
+            id="ex0",
+            inputs={"name": "Alex"},
+            tools=[_ROUND_TOOL],
+            expected_tool_rounds=[[ExpectedToolCall(tool_name="search")]],
+            tool_result_fixtures=[[ToolResultFixture(tool_name="search", result=None)]],
+        )
+        messages = build_round_messages(example, "Hello Alex", 1)
+        assert messages is not None
+        assert messages[1]["tool_calls"][0]["function"]["arguments"] == "{}"
+        assert messages[2]["content"] == "null"
+
+
+class TestTeacherForcedRunnerLoop:
+    async def test_one_call_per_round_and_one_row_per_role(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_round_recorder(monkeypatch)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+
+        result = await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[_two_round_example()]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        # 2 fixture rounds + the answer round, per role.
+        assert len(seen) == 6
+        rows = list(iter_calls(result.run_dir))
+        assert len(rows) == 2
+        assert {r.role for r in rows} == {"source", "target"}
+        for row in rows:
+            assert row.trace is not None
+            assert row.trace.round_count == 3
+            assert row.text == "round 2"  # the last round's final text
+            assert row.input_tokens == 6  # 2 per round x 3 rounds
+            assert row.output_tokens == 9
+            assert row.cost_usd == pytest.approx(1.5)
+            assert row.latency_ms == 30
+
+    async def test_round_k_messages_carry_the_recorded_rounds_before_it(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_round_recorder(monkeypatch)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+        example = _two_round_example()
+
+        await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[example]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        source = [s for s in seen if s["model"] == "gemini/gemini-2.5-flash"]
+        assert [s["round"] for s in source] == [0, 1, 2]
+        # Round 0 keeps today's plain-prompt dispatch, byte-for-byte.
+        assert source[0]["prompt"] == "Hello Alex"
+        assert source[0]["messages"] is None
+        assert source[1]["messages"] == build_round_messages(example, "Hello Alex", 1)
+        assert source[2]["messages"] == build_round_messages(example, "Hello Alex", 2)
+
+    async def test_history_example_composes_history_with_rounds(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_round_recorder(monkeypatch)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+        example = _two_round_example(
+            history=[
+                ChatMessage(role="user", content="earlier turn"),
+                ChatMessage(role="assistant", content="earlier reply"),
+            ],
+        )
+
+        await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[example]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        source = [s for s in seen if s["model"] == "gemini/gemini-2.5-flash"]
+        assert len(source) == 3
+        for dispatch in source:
+            messages = dispatch["messages"]
+            assert messages is not None  # every round is message-mode here
+            assert messages[:2] == [
+                {"role": "user", "content": "earlier turn"},
+                {"role": "assistant", "content": "earlier reply"},
+            ]
+            assert messages[2] == {"role": "user", "content": "Hello Alex"}
+        assert len(source[0]["messages"]) == 3
+        assert len(source[1]["messages"]) == 5
+        assert len(source[2]["messages"]) == 8
+
+    async def test_calls_are_round_tagged_and_sequence_indices_keep_counting(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        def trace_for(round_index: int) -> ToolTrace:
+            if round_index == 2:
+                return ToolTrace(calls=[], final_text="done")
+            return ToolTrace(
+                calls=[
+                    ToolCall(
+                        tool_name=f"t{round_index}_{i}",
+                        arguments={},
+                        sequence_index=i,
+                    )
+                    for i in range(round_index + 1)
+                ],
+                final_text=None,
+            )
+
+        _install_round_recorder(monkeypatch, trace_for=trace_for)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+
+        result = await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[_two_round_example()]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        row = next(iter(iter_calls(result.run_dir)))
+        assert row.trace is not None
+        assert row.trace.round_count == 3
+        assert [c.round_index for c in row.trace.calls] == [0, 1, 1]
+        assert [c.sequence_index for c in row.trace.calls] == [0, 1, 2]
+        assert [c.tool_name for c in row.trace.calls] == ["t0_0", "t1_0", "t1_1"]
+        assert row.trace.final_text == "done"
+        assert [t.round_count for t in row.trace.rounds()] == [1, 1, 1]
+
+    async def test_error_mid_loop_yields_one_errored_call_naming_the_round(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        _install_round_recorder(monkeypatch, error_at=1)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+
+        result = await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[_two_round_example()]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        rows = list(iter_calls(result.run_dir))
+        assert len(rows) == 2  # still one row per role; no partial round rows
+        for row in rows:
+            assert row.trace is None
+            assert row.error is not None
+            assert row.error.startswith("round 2/3: ")
+            assert "upstream exploded" in row.error
+
+    async def test_length_in_an_earlier_round_wins_over_the_last_rounds_reason(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        _install_round_recorder(
+            monkeypatch,
+            finish_reason_for=lambda k: "length" if k == 0 else "stop",
+        )
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+
+        result = await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[_two_round_example()]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        for row in iter_calls(result.run_dir):
+            assert row.finish_reason == "length"
+
+    async def test_single_shot_example_still_makes_exactly_one_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_round_recorder(monkeypatch)
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+        example = suite_example(id="ex0", inputs={"name": "Alex"}, tools=[_ROUND_TOOL])
+
+        result = await run_orchestrator(
+            config=_round_config(),
+            config_path=config_path,
+            suite=Suite(examples=[example]),
+            suite_path=suite_path,
+            source_model="gemini-2.5-flash",
+            target_model="gemini-2.5-pro",
+            runs_base=runs_base,
+            yes=True,
+            cache=cache,
+        )
+
+        assert len(seen) == 2  # source + target, one round each
+        assert all(s["messages"] is None and s["prompt"] == "Hello Alex" for s in seen)
+        for row in iter_calls(result.run_dir):
+            assert row.trace is not None
+            assert row.trace.round_count == 1
