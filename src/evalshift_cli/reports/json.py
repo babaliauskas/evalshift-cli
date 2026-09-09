@@ -24,7 +24,7 @@ from evalshift_cli.analysis.statistics import AXIS_NOTE_PREFIX
 from evalshift_cli.cli.commands.analyze import ANALYSIS_FILENAME, MIGRATION_DECISION_FILENAME
 from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
 from evalshift_cli.evaluators.base import EvalRecord
-from evalshift_cli.evaluators.tool_models import ToolTrace
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
 from evalshift_cli.evaluators.tool_selection import KIND_DIVERGENCE
 from evalshift_cli.reports.economics import (
     PromptEconomics,
@@ -76,6 +76,25 @@ _TOOL_NAME_KEYS: tuple[tuple[str, str], ...] = (
 
 
 @dataclass(frozen=True, slots=True)
+class RoundToolChange:
+    """One round of a teacher-forced replay, as the evaluator scored it.
+
+    ``round`` is zero-based, matching the evaluator's metadata; the report
+    labels it ``r1``, ``r2``, … because a user counts rounds from one.
+    """
+
+    round: int
+    source_names: list[str]
+    target_names: list[str]
+    expected_names: list[str]
+
+    @property
+    def diverged(self) -> bool:
+        """Whether the two sides called different tools in this round."""
+        return self.source_names != self.target_names
+
+
+@dataclass(frozen=True, slots=True)
 class ToolChange:
     """The tools each side called on one example, as the evaluator saw them.
 
@@ -87,6 +106,10 @@ class ToolChange:
 
     source_names: list[str]
     target_names: list[str]
+    # Populated only for a teacher-forced multi-round replay, from the
+    # evaluator's ``metadata["rounds"]``. ``None`` — never ``[]`` — for a
+    # single-shot pair, so the report keeps rendering it as one line.
+    rounds: list[RoundToolChange] | None = None
 
     @property
     def diverged(self) -> bool:
@@ -653,8 +676,32 @@ def _tool_change(metadata: dict[str, Any]) -> ToolChange | None:
             return ToolChange(
                 source_names=_name_list(metadata.get(source_key)),
                 target_names=_name_list(metadata.get(target_key)),
+                rounds=_round_changes(metadata.get("rounds")),
             )
     return None
+
+
+def _round_changes(value: Any) -> list[RoundToolChange] | None:
+    """Read a record's per-round breakdown, or ``None`` for a single-shot pair.
+
+    Written by the tool evaluators only when the replay spanned more than one
+    round, so its absence is the signal to render the flat one-line form.
+    """
+    if not isinstance(value, list) or not value:
+        return None
+    rounds: list[RoundToolChange] = []
+    for index, entry in enumerate(value):
+        if not isinstance(entry, dict):
+            return None
+        rounds.append(
+            RoundToolChange(
+                round=int(entry.get("round", index)),
+                source_names=_name_list(entry.get("source_names")),
+                target_names=_name_list(entry.get("target_names")),
+                expected_names=_name_list(entry.get("expected_names")),
+            ),
+        )
+    return rounds
 
 
 def _name_list(value: Any) -> list[str]:
@@ -748,10 +795,50 @@ def _build_tool_diffs(
     source_trace: ToolTrace | None,
     target_trace: ToolTrace | None,
 ) -> list[ToolDiff]:
+    """Positional diff of two traces, one round at a time.
+
+    A teacher-forced replay is several responses, and position 1 of round 2
+    is not position 3 of the trace: diffing the flattened call lists reports
+    a whole loop as shifted the moment one round makes an extra call. Each
+    round is diffed on its own and its messages say which round they are
+    about.
+    """
     if source_trace is None and target_trace is None:
         return []
-    source_calls = source_trace.calls if source_trace else []
-    target_calls = target_trace.calls if target_trace else []
+    rounds = max(
+        source_trace.round_count if source_trace else 1,
+        target_trace.round_count if target_trace else 1,
+    )
+    if rounds == 1:
+        return _diff_calls(
+            source_trace.calls if source_trace else [],
+            target_trace.calls if target_trace else [],
+        )
+    diffs: list[ToolDiff] = []
+    for index in range(rounds):
+        diffs.extend(
+            _diff_calls(
+                _calls_of_round(source_trace, index),
+                _calls_of_round(target_trace, index),
+                prefix=f"Round {index + 1}: ",
+            ),
+        )
+    return diffs
+
+
+def _calls_of_round(trace: ToolTrace | None, index: int) -> list[ToolCall]:
+    """One round's calls, or nothing when that side never replayed it."""
+    if trace is None or index >= trace.round_count:
+        return []
+    return trace.round(index).calls
+
+
+def _diff_calls(
+    source_calls: list[ToolCall],
+    target_calls: list[ToolCall],
+    *,
+    prefix: str = "",
+) -> list[ToolDiff]:
     diffs: list[ToolDiff] = []
 
     max_len = max(len(source_calls), len(target_calls))
@@ -763,7 +850,7 @@ def _build_tool_diffs(
                 ToolDiff(
                     kind="extra_tool",
                     tool_name=tgt.tool_name,
-                    message=f"Target added {tgt.tool_name} at position {index + 1}.",
+                    message=f"{prefix}Target added {tgt.tool_name} at position {index + 1}.",
                     target_arguments=tgt.arguments,
                 ),
             )
@@ -773,7 +860,7 @@ def _build_tool_diffs(
                 ToolDiff(
                     kind="missing_tool",
                     tool_name=src.tool_name,
-                    message=f"Target omitted {src.tool_name} at position {index + 1}.",
+                    message=f"{prefix}Target omitted {src.tool_name} at position {index + 1}.",
                     source_arguments=src.arguments,
                 ),
             )
@@ -786,7 +873,7 @@ def _build_tool_diffs(
                     kind="tool_order_or_selection",
                     tool_name=tgt.tool_name,
                     message=(
-                        f"Position {index + 1}: source called {src.tool_name}, "
+                        f"{prefix}Position {index + 1}: source called {src.tool_name}, "
                         f"target called {tgt.tool_name}."
                     ),
                     source_arguments=src.arguments,
@@ -798,7 +885,7 @@ def _build_tool_diffs(
                 ToolDiff(
                     kind="argument_drift",
                     tool_name=src.tool_name,
-                    message=f"Arguments changed for {src.tool_name} at position {index + 1}.",
+                    message=f"{prefix}Arguments changed for {src.tool_name} at position {index + 1}.",
                     source_arguments=src.arguments,
                     target_arguments=tgt.arguments,
                 ),
@@ -806,10 +893,30 @@ def _build_tool_diffs(
     return diffs
 
 
-def _tool_change_to_dict(change: ToolChange | None) -> dict[str, list[str]] | None:
+def _tool_change_to_dict(change: ToolChange | None) -> dict[str, Any] | None:
+    """Serialise a tool change, adding ``rounds`` only when the replay had them.
+
+    A single-shot pair keeps the exact two-key object every existing reader
+    of ``report.json`` was written against.
+    """
     if change is None:
         return None
-    return {"source_names": change.source_names, "target_names": change.target_names}
+    payload: dict[str, Any] = {
+        "source_names": change.source_names,
+        "target_names": change.target_names,
+    }
+    if change.rounds is not None:
+        payload["rounds"] = [
+            {
+                "round": r.round,
+                "source_names": r.source_names,
+                "target_names": r.target_names,
+                "expected_names": r.expected_names,
+                "diverged": r.diverged,
+            }
+            for r in change.rounds
+        ]
+    return payload
 
 
 def _to_jsonable(report: ReportData) -> dict[str, Any]:
@@ -933,6 +1040,7 @@ __all__ = [
     "PromptSection",
     "ReportData",
     "RoleEconomics",
+    "RoundToolChange",
     "ToolChange",
     "ToolDiff",
     "TopRegression",

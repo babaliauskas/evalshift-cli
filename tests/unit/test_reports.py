@@ -1515,8 +1515,13 @@ def test_unmeasured_comparison_does_not_render_as_too_few_samples() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
+def _scaffold_two_axis_run(tmp_path: Path, *, rounds: bool = False) -> tuple[Path, str]:
     """A run where one evaluator name scored both ``tool_selection`` axes.
+
+    ``rounds=True`` makes ``ex1`` a teacher-forced two-round replay: the
+    divergence record then carries the per-round breakdown the evaluator
+    writes for a multi-round trace, which is what the report renders one line
+    per round from.
 
     Shaped exactly like the frozen ``project_insights`` fixture and just as
     hostile: every conformance row is ``0.0 / 0.0`` — both models called a
@@ -1554,6 +1559,21 @@ def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
             completed_evaluations=4,
         ),
     )
+
+    def _two_round_trace(second: str) -> ToolTrace:
+        return ToolTrace(
+            calls=[
+                ToolCall(
+                    tool_name="get_recent_files",
+                    arguments={},
+                    sequence_index=0,
+                    round_index=0,
+                ),
+                ToolCall(tool_name=second, arguments={}, sequence_index=1, round_index=1),
+            ],
+            round_count=2,
+        )
+
     for example_id in ("ex1", "ex2"):
         for role, model_id in (
             ("source", "gemini/gemini-3.5-flash-lite"),
@@ -1569,6 +1589,11 @@ def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
                     role=role,
                     text="",
                     finish_reason="tool_calls",
+                    trace=(
+                        _two_round_trace("archive_project" if role == "source" else "display_info")
+                        if rounds and example_id == "ex1"
+                        else None
+                    ),
                 ),
             )
 
@@ -1607,6 +1632,30 @@ def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
                 "source_set": ["get_recent_files"],
                 "target_set": ["display_info"],
                 "failure_categories": ["TOOL_SELECTION_DRIFT"],
+                **(
+                    {
+                        "rounds": [
+                            {
+                                "round": 0,
+                                "expected_names": [],
+                                "source_names": ["get_recent_files"],
+                                "target_names": ["get_recent_files"],
+                                "source_score": 1.0,
+                                "target_score": 1.0,
+                            },
+                            {
+                                "round": 1,
+                                "expected_names": [],
+                                "source_names": ["archive_project"],
+                                "target_names": ["display_info"],
+                                "source_score": 1.0,
+                                "target_score": 0.0,
+                            },
+                        ],
+                    }
+                    if rounds
+                    else {}
+                ),
             },
         ),
         EvalRecord(
@@ -2033,3 +2082,147 @@ class TestDroppedParamsBanner:
         html = render_html(payload)
 
         assert html.index("Sampling is not controlled") < html.index("Constraints not honoured")
+
+
+class TestPerRoundToolChange:
+    """A teacher-forced replay diverged in *a round*, and the report says which.
+
+    One flattened arrow — ``a, b → a, c`` — cannot say whether the target
+    called the wrong tool or called the right ones in the wrong order across
+    the loop. The per-round rows are the finding.
+    """
+
+    def test_the_rounds_are_read_off_the_record_metadata(self) -> None:
+        from evalshift_cli.reports.json import _tool_change
+
+        change = _tool_change(
+            {
+                "mode": "set",
+                "source_set": ["a", "b"],
+                "target_set": ["a", "c"],
+                "rounds": [
+                    {
+                        "round": 0,
+                        "expected_names": ["a"],
+                        "source_names": ["a"],
+                        "target_names": ["a"],
+                        "source_score": 1.0,
+                        "target_score": 1.0,
+                    },
+                    {
+                        "round": 1,
+                        "expected_names": ["b"],
+                        "source_names": ["b"],
+                        "target_names": ["c"],
+                        "source_score": 1.0,
+                        "target_score": 0.0,
+                    },
+                ],
+            },
+        )
+
+        assert change is not None
+        assert change.rounds is not None
+        assert [r.round for r in change.rounds] == [0, 1]
+        assert change.rounds[0].diverged is False
+        assert change.rounds[1].diverged is True
+        assert change.rounds[1].expected_names == ["b"]
+
+    def test_a_single_round_record_carries_no_rounds(self) -> None:
+        from evalshift_cli.reports.json import _tool_change, _tool_change_to_dict
+
+        change = _tool_change({"source_names": ["a"], "target_names": ["b"]})
+        assert change is not None
+        assert change.rounds is None
+        assert _tool_change_to_dict(change) == {
+            "source_names": ["a"],
+            "target_names": ["b"],
+        }
+
+    def test_report_json_carries_the_rounds(self, tmp_path: Path) -> None:
+        from evalshift_cli.reports.json import _to_jsonable
+
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        rows = _to_jsonable(payload)["prompt_sections"][0]["example_rows"]
+        by_id = {row["example_id"]: row for row in rows}
+        assert by_id["ex1"]["tool_change"]["rounds"] == [
+            {
+                "round": 0,
+                "source_names": ["get_recent_files"],
+                "target_names": ["get_recent_files"],
+                "expected_names": [],
+                "diverged": False,
+            },
+            {
+                "round": 1,
+                "source_names": ["archive_project"],
+                "target_names": ["display_info"],
+                "expected_names": [],
+                "diverged": True,
+            },
+        ]
+        # ex2 is single-round and must be untouched.
+        assert by_id["ex2"]["tool_change"] == {
+            "source_names": ["get_projects"],
+            "target_names": ["get_projects"],
+        }
+
+    def test_the_html_renders_one_line_per_round(self, tmp_path: Path) -> None:
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        html = render_html(payload)
+        assert "archive_project" in html
+        assert "r2" in html
+
+    def test_the_raw_trace_listing_labels_its_rounds(self, tmp_path: Path) -> None:
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        html = render_html(payload)
+        assert "round 2" in html
+
+    def test_the_tool_diffs_name_the_round_that_diverged(self, tmp_path: Path) -> None:
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        messages = [d.message for d in payload.prompt_sections[0].top_regressions[0].tool_diffs]
+        assert messages == [
+            "Round 2: Position 1: source called archive_project, target called display_info.",
+        ]
+
+
+class TestPerRoundToolDiffs:
+    """Positions restart each round, so the diff must too."""
+
+    def test_positions_reset_and_messages_name_the_round(self) -> None:
+        from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+        from evalshift_cli.reports.json import _build_tool_diffs
+
+        def _multi(*rounds: list[str]) -> ToolTrace:
+            calls: list[ToolCall] = []
+            for round_index, names in enumerate(rounds):
+                for name in names:
+                    calls.append(
+                        ToolCall(
+                            tool_name=name,
+                            arguments={},
+                            sequence_index=len(calls),
+                            round_index=round_index,
+                        ),
+                    )
+            return ToolTrace(calls=calls, round_count=len(rounds))
+
+        diffs = _build_tool_diffs(_multi(["a"], ["b"]), _multi(["a"], ["c"]))
+
+        assert [d.kind for d in diffs] == ["tool_order_or_selection"]
+        assert diffs[0].message == "Round 2: Position 1: source called b, target called c."
+
+    def test_a_single_round_diff_message_is_unchanged(self) -> None:
+        from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+        from evalshift_cli.reports.json import _build_tool_diffs
+
+        source = ToolTrace(calls=[ToolCall(tool_name="a", arguments={}, sequence_index=0)])
+        target = ToolTrace(calls=[ToolCall(tool_name="b", arguments={}, sequence_index=0)])
+
+        diffs = _build_tool_diffs(source, target)
+
+        assert diffs[0].message == "Position 1: source called a, target called b."
