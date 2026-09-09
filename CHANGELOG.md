@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Runs now record which generation parameters the models cannot honour, instead
+  of `drop_params: True` making them vanish. A promoted capture can pin the
+  generation config its original call used (`temperature`, `top_p`,
+  `response_format` / `response_mime_type` / `response_schema`, `max_tokens` /
+  `max_output_tokens`, `tool_choice` / `tool_config`, `parallel_tool_calls`),
+  and the replay sends it — but LiteLLM's `drop_params` lets a model that never
+  accepted one of those answer anyway, minus the constraint, so the arm
+  measured a model change *plus* a missing constraint with nothing saying so.
+  At run start EvalShift now asks LiteLLM (`models.capabilities.unsupported_params`,
+  the generalisation of the existing `honors_temperature` probe) which of the
+  parameters the suite actually recorded each arm supports, mapping provider
+  spellings to their OpenAI names first. Anything a model positively lacks
+  lands in `state.json` under `dropped_params` (`model id → [param, …]`), is
+  logged once per (model, parameter) at `WARNING` rather than per call, reaches
+  `report.json` as `dropped_params`, and renders as a **Constraints not
+  honoured** banner beside the sampling banner in the HTML report. Uncertainty
+  reads as "supported" — an exception, a `None`, or an empty answer records
+  nothing — on the same reasoning as the sampling probe: a false banner on
+  every report costs more than one missed warning. `temperature` stays with
+  `non_deterministic_models`, which owns its own banner and probes
+  unconditionally. Calls are unaffected: `drop_params` is still on, so nothing
+  that used to succeed now fails.
+- `migration_policy.fail_on_dropped_params` (bool, default `false`) turns that
+  record into a gate: when set and `dropped_params` is non-empty, the verdict
+  is `fail` with a reason naming each model and parameter, whatever the scores
+  said. For suites where the constraint *is* the contract — captures that
+  pinned `response_format` measure nothing useful against a target that will
+  not produce structured output. Top-level only (a model either accepts a
+  parameter or does not, which no slice can vary), and runs recorded before
+  `dropped_params` existed are never failed by it.
 - Trace models accept `requested_tool_calls` on a `model_call` event — the tool
   calls the model asked for *in its response*, as
   `{name, arguments, call_id}` entries. It sits alongside the two notions that

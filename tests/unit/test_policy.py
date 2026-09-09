@@ -2556,3 +2556,71 @@ class TestSourceDerivedGroundTruthDisclosure:
             calls=[],
         )
         assert _has_provenance_note(decision), decision.recommendations
+
+
+class TestFailOnDroppedParams:
+    """``fail_on_dropped_params`` turns a report caveat into a gate.
+
+    A team replaying captures that pinned ``response_format`` may consider a
+    target that cannot honour it unmigratable regardless of how the scores
+    came out — the arm did not run the experiment they wrote.
+    """
+
+    def _decide(
+        self, *, policy: MigrationPolicy, dropped: dict[str, list[str]] | None
+    ) -> MigrationDecision:
+        return evaluate_migration_policy(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            policy=policy,
+            comparisons=[_comparison(severity="none")],
+            records=[_record(example_id="ex1", delta=0.0)],
+            calls=[],
+            dropped_params=dropped,
+        )
+
+    def test_passes_when_the_knob_is_off(self) -> None:
+        decision = self._decide(
+            policy=MigrationPolicy(),
+            dropped={"tgt": ["tool_choice"]},
+        )
+        assert decision.verdict == "pass"
+
+    def test_fails_and_names_the_model_and_params(self) -> None:
+        decision = self._decide(
+            policy=MigrationPolicy(fail_on_dropped_params=True),
+            dropped={"tgt": ["response_format", "tool_choice"]},
+        )
+        assert decision.verdict == "fail"
+        assert decision.reason is not None
+        assert "tgt" in decision.reason
+        assert "response_format" in decision.reason
+        assert "tool_choice" in decision.reason
+
+    def test_no_effect_when_nothing_was_dropped(self) -> None:
+        decision = self._decide(policy=MigrationPolicy(fail_on_dropped_params=True), dropped={})
+        assert decision.verdict == "pass"
+        assert decision.reason is None
+
+    def test_defaults_to_no_record_for_callers_that_do_not_pass_one(self) -> None:
+        """Old artefacts have no ``dropped_params``; the gate must stay silent."""
+        decision = self._decide(policy=MigrationPolicy(fail_on_dropped_params=True), dropped=None)
+        assert decision.verdict == "pass"
+
+    def test_keeps_an_existing_reason_alongside_its_own(self) -> None:
+        decision = evaluate_migration_policy(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            policy=MigrationPolicy(fail_on_dropped_params=True),
+            comparisons=[],
+            records=[],
+            calls=[],
+            dropped_params={"tgt": ["tool_choice"]},
+        )
+        assert decision.verdict == "fail"
+        assert decision.reason is not None
+        # The "no blocking evaluator records" explanation survives.
+        assert "no blocking evaluator records" in decision.reason
+        assert "tool_choice" in decision.reason

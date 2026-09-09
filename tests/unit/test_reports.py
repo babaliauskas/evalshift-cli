@@ -21,6 +21,7 @@ from evalshift_cli.reports.json import (
     REPORT_JSON_FILENAME,
     TopRegression,
     build_report_payload,
+    write_report_json,
 )
 from evalshift_cli.runner.checkpoint import append_call, write_state
 from evalshift_cli.runner.models import Call, RunModels, RunState
@@ -30,7 +31,10 @@ runner = CliRunner()
 
 
 def _scaffold_full_run(
-    tmp_path: Path, *, non_deterministic_models: list[str] | None = None
+    tmp_path: Path,
+    *,
+    non_deterministic_models: list[str] | None = None,
+    dropped_params: dict[str, list[str]] | None = None,
 ) -> tuple[Path, str]:
     """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json."""
     run_id = "r_20260601_aaaaaa"
@@ -61,6 +65,7 @@ def _scaffold_full_run(
             total_evaluations=4,
             completed_evaluations=4,
             non_deterministic_models=non_deterministic_models or [],
+            dropped_params=dropped_params or {},
         ),
     )
 
@@ -1937,3 +1942,94 @@ class TestReportResolvesPerSuiteEvaluators:
     ) -> None:
         names = self._captured_names(monkeypatch, tmp_path, suite_name=None)
         assert names == frozenset()
+
+
+class TestDroppedParamsBanner:
+    """The report must say when the replay's constraints did not reach a model.
+
+    ``drop_params=True`` keeps the call alive at the cost of the constraint.
+    Without this banner the arm looks like a clean model swap when it is a
+    model swap plus a missing constraint.
+    """
+
+    def test_absent_when_every_constraint_was_honoured(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        assert payload.dropped_params == {}
+        assert "Constraints not honoured" not in render_html(payload)
+
+    def test_payload_carries_the_run_state_record(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-pro": ["response_format", "tool_choice"]}
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        assert payload.dropped_params == {
+            "gemini/gemini-2.5-pro": ["response_format", "tool_choice"]
+        }
+
+    def test_report_json_emits_the_field(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-pro": ["tool_choice"]}
+        )
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir)
+        out = write_report_json(payload, run_dir)
+
+        assert json.loads(out.read_text())["dropped_params"] == {
+            "gemini/gemini-2.5-pro": ["tool_choice"]
+        }
+
+    def test_banner_names_the_target_and_its_params(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-pro": ["response_format", "tool_choice"]}
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert "Constraints not honoured by the target" in html
+        assert "<code>response_format</code>" in html
+        assert "<code>tool_choice</code>" in html
+        # Above the numbers it qualifies, next to the determinism banner.
+        assert html.index("Constraints not honoured") < html.index("<h2>")
+
+    def test_banner_names_the_source_when_that_is_the_affected_arm(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-flash": ["tool_choice"]}
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert "Constraints not honoured by <code>gemini/gemini-2.5-flash</code>" in html
+
+    def test_banner_lists_every_affected_model(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path,
+            dropped_params={
+                "gemini/gemini-2.5-flash": ["tool_choice"],
+                "gemini/gemini-2.5-pro": ["response_format"],
+            },
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert "Constraints not honoured by both arms" in html
+        assert "<code>gemini/gemini-2.5-flash</code>" in html
+        assert "<code>gemini/gemini-2.5-pro</code>" in html
+
+    def test_banner_follows_the_determinism_banner(self, tmp_path: Path) -> None:
+        """Sampling weakens every p-value; a dropped constraint weakens one arm."""
+        cwd, run_id = _scaffold_full_run(
+            tmp_path,
+            non_deterministic_models=["gemini/gemini-2.5-pro"],
+            dropped_params={"gemini/gemini-2.5-pro": ["tool_choice"]},
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert html.index("Sampling is not controlled") < html.index("Constraints not honoured")

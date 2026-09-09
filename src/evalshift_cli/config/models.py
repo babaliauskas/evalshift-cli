@@ -468,6 +468,17 @@ class MigrationPolicy(_StrictModel):
             optional filter scores below 1.0 without being wrong. Without a
             floor the drift rate counts every non-identical call, so a call that
             merely reworded a query would eat the drift budget.
+        fail_on_dropped_params: Fail the run when either arm could not honour
+            a generation parameter the source capture recorded (``state.json``
+            → ``dropped_params``). Off by default: a dropped constraint is a
+            caveat on the numbers, which the report states in its own banner,
+            not by itself proof the migration is unsafe. Turn it on when the
+            constraint *is* the contract — a suite replaying captures that
+            pinned ``response_format`` measures nothing useful against a
+            target that will not produce structured output, so passing on
+            those scores would be worse than failing. Not available per slice:
+            a model either accepts a parameter or does not, which is not a
+            property any subset of examples can vary.
     """
 
     max_overall_regression_rate: float = Field(default=0.30, ge=0.0, le=1.0)
@@ -496,6 +507,7 @@ class MigrationPolicy(_StrictModel):
     tool_argument_drift_floor: float = Field(default=0.9, ge=0.0, le=1.0)
     max_cost_increase: float = Field(default=0.30, ge=0.0, le=10.0)
     max_latency_increase: float = Field(default=0.30, ge=0.0, le=10.0)
+    fail_on_dropped_params: bool = False
     slices: dict[str, SliceMigrationPolicy] = Field(default_factory=dict)
 
     @model_validator(mode="after")

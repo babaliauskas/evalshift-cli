@@ -504,6 +504,22 @@ backing it up.
   for one arm only — confounding the very comparison it was meant to
   protect.
 
+* **A replay can lose constraints other than sampling.** A promoted capture
+  may pin `response_format`, `tool_choice`, `parallel_tool_calls`, `top_p` or
+  a completion cap, and `drop_params=True` lets a model that never accepted
+  one of them answer anyway — minus the constraint. EvalShift probes both arms
+  at run start for exactly the parameters the suite recorded (provider
+  spellings mapped to their OpenAI names first; `temperature` belongs to the
+  bullet above) and writes the shortfall to `state.json` under
+  `dropped_params`, with one `WARNING` per (model, parameter) and a
+  **Constraints not honoured** banner beside the sampling one. Uncertainty
+  from LiteLLM records nothing, on the same reasoning as the sampling probe.
+  Read such an arm as *model change plus a missing constraint*: a difference
+  there is not attributable to the model alone, so either accept the caveat,
+  pick a target that supports the constraint, or set
+  `migration_policy.fail_on_dropped_params: true` to make the run fail rather
+  than explain itself.
+
 * **Truncated outputs are excluded; empty outputs are not.** A call cut
   off at the `max_tokens` cap (`finish_reason == "length"`) is dropped
   from the paired statistics — a cut-off output is a measurement artefact,

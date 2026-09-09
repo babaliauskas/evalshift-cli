@@ -50,7 +50,7 @@ from evalshift_cli.captures.reader import CaptureError, capture_base, load_tools
 from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.config.models import EvalShiftConfig
 from evalshift_cli.evaluators.tool_models import ToolSpec
-from evalshift_cli.models.capabilities import honors_temperature
+from evalshift_cli.models.capabilities import honors_temperature, unsupported_params
 from evalshift_cli.models.client import ModelClient, ModelClientError
 from evalshift_cli.models.registry import resolve_model
 from evalshift_cli.parsers.base import PromptParseError, PromptTemplate
@@ -525,6 +525,11 @@ def _setup_run(
             source=canonical_source,
             target=canonical_target,
         ),
+        dropped_params=detect_dropped_params(
+            source=canonical_source,
+            target=canonical_target,
+            suite=suite,
+        ),
     )
     write_state(run_dir, state)
     return run_dir, state, set()
@@ -552,6 +557,110 @@ def detect_non_deterministic_models(*, source: str, target: str) -> list[str]:
         if model_id not in affected and not honors_temperature(model_id):
             affected.append(model_id)
     return affected
+
+
+#: Recorded ``generation_config`` key → the OpenAI-style parameter name
+#: ``litellm.get_supported_openai_params`` answers about. Several providers
+#: spell one constraint differently (Gemini's ``response_mime_type`` /
+#: ``response_schema`` are structured output, its ``tool_config`` is
+#: ``tool_choice``, its ``max_output_tokens`` is the completion cap), so the
+#: map is many-to-one and the result is deduplicated.
+#:
+#: Keys absent from this map are not probed. That is deliberate: LiteLLM only
+#: answers about OpenAI params, so a foreign key (``seed``,
+#: ``candidate_count``) has no answer to give and guessing one would
+#: manufacture a banner out of ignorance.
+_GENERATION_KEY_TO_OPENAI_PARAM: dict[str, str] = {
+    "temperature": "temperature",
+    "top_p": "top_p",
+    "response_format": "response_format",
+    "response_mime_type": "response_format",
+    "response_schema": "response_format",
+    "max_tokens": "max_tokens",
+    "max_output_tokens": "max_tokens",
+    "tool_choice": "tool_choice",
+    "tool_config": "tool_choice",
+    "parallel_tool_calls": "parallel_tool_calls",
+}
+
+#: Parameters this probe deliberately leaves alone because a dedicated,
+#: stronger check already owns them. ``temperature`` is
+#: :func:`detect_non_deterministic_models`' subject: that probe runs on every
+#: run rather than only when a capture happened to record a temperature, and
+#: it earns its own banner. Reporting it here too would put two banners on one
+#: run saying the same thing.
+_PARAMS_REPORTED_ELSEWHERE = frozenset({"temperature"})
+
+
+def requested_generation_params(suite: Suite) -> list[str]:
+    """Return the OpenAI-param names the suite's recorded configs ask for.
+
+    Args:
+        suite: The suite about to be replayed. Examples without a
+            ``generation_config`` (hand-written ones, and captures from before
+            the SDK recorded it) contribute nothing.
+
+    Returns:
+        Sorted, deduplicated parameter names to probe both arms with. Empty
+        when no example recorded a constraint worth checking — in which case
+        there is nothing LiteLLM could drop and no probe is needed at all.
+    """
+    names: set[str] = set()
+    for example in suite.examples:
+        for key in example.generation_config or {}:
+            param = _GENERATION_KEY_TO_OPENAI_PARAM.get(key)
+            if param is not None and param not in _PARAMS_REPORTED_ELSEWHERE:
+                names.add(param)
+    return sorted(names)
+
+
+def detect_dropped_params(*, source: str, target: str, suite: Suite) -> dict[str, list[str]]:
+    """Return each arm's generation parameters LiteLLM will silently drop.
+
+    ``ModelClient`` sets ``drop_params=True`` so a call carrying a parameter
+    the provider never accepted still succeeds. That keeps runs alive and
+    costs the constraint: the replay stops reproducing what the capture
+    pinned, and the arm measures the model change *plus* a missing constraint.
+    Recording it here is what lets the report say so.
+
+    Both arms are probed because either can be the affected one — a source
+    model is replayed too, not merely recorded — and an A/A run may name the
+    same model twice, so a model is probed and listed at most once.
+
+    Args:
+        source: Canonical id of the source model.
+        target: Canonical id of the target model.
+        suite: The suite being replayed; supplies the parameters to ask about.
+
+    Returns:
+        Canonical model id → sorted parameter names that model does not
+        accept. Models that honour every recorded constraint are absent, so an
+        empty dict means nothing is being dropped (and is also what an
+        uncertain LiteLLM returns — see
+        :func:`~evalshift_cli.models.capabilities.unsupported_params`).
+    """
+    requested = requested_generation_params(suite)
+    if not requested:
+        return {}
+    dropped: dict[str, list[str]] = {}
+    for model_id in (source, target):
+        if model_id in dropped:
+            continue
+        missing = unsupported_params(model_id, requested)
+        if not missing:
+            continue
+        dropped[model_id] = missing
+        for param in missing:
+            # Warning, and once per (model, param) rather than once per
+            # dispatched call: a per-call debug line for something that
+            # invalidates a whole arm is both unreadable and unread.
+            log.warning(
+                "%s does not accept %r; LiteLLM drops it from every call on that arm "
+                "(drop_params=True), so this run does not replay the recorded constraint",
+                model_id,
+                param,
+            )
+    return dropped
 
 
 def _build_work_list(
