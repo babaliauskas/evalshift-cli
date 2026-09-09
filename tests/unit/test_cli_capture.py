@@ -1640,7 +1640,40 @@ def test_sync_defaults_to_first_round(tmp_path: Path) -> None:
     assert names == ["archive_project", "archive_project"]
 
 
-def test_sync_rounds_all_flattens(tmp_path: Path) -> None:
+def _tool_result_event(name: str, index: int, call_id: str, result: Any) -> dict[str, Any]:
+    return {
+        "type": "tool_result",
+        "sequence_index": index,
+        "timestamp": "2026-06-16T12:00:01+00:00",
+        "metadata": {},
+        "name": name,
+        "call_id": call_id,
+        "result": result,
+    }
+
+
+def _multi_round_events_with_results() -> list[dict[str, Any]]:
+    """``_multi_round_events`` with every call's recorded result — what a
+    teacher-forced ``--rounds all`` promotion needs."""
+    results = {
+        "call_a": {"ok": True},
+        "call_b": {"ok": True},
+        "call_c": {"projects": []},
+    }
+    out: list[dict[str, Any]] = []
+    for event in _multi_round_events():
+        out.append({**event, "sequence_index": len(out)})
+        if event["type"] == "tool_call":
+            call_id = str(event["call_id"])
+            out.append(
+                _tool_result_event(str(event["name"]), len(out), call_id, results[call_id]),
+            )
+    return out
+
+
+def test_sync_rounds_all_scopes_expected_tools_to_round_one(tmp_path: Path) -> None:
+    """--rounds all no longer flattens; without recorded results it also
+    cannot cover a single round, so it says so."""
     _write_capture(
         tmp_path,
         capture_id="cap_multi",
@@ -1653,25 +1686,35 @@ def test_sync_rounds_all_flattens(tmp_path: Path) -> None:
     result = _invoke(["sync", "--rounds", "all", "--config", str(config)], tmp_path)
 
     assert result.exit_code == 0, result.stdout
+    assert "replay stays single-shot" in _flat(result.stdout)
     suite = load_jsonl(tmp_path / "suites" / "main_chat" / "golden.jsonl")
     names = [t.tool_name for t in suite.examples[0].expected_tools or []]
-    assert names == ["archive_project", "archive_project", "get_projects"]
+    assert names == ["archive_project", "archive_project"]
+    assert suite.examples[0].tool_result_fixtures is None
 
 
-def test_promote_rounds_all_flattens(tmp_path: Path) -> None:
+def test_promote_rounds_all_carries_tool_result_fixtures(tmp_path: Path) -> None:
     _write_capture(
         tmp_path,
         capture_id="cap_multi",
         suite="main_chat",
-        events=_multi_round_events(),
+        events=_multi_round_events_with_results(),
     )
 
     result = _invoke(["promote", "cap_multi", "--as", "case1", "--rounds", "all"], tmp_path)
 
     assert result.exit_code == 0, result.stdout
     suite = load_jsonl(tmp_path / "suites" / "main_chat" / "golden.jsonl")
-    names = [t.tool_name for t in suite.examples[0].expected_tools or []]
-    assert names == ["archive_project", "archive_project", "get_projects"]
+    example = suite.examples[0]
+    assert [t.tool_name for t in example.expected_tools or []] == [
+        "archive_project",
+        "archive_project",
+    ]
+    assert [[f.tool_name for f in r] for r in example.tool_result_fixtures or []] == [
+        ["archive_project", "archive_project"],
+        ["get_projects"],
+    ]
+    assert example.rounds_to_replay() == 3
 
 
 def test_promote_records_every_round_on_the_case(tmp_path: Path) -> None:

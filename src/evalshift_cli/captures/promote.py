@@ -23,14 +23,20 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
 from evalshift_cli.captures.reader import CaptureRecord, suites_root, toolset_path
-from evalshift_cli.suite.models import ChatMessage, ExpectedToolCall, HistoryToolCall, SuiteExample
+from evalshift_cli.suite.models import (
+    ChatMessage,
+    ExpectedToolCall,
+    HistoryToolCall,
+    SuiteExample,
+    ToolResultFixture,
+)
 from evalshift_cli.suite.tags import CAPTURED_TAG
 from evalshift_cli.traces.models import (
     ErrorEvent,
@@ -69,11 +75,15 @@ class PromoteOptions:
             event anyway. The case is still never given
             ``expected_no_tools=True`` — a failed turn is not evidence that
             calling nothing was correct.
-        rounds: Which recorded agent rounds become ``expected_tools``.
-            ``first`` (default) scopes ground truth to the first round —
-            the only round a single-shot replay can reproduce. ``all``
-            flattens every round, which over-specifies multi-round traces
-            but matches pre-v0.3 promotion.
+        rounds: How many recorded agent rounds the case is replayed over.
+            ``first`` (default) writes no fixtures: replay is single-shot,
+            scored against round 1, the only round it can reproduce.
+            ``all`` additionally carries the recorded tool results as
+            ``tool_result_fixtures``, so the runner replays each round
+            teacher-forced — the candidate sees the recorded rounds before
+            it and is scored against that round's own ground truth.
+            ``expected_tools`` is round 1 either way; ``all`` no longer
+            flattens the rounds into it.
         tool_properties: Declared argument property names per tool, resolved
             from the recorded toolset of the capture(s) being promoted (see
             ``cli.commands.capture._declared_tool_properties``). Used only to
@@ -235,24 +245,38 @@ def build_example_from_capture(
             provenance="captured",
         )
 
+    event_rounds = _event_rounds(events)
     executed_rounds = _tool_rounds(events)
     requested_rounds = _requested_tool_rounds(events, warnings)
     promotion_source: Literal["requested", "executed"] = (
         "executed" if requested_rounds is None else "requested"
     )
+    # `result_rounds[k]` holds the tool_result events recorded in the same
+    # round as `tool_rounds[k]`, so it must be filtered by whichever grouping
+    # produced tool_rounds -- the tool-emitting rounds for executed calls, the
+    # requesting model_calls for requested ones.
+    call_ids: list[list[str | None]]
     if requested_rounds is None:
         tool_rounds = [[_from_executed(c) for c in r] for r in executed_rounds]
+        call_ids = [[c.call_id for c in r] for r in executed_rounds]
+        result_rounds = [r.results for r in event_rounds if r.calls]
     else:
         disagreement = _requested_vs_executed_warning(requested_rounds, executed_rounds)
         if disagreement is not None:
             warnings.append(disagreement)
         tool_rounds = [[_from_requested(c) for c in r] for r in requested_rounds]
+        call_ids = [[c.call_id for c in r] for r in requested_rounds]
+        result_rounds = [
+            r.results
+            for r in event_rounds
+            if r.model_call is not None and r.model_call.requested_tool_calls
+        ]
 
-    scoped_calls = (
-        [call for round_ in tool_rounds for call in round_]
-        if opts.rounds == "all"
-        else (tool_rounds[0] if tool_rounds else [])
-    )
+    # No flattening under --rounds all any more: expected_tools is always
+    # round 1. The later rounds travel as expected_tool_rounds plus the
+    # fixtures below and are scored round by round, which is a yardstick a
+    # replay can actually meet -- the flattened list never was.
+    scoped_calls = tool_rounds[0] if tool_rounds else []
 
     first_model_call = next((e for e in events if isinstance(e, ModelCallEvent)), None)
     toolset_ref = first_model_call.toolset_ref if first_model_call is not None else None
@@ -347,8 +371,37 @@ def build_example_from_capture(
             f"capture spans {len(tool_rounds)} agent round(s); expected_tools was scoped to "
             f"round 1 ({len(tool_rounds[0])} call(s)) and {dropped} later call(s) were moved to "
             "expected_tool_rounds. A single-shot replay cannot reach round 2 — promote with "
-            "--rounds all only if you score the flattened trace deliberately.",
+            "--rounds all to replay the later rounds teacher-forced, feeding the recorded tool "
+            "results back and scoring each round against its own ground truth.",
         )
+
+    # Teacher-forced replay: carry the recorded results of the ground-truth
+    # calls so the runner can put the candidate in the same context the
+    # recorded agent was in at the start of each round.
+    tool_result_fixtures: list[list[ToolResultFixture]] | None = None
+    covered_rounds = 0
+    if opts.rounds == "all" and tool_rounds:
+        fixture_rounds, unpaired = _replay_fixtures(tool_rounds, call_ids, result_rounds)
+        covered_rounds = len(fixture_rounds)
+        tool_result_fixtures = fixture_rounds or None
+        if unpaired is not None:
+            warnings.append(
+                f"round {covered_rounds + 1} has {unpaired} tool call(s) with no recorded "
+                + (
+                    "result; replay stays single-shot"
+                    if covered_rounds == 0
+                    else f"result; replay will cover rounds 1..{covered_rounds}"
+                ),
+            )
+
+    # Under --rounds all the pinned count spans every round the replay
+    # reaches: the covered ones plus the round after them, which is what
+    # tool_trace_structure compares the candidate's total call count to.
+    counted_calls = (
+        sum(len(r) for r in tool_rounds[: covered_rounds + 1])
+        if opts.rounds == "all"
+        else len(scoped_calls)
+    )
 
     if scoped_calls:
         expected_tools: list[ExpectedToolCall] | None = [c.model_copy() for c in scoped_calls]
@@ -399,8 +452,9 @@ def build_example_from_capture(
         expected=expected,
         expected_tools=None if no_real_toolset else expected_tools,
         expected_tool_rounds=None if no_real_toolset else expected_tool_rounds,
+        tool_result_fixtures=None if no_real_toolset else tool_result_fixtures,
         expected_tool_count=(
-            None if no_real_toolset else (len(scoped_calls) if opts.tool_count else None)
+            None if no_real_toolset else (counted_calls if opts.tool_count else None)
         ),
         expected_no_tools=expected_no_tools,
         history=recovered.history,
@@ -552,6 +606,60 @@ def _nonempty_text(value: Any) -> bool:
     return isinstance(value, str) and bool(value)
 
 
+@dataclass(slots=True)
+class _EventRound:
+    """One agent round's events — the ``model_call`` that opened it, then what ran.
+
+    A capture's events are sequence-ordered: a ``model_call``, then the tool
+    calls that model call emitted and the results they returned, then the next
+    ``model_call``. Splitting on ``model_call`` therefore recovers the rounds,
+    and — the reason this exists rather than just :func:`_tool_rounds` — keeps
+    each round's ``tool_result`` events with the calls they answered, which is
+    the boundary the fixture pairing must not cross.
+
+    Attributes:
+        model_call: The event that opened the round, or ``None`` for the
+            defensive leading round a trace whose first tool call precedes
+            any ``model_call`` needs.
+        calls: The round's ``tool_call`` events, in order.
+        results: The round's ``tool_result`` events, in order.
+    """
+
+    model_call: ModelCallEvent | None
+    calls: list[ToolCallEvent] = field(default_factory=list)
+    results: list[ToolResultEvent] = field(default_factory=list)
+
+
+def _event_rounds(events: list[Any]) -> list[_EventRound]:
+    """Split a capture's events into rounds at each ``model_call``.
+
+    Unlike :func:`_tool_rounds` nothing is filtered: every ``model_call``
+    yields a round, including the trailing text-only one, so a caller can
+    line the result of this up with either grouping (executed calls or
+    model-requested calls) by applying that grouping's own filter.
+
+    Args:
+        events: The capture's trace events, in sequence order.
+
+    Returns:
+        One :class:`_EventRound` per ``model_call``, in order.
+    """
+    rounds: list[_EventRound] = []
+    for event in events:
+        if isinstance(event, ModelCallEvent):
+            rounds.append(_EventRound(model_call=event))
+        elif isinstance(event, ToolCallEvent | ToolResultEvent):
+            if not rounds:
+                # Defensive: a trace whose first tool call precedes any
+                # model_call still gets a round to live in.
+                rounds.append(_EventRound(model_call=None))
+            if isinstance(event, ToolCallEvent):
+                rounds[-1].calls.append(event)
+            else:
+                rounds[-1].results.append(event)
+    return rounds
+
+
 def _tool_rounds(events: list[Any]) -> list[list[ToolCallEvent]]:
     """Group tool calls into agent rounds, splitting at each ``model_call``.
 
@@ -568,17 +676,105 @@ def _tool_rounds(events: list[Any]) -> list[list[ToolCallEvent]]:
         One list of :class:`ToolCallEvent` per tool-emitting round, in order.
         Empty when the capture called no tools at all.
     """
-    rounds: list[list[ToolCallEvent]] = []
-    for event in events:
-        if isinstance(event, ModelCallEvent):
-            rounds.append([])
-        elif isinstance(event, ToolCallEvent):
-            if not rounds:
-                # Defensive: a trace whose first tool call precedes any
-                # model_call still gets a round to live in.
-                rounds.append([])
-            rounds[-1].append(event)
-    return [r for r in rounds if r]
+    return [r.calls for r in _event_rounds(events) if r.calls]
+
+
+def _pair_round_results(
+    calls: Sequence[tuple[str, str | None]],
+    results: Sequence[ToolResultEvent],
+) -> list[ToolResultEvent | None]:
+    """Match each of one round's tool calls to the result event that answered it.
+
+    Two passes, ids before names: every call carrying a ``call_id`` first
+    claims the result recorded under that id, so a name-only fallback can
+    never steal a result that provably belongs to another call. Each
+    remaining call then takes the first still-unclaimed result with the same
+    tool name — which is all a capture from an SDK (or a provider) that
+    reported no call ids leaves to go on.
+
+    Only results recorded *in the same round* are offered here: a later
+    round's result answering an earlier round's call would fabricate a
+    context the recorded agent never saw.
+
+    Args:
+        calls: ``(tool_name, call_id)`` for each of the round's calls, in
+            order.
+        results: The round's ``tool_result`` events, in order.
+
+    Returns:
+        One entry per call, positionally aligned: the result that answered
+        it, or ``None`` when nothing in the round did.
+    """
+    paired: list[ToolResultEvent | None] = [None] * len(calls)
+    claimed: set[int] = set()
+
+    by_id: dict[str, int] = {}
+    for pos, result in enumerate(results):
+        if result.call_id is not None:
+            by_id.setdefault(result.call_id, pos)
+    for i, (_, call_id) in enumerate(calls):
+        if call_id is None:
+            continue
+        match = by_id.get(call_id)
+        if match is not None and match not in claimed:
+            paired[i] = results[match]
+            claimed.add(match)
+
+    for i, (name, _) in enumerate(calls):
+        if paired[i] is not None:
+            continue
+        for pos, result in enumerate(results):
+            if pos not in claimed and result.name == name:
+                paired[i] = result
+                claimed.add(pos)
+                break
+    return paired
+
+
+def _replay_fixtures(
+    tool_rounds: Sequence[Sequence[ExpectedToolCall]],
+    call_ids: Sequence[Sequence[str | None]],
+    result_rounds: Sequence[Sequence[ToolResultEvent]],
+) -> tuple[list[list[ToolResultFixture]], int | None]:
+    """Recorded results for as many *leading* rounds as are fully covered.
+
+    Coverage stops at the first round with any unpaired call: a teacher-forced
+    replay feeds rounds ``0..k-1`` back verbatim before asking for round ``k``,
+    so a round missing even one result cannot be replayed, and neither can
+    anything after it.
+
+    Args:
+        tool_rounds: The ground-truth calls, one list per round.
+        call_ids: The id each of those calls was recorded under (``None``
+            where the capture recorded none), positionally aligned with
+            ``tool_rounds``.
+        result_rounds: The ``tool_result`` events of each round, aligned with
+            ``tool_rounds``.
+
+    Returns:
+        ``(fixtures, unpaired)``. ``fixtures`` covers rounds ``0..m-1``
+        positionally; ``unpaired`` is how many calls in round ``m`` had no
+        recorded result, or ``None`` when every round is covered.
+    """
+    fixtures: list[list[ToolResultFixture]] = []
+    for k, round_ in enumerate(tool_rounds):
+        paired = _pair_round_results(
+            [(call.tool_name, call_ids[k][i]) for i, call in enumerate(round_)],
+            result_rounds[k] if k < len(result_rounds) else [],
+        )
+        unpaired = sum(1 for p in paired if p is None)
+        if unpaired:
+            return fixtures, unpaired
+        # `unpaired == 0` means the filter drops nothing -- it is there to
+        # narrow the Optional, not to shorten the list.
+        fixtures.append(
+            [
+                ToolResultFixture(tool_name=call.tool_name, result=p.result, error=p.error)
+                for call, p in zip(round_, paired, strict=True)
+                if p is not None
+            ],
+        )
+    return fixtures, None
 
 
 def _requested_tool_rounds(

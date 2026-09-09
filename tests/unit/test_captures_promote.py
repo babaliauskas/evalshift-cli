@@ -24,6 +24,7 @@ from evalshift_cli.captures.promote import (
     build_conversation_examples,
     build_example_from_capture,
     duplicate_turn_warnings,
+    example_content_key,
     rebuild_golden_jsonl,
     write_promoted_case,
 )
@@ -107,16 +108,55 @@ def _model_call(
     return event
 
 
-def _tool_call(name: str, index: int, *, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
+# Sentinel for _tool_call's call_id: the default derives one from name+index,
+# while an explicit None omits the field entirely -- what a capture from an SDK
+# (or provider) that reported no call ids looks like, and the case the
+# pair-by-name fallback exists for.
+_AUTO_CALL_ID = "<auto>"
+
+
+def _tool_call(
+    name: str,
+    index: int,
+    *,
+    args: dict[str, Any] | None = None,
+    call_id: str | None = _AUTO_CALL_ID,
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
         "type": "tool_call",
         "sequence_index": index,
         "timestamp": "2026-06-16T12:00:02+00:00",
         "metadata": {},
         "name": name,
         "arguments": args if args is not None else {"q": "x"},
-        "call_id": f"call_{name}_{index}",
     }
+    if call_id == _AUTO_CALL_ID:
+        event["call_id"] = f"call_{name}_{index}"
+    elif call_id is not None:
+        event["call_id"] = call_id
+    return event
+
+
+def _tool_result(
+    name: str,
+    index: int,
+    *,
+    result: Any = None,
+    error: str | None = None,
+    call_id: str | None = None,
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "type": "tool_result",
+        "sequence_index": index,
+        "timestamp": "2026-06-16T12:00:02+00:00",
+        "metadata": {},
+        "name": name,
+        "result": result,
+        "error": error,
+    }
+    if call_id is not None:
+        event["call_id"] = call_id
+    return event
 
 
 def _error(message: str, index: int) -> dict[str, Any]:
@@ -1285,14 +1325,19 @@ def test_promote_records_every_round_regardless_of_scoping() -> None:
     ]
 
 
-def test_promote_rounds_all_restores_the_flattened_list() -> None:
+def test_promote_rounds_all_still_scopes_expected_tools_to_round_one() -> None:
+    """--rounds all no longer flattens: expected_tools is always round 1.
+
+    The flattened list was a yardstick no replay could meet; the later rounds
+    now travel as expected_tool_rounds + tool_result_fixtures instead, scored
+    round by round.
+    """
     env = load_capture_fixture("multi_round_tools.json")
     built = build_example_from_capture(env, PromoteOptions(rounds="all"))
     assert built.example.expected_tools is not None
     assert [t.tool_name for t in built.example.expected_tools] == [
         "archive_project",
         "archive_project",
-        "get_projects",
     ]
 
 
@@ -1339,6 +1384,299 @@ def test_a_capture_with_no_tools_records_no_rounds() -> None:
     assert built.example.expected_tool_rounds is None
     assert built.example.expected_tools is None
     assert built.example.expected_no_tools is True
+
+
+# ---------------------------------------------------------------------------
+# Teacher-forced replay — tool_result_fixtures
+#
+# --rounds all now carries the recorded tool results alongside
+# expected_tool_rounds, so the runner can replay round k with rounds 0..k-1
+# fed back verbatim. Alignment is positional and load-time validated (see
+# suite/models.py), so everything below is really one assertion: the fixture
+# at [k][i] is the result of the call at expected_tool_rounds[k][i].
+# ---------------------------------------------------------------------------
+
+
+def test_rounds_first_writes_no_fixtures() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions())
+    assert built.example.tool_result_fixtures is None
+    assert built.example.rounds_to_replay() == 1
+
+
+def test_rounds_all_carries_every_recorded_result_as_a_fixture() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [[f.tool_name for f in r] for r in fixtures] == [
+        ["archive_project", "archive_project"],
+        ["get_projects"],
+    ]
+    assert [f.result for f in fixtures[0]] == [
+        {"success": True, "title": "Series A Fundraise", "status": "archived"},
+        {"success": True, "title": "Q2 Product Launch", "status": "archived"},
+    ]
+    assert fixtures[1][0].result == {
+        "success": True,
+        "projects": [{"id": 57, "title": "evalshift updates"}],
+    }
+    # Two covered rounds plus the answer round after them.
+    assert built.example.rounds_to_replay() == 3
+
+
+def test_fixtures_pair_by_call_id_not_by_position() -> None:
+    """Results recorded out of order still land on the call they answer."""
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1, call_id="c1"),
+            _tool_call("search_orders", 2, call_id="c2"),
+            _tool_result("search_orders", 3, result="second", call_id="c2"),
+            _tool_result("search_orders", 4, result="first", call_id="c1"),
+            _model_call(5, model_input="hi"),
+            _final("done", 6),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [f.result for f in fixtures[0]] == ["first", "second"]
+
+
+def test_fixtures_fall_back_to_name_within_the_round_when_ids_are_absent() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1, call_id=None),
+            _tool_call("send_email", 2, call_id=None),
+            _tool_result("send_email", 3, result="sent"),
+            _tool_result("search_orders", 4, result="found"),
+            _final("done", 5),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [(f.tool_name, f.result) for f in fixtures[0]] == [
+        ("search_orders", "found"),
+        ("send_email", "sent"),
+    ]
+
+
+def test_a_name_match_never_reaches_across_a_round_boundary() -> None:
+    """Round 2's result must not be conscripted to answer round 1's call."""
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1, call_id=None),
+            _model_call(2, model_input="hi"),
+            _tool_call("search_orders", 3, call_id=None),
+            _tool_result("search_orders", 4, result="round 2 only"),
+            _final("done", 5),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.example.tool_result_fixtures is None
+    assert any(
+        "round 1 has 1 tool call(s) with no recorded result; replay stays single-shot" in w
+        for w in built.warnings
+    )
+
+
+def test_an_unpaired_call_stops_fixture_coverage_at_that_round() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+            _model_call(3, model_input="hi"),
+            _tool_call("send_email", 4),
+            _tool_call("send_email", 5),
+            _tool_result("send_email", 6, result="sent", call_id="call_send_email_4"),
+            _model_call(7, model_input="hi"),
+            _final("done", 8),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [[f.tool_name for f in r] for r in fixtures] == [["search_orders"]]
+    assert built.example.rounds_to_replay() == 2
+    assert any(
+        "round 2 has 1 tool call(s) with no recorded result; replay will cover rounds 1..1" in w
+        for w in built.warnings
+    )
+
+
+def test_fixtures_carry_a_recorded_error_verbatim() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, error="404 not found", call_id="call_search_orders_1"),
+            _final("done", 3),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert fixtures[0][0].error == "404 not found"
+    assert fixtures[0][0].result is None
+
+
+def test_requested_calls_pair_their_results_by_call_id() -> None:
+    env = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[
+                    _requested("search_orders", call_id="r1"),
+                    _requested("search_orders", call_id="r2"),
+                ],
+            ),
+            _tool_call("search_orders", 1, call_id="r1"),
+            _tool_call("search_orders", 2, call_id="r2"),
+            _tool_result("search_orders", 3, result="second", call_id="r2"),
+            _tool_result("search_orders", 4, result="first", call_id="r1"),
+            _model_call(5, model_input="hi", requested_tool_calls=[]),
+            _final("done", 6),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.promotion_source == "requested"
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [f.result for f in fixtures[0]] == ["first", "second"]
+
+
+def test_requested_calls_without_ids_pair_by_name_within_the_round() -> None:
+    env = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders"), _requested("send_email")],
+            ),
+            _tool_call("search_orders", 1, call_id=None),
+            _tool_call("send_email", 2, call_id=None),
+            _tool_result("send_email", 3, result="sent"),
+            _tool_result("search_orders", 4, result="found"),
+            _model_call(5, model_input="hi", requested_tool_calls=[]),
+            _final("done", 6),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.promotion_source == "requested"
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [(f.tool_name, f.result) for f in fixtures[0]] == [
+        ("search_orders", "found"),
+        ("send_email", "sent"),
+    ]
+
+
+def test_tool_count_under_rounds_all_totals_the_replayed_rounds() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions(rounds="all", tool_count=True))
+    assert built.example.expected_tool_count == 3
+
+
+def test_tool_count_under_rounds_all_includes_the_round_that_stopped_coverage() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+            _model_call(3, model_input="hi"),
+            _tool_call("send_email", 4, call_id=None),
+            _model_call(5, model_input="hi"),
+            _tool_call("archive_project", 6, call_id=None),
+            _final("done", 7),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all", tool_count=True))
+
+    # Round 1 is covered and round 2 is the answer round the replay reaches;
+    # round 3 is never replayed, so its call is not in the denominator.
+    assert built.example.rounds_to_replay() == 2
+    assert built.example.expected_tool_count == 2
+
+
+def test_tool_count_under_rounds_first_still_counts_round_one_only() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions(tool_count=True))
+    assert built.example.expected_tool_count == 2
+
+
+def test_a_capture_with_no_toolset_carries_no_fixtures() -> None:
+    """The inert placeholder example must stay inert (see the I2 comment)."""
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi", toolset_ref=None),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+            _final("done", 3),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.blocked is not None
+    assert built.example.tool_result_fixtures is None
+
+
+def test_conversation_examples_pass_fixtures_through() -> None:
+    record = _record(
+        _envelope(
+            capture_id="cap_conv",
+            conversation_id="c1",
+            turn_index=0,
+            events=[
+                _model_call(0, model_input="hi"),
+                _tool_call("search_orders", 1),
+                _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+                _model_call(3, model_input="hi"),
+                _final("done", 4),
+            ],
+        ),
+    )
+
+    [(_, built)] = build_conversation_examples([record], PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [f.result for f in fixtures[0]] == ["found"]
+
+
+def test_example_content_key_ignores_fixtures() -> None:
+    """Two captures with the same replayed content are one case, whatever
+    their tools returned."""
+    env = load_capture_fixture("multi_round_tools.json")
+    first = build_example_from_capture(env, PromoteOptions())
+    every = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert first.example.tool_result_fixtures is None
+    assert every.example.tool_result_fixtures is not None
+    assert example_content_key(first.example) == example_content_key(every.example)
+
+
+def test_the_rounds_first_warning_points_at_teacher_forced_replay() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions())
+
+    [warning] = [w for w in built.warnings if "agent round(s)" in w]
+    assert "--rounds all" in warning
+    assert "teacher-forced" in warning
+    assert "flatten" not in warning
 
 
 # ---------------------------------------------------------------------------
@@ -1747,8 +2085,13 @@ def test_build_marks_expected_arguments_as_captured_ground_truth() -> None:
 # unchanged.
 
 
-def _requested(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {"name": name, "arguments": args if args is not None else {"q": "x"}}
+def _requested(
+    name: str, args: dict[str, Any] | None = None, *, call_id: str | None = None
+) -> dict[str, Any]:
+    call: dict[str, Any] = {"name": name, "arguments": args if args is not None else {"q": "x"}}
+    if call_id is not None:
+        call["call_id"] = call_id
+    return call
 
 
 def test_requested_calls_become_expected_tools_verbatim() -> None:
@@ -1825,7 +2168,7 @@ def test_each_model_call_is_a_round_and_empty_rounds_are_dropped() -> None:
     assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
 
 
-def test_requested_rounds_honour_rounds_all() -> None:
+def test_requested_rounds_under_rounds_all_keep_expected_tools_at_round_one() -> None:
     envelope = _envelope(
         events=[
             _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
@@ -1836,9 +2179,10 @@ def test_requested_rounds_honour_rounds_all() -> None:
 
     built = build_example_from_capture(envelope, PromoteOptions(rounds="all"))
 
-    assert [c.tool_name for c in built.example.expected_tools or []] == [
-        "search_orders",
-        "issue_refund",
+    assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
+    assert [[c.tool_name for c in r] for r in built.example.expected_tool_rounds or []] == [
+        ["search_orders"],
+        ["issue_refund"],
     ]
 
 

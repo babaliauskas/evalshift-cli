@@ -334,8 +334,9 @@ def capture_promote(
         typer.Option(
             "--rounds",
             help=(
-                "Which recorded agent rounds become ground truth: 'first' (default, the only "
-                "round a single-shot replay can reproduce) or 'all' (flatten every round)."
+                "How many recorded agent rounds to replay: 'first' (default, single-shot, "
+                "scored against round 1) or 'all' (teacher-forced — every round is replayed "
+                "with the recorded tool results fed back, scored round by round)."
             ),
         ),
     ] = "first",
@@ -703,8 +704,9 @@ def capture_sync(
         typer.Option(
             "--rounds",
             help=(
-                "Which recorded agent rounds become ground truth: 'first' (default, the only "
-                "round a single-shot replay can reproduce) or 'all' (flatten every round)."
+                "How many recorded agent rounds to replay: 'first' (default, single-shot, "
+                "scored against round 1) or 'all' (teacher-forced — every round is replayed "
+                "with the recorded tool results fed back, scored round by round)."
             ),
         ),
     ] = "first",
