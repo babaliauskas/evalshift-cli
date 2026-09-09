@@ -40,6 +40,7 @@ from evalshift_cli.traces.models import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from evalshift_cli.utils.cost import estimate_call_cost
 
 # Context-loss heuristic: warn when the capture's recorded ``input_tokens``
 # imply far more context was actually sent to the model than we managed to
@@ -127,6 +128,13 @@ class BuiltExample:
             ``tool_call`` events the app recorded. Copied onto the
             :class:`~evalshift_cli.captures.models.PromotedCase` so reports
             can say which one a row measures.
+        cost_usd: What the recorded run cost, summed over its ``model_call``
+            events — see :func:`_capture_cost` for the rule. Copied onto the
+            :class:`~evalshift_cli.captures.models.PromotedCase`, never onto
+            the example.
+        cost_source: ``"recorded"`` when the figure is entirely what the
+            app's instrumentation set, ``"estimated"`` when any part of it
+            was priced here from litellm's table, ``None`` when it is 0.
     """
 
     example: SuiteExample
@@ -134,6 +142,8 @@ class BuiltExample:
     blocked: str | None = None
     blocked_reason: Literal["errored", "no_toolset", "multi_toolset"] | None = None
     promotion_source: Literal["requested", "executed"] = "executed"
+    cost_usd: float = 0.0
+    cost_source: Literal["recorded", "estimated"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,13 +410,60 @@ def build_example_from_capture(
         toolset_ref=toolset_ref,
         tools=[] if no_real_toolset else None,
     )
+    cost_usd, cost_source = _capture_cost(events)
     return BuiltExample(
         example=example,
         warnings=warnings,
         blocked=blocked,
         blocked_reason=blocked_reason,
         promotion_source=promotion_source,
+        cost_usd=cost_usd,
+        cost_source=cost_source,
     )
+
+
+def _capture_cost(
+    events: list[Any],
+) -> tuple[float, Literal["recorded", "estimated"] | None]:
+    """Total cost of the capture's ``model_call`` events, and where it came from.
+
+    The SDK never prices anything — ``cost_usd`` on a ``model_call`` is 0.0
+    unless the app's own instrumentation set it, and the provider client
+    wrappers record tokens but leave cost at 0 by design. Pricing is the
+    CLI's job, here, from litellm's price table.
+
+    Per event: a non-zero recorded ``cost_usd`` is kept exactly as recorded,
+    never re-estimated; otherwise, when the event recorded any tokens, it is
+    priced by its *own* ``model_id`` via
+    :func:`~evalshift_cli.utils.cost.estimate_call_cost`, which yields 0 for
+    a model litellm does not price (local / self-hosted — normal, so no
+    warning). The per-event figures are summed. The tag is ``"estimated"``
+    when any event contributed a non-zero estimate, else ``"recorded"`` when
+    any contributed a recorded cost, else ``None`` (nothing priced, total
+    0.0). So a run mixing one recorded and one estimated call is
+    ``estimated`` — the figure is only as trustworthy as its least certain
+    part — while a recorded call alongside an unpriced one stays
+    ``recorded``, because everything in the sum was.
+    """
+    total = 0.0
+    any_recorded = False
+    any_estimated = False
+    for event in events:
+        if not isinstance(event, ModelCallEvent):
+            continue
+        if event.cost_usd > 0:
+            total += event.cost_usd
+            any_recorded = True
+            continue
+        estimate = estimate_call_cost(event.model_id, event.input_tokens, event.output_tokens)
+        if estimate > 0:
+            total += estimate
+            any_estimated = True
+    if any_estimated:
+        return total, "estimated"
+    if any_recorded:
+        return total, "recorded"
+    return 0.0, None
 
 
 def _unwrap_recorded_arguments(
@@ -1078,6 +1135,8 @@ def build_conversation_examples(
                 blocked=built.blocked,
                 blocked_reason=built.blocked_reason,
                 promotion_source=built.promotion_source,
+                cost_usd=built.cost_usd,
+                cost_source=built.cost_source,
             )
             # A blocked turn is never promoted, so it must not seed later
             # turns' history either: a turn that died before the agent acted

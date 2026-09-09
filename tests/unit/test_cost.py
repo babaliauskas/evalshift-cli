@@ -256,3 +256,50 @@ class TestDefensiveFallbacks:
             models=["gemini/gemini-2.5-flash"],
         )
         assert estimate.estimated_usd == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Per-call pricing for promotion
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateCallCost:
+    """``estimate_call_cost`` prices one recorded call from litellm's table."""
+
+    def test_prices_a_model_in_the_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+
+        # 1000 * 0.001 + 100 * 0.002 under the autouse stub.
+        assert cost_module.estimate_call_cost("gpt-4o-mini", 1000, 100) == pytest.approx(1.2)
+
+    def test_resolves_registry_aliases_and_provider_prefixes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # litellm keys many entries without the provider prefix the registry
+        # adds; the lookup must try the stripped form too.
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gemini-2.5-flash": {}})
+
+        assert cost_module.estimate_call_cost("gemini-2.5-flash", 10, 10) == pytest.approx(0.03)
+
+    def test_unpriced_model_never_reaches_litellm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(**_: Any) -> tuple[float, float]:
+            raise AssertionError("cost_per_token must not be called")
+
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+        monkeypatch.setattr(cost_module.litellm, "cost_per_token", boom)
+
+        assert cost_module.estimate_call_cost("llama3.1:8b", 900, 200) == 0.0
+
+    def test_zero_tokens_cost_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+
+        assert cost_module.estimate_call_cost("gpt-4o-mini", 0, 0) == 0.0
+
+    def test_pricer_failure_is_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(**_: Any) -> tuple[float, float]:
+            raise RuntimeError("no price")
+
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+        monkeypatch.setattr(cost_module.litellm, "cost_per_token", boom)
+
+        assert cost_module.estimate_call_cost("gpt-4o-mini", 10, 10) == 0.0

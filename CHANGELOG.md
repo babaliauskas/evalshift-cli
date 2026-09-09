@@ -134,6 +134,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tool_arguments` block filled in. Its own `.gitignore` shows how a project
   commits `.evalshift/suites/` and `.evalshift/toolsets/` while keeping runs and
   the cache ignored.
+- Promoted case files now record what the captured run cost: `cost_usd` (the
+  run's `model_call` events summed) and `cost_source`. The SDK never prices
+  anything — a `model_call`'s `cost_usd` is `0.0` unless the app's own
+  instrumentation set it, and the provider client wrappers record tokens but no
+  cost by design — so `capture promote` / `capture sync` now price each event
+  that recorded tokens but no cost from litellm's price table for its own
+  `model_id`, tagging the case `cost_source: "estimated"`. A recorded non-zero
+  cost is kept as recorded (`"recorded"`), never re-estimated. A model litellm
+  does not price — local / self-hosted, the normal case for open-source models
+  — stays at `0.0` with no tag and no warning; the pricer is never called for
+  it, so `capture sync` neither prints litellm's provider banner nor opens a
+  socket to a local Ollama daemon. Existing case files parse unchanged
+  (both fields default), and the `golden.jsonl` example never carries the
+  figure.
 
 ### Fixed
 

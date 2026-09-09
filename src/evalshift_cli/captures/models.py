@@ -75,6 +75,17 @@ class PromotedCase(BaseModel):
     # promoted-case file written before captures carried requested calls was
     # sourced that way, and must keep parsing unchanged.
     promotion_source: Literal["requested", "executed"] = "executed"
+    # What the recorded run cost, summed over its ``model_call`` events, and
+    # where the figure came from: ``recorded`` -- the app's own
+    # instrumentation set ``cost_usd``; ``estimated`` -- at least one event
+    # recorded tokens but no cost, and the CLI priced it from litellm's table
+    # at promotion (the SDK never prices anything). ``None`` with ``0.0``
+    # means nothing was priced: no tokens, or a model litellm does not price
+    # (local / self-hosted -- the normal case, not a failure). Provenance of
+    # the capture, deliberately not on ``example``: a replay does not
+    # reproduce it. Defaults keep pre-existing case files parsing.
+    cost_usd: float = Field(default=0.0, ge=0.0)
+    cost_source: Literal["recorded", "estimated"] | None = None
     # Multi-turn provenance — optional so existing promoted-case JSON files
     # (written before conversation tracking) still parse.
     conversation_id: str | None = None

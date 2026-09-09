@@ -135,6 +135,58 @@ def _safe_cost_per_call(
         return 0.0
 
 
+def _price_table_key(model_id: str) -> str | None:
+    """The key litellm's price table holds ``model_id`` under, or ``None``.
+
+    Tries the id as recorded, the registry's canonical (provider-prefixed)
+    form, and that form with the prefix stripped — litellm keys most
+    first-party entries bare (``gpt-4o-mini``) and some prefixed
+    (``gemini/gemini-2.5-flash``). A pure dict lookup: ``litellm.model_cost``
+    is the bundled table, so a miss costs nothing and touches nothing.
+    """
+    canonical = resolve_model(model_id).id
+    _, _, stripped = canonical.partition("/")
+    table = litellm.model_cost
+    for candidate in (model_id, canonical, stripped):
+        if candidate and candidate in table:
+            return candidate
+    return None
+
+
+def estimate_call_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
+    """Price one recorded model call from litellm's price table.
+
+    Used at promotion for a capture whose ``model_call`` recorded tokens but
+    no cost (the SDK never prices anything). Returns ``0.0`` — silently, at
+    no log level — for a model the table does not price: a local or
+    self-hosted model is the normal case, not a failure. The table lookup
+    is done *before* calling litellm's pricer, deliberately: for an unknown
+    id ``litellm.cost_per_token`` prints a provider banner, and for an
+    ``ollama/`` id it opens a socket to the local daemon to ask for model
+    info. Neither belongs in ``capture sync``.
+
+    Args:
+        model_id: The id the capture recorded — an alias, a bare vendor id,
+            or a provider-prefixed one; resolved through the registry first.
+        input_tokens: Prompt tokens the call recorded.
+        output_tokens: Completion tokens the call recorded.
+
+    Returns:
+        Dollar cost, or ``0.0`` when no tokens were recorded, the model is
+        unpriced, or the pricer fails.
+    """
+    if input_tokens <= 0 and output_tokens <= 0:
+        return 0.0
+    key = _price_table_key(model_id)
+    if key is None:
+        return 0.0
+    return _safe_cost_per_call(
+        canonical_model=key,
+        prompt_tokens=input_tokens,
+        completion_tokens=output_tokens,
+    )
+
+
 def estimate_run_cost(
     *,
     template: str,
@@ -214,5 +266,6 @@ def estimate_run_cost(
 __all__ = [
     "DEFAULT_SAMPLE_SIZE",
     "CostEstimate",
+    "estimate_call_cost",
     "estimate_run_cost",
 ]

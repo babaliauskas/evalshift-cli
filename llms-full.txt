@@ -277,6 +277,15 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   passes it on tool-picking calls but omits it on the final text-only call. Requested vs
   executed disagreement (different tool, argument, or round grouping) -> requested wins +
   warning naming the tools on both sides.
+  Cost: the case file records PromotedCase.cost_usd (model_call events summed) + cost_source.
+  The SDK never prices anything (model_call.cost_usd is 0.0 unless the app set it; provider
+  wrappers record tokens, not cost), so an event with tokens and no cost is priced at
+  promotion from litellm's price table by its OWN model_id (registry resolves aliases /
+  provider prefixes first). cost_source: "recorded" = every non-zero part came from the
+  capture (recorded costs are never re-estimated); "estimated" = any part was priced here
+  (mixed runs are "estimated"); absent + cost_usd 0.0 = nothing priced (no tokens, or a model
+  litellm does not price -- local/self-hosted is the NORMAL case: stays 0, no warning). The
+  golden.jsonl example never carries it -- provenance of the capture, not reproduced by replay.
   Rounds: tool calls are grouped into agent rounds (split at each recorded model_call). Every
   round -> expected_tool_rounds; expected_tools (and --tool-count) are scoped to ROUND 1, the
   only round a single-shot replay can produce. Multi-round captures warn; --rounds all flattens

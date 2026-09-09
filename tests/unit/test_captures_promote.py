@@ -9,9 +9,11 @@ runnable via the existing ``suite/loader.load_jsonl``.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
+import litellm
 import pytest
 
 from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
@@ -79,15 +81,22 @@ def _model_call(
     toolset_ref: str | None = _TOOLSET_REF,
     tools_offered: list[str] | None = None,
     requested_tool_calls: list[dict[str, Any]] | None = None,
+    model_id: str = "m",
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
 ) -> dict[str, Any]:
     event: dict[str, Any] = {
         "type": "model_call",
         "sequence_index": index,
         "timestamp": "2026-06-16T12:00:00+00:00",
         "metadata": {},
-        "model_id": "m",
+        "model_id": model_id,
         "input": model_input,
         "output": "out",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": cost_usd,
         "toolset_ref": toolset_ref,
         "tools_offered": tools_offered if tools_offered is not None else ["search_orders"],
     }
@@ -2010,3 +2019,195 @@ def test_conversation_grouping_carries_the_promotion_source() -> None:
     [(_, built)] = build_conversation_examples([_record(envelope)], PromoteOptions())
 
     assert built.promotion_source == "requested"
+
+
+# ---------------------------------------------------------------------------
+# Cost at promotion
+# ---------------------------------------------------------------------------
+# The SDK never prices anything: ``model_call.cost_usd`` is 0.0 unless the
+# app's own instrumentation set it, and the provider client wrappers record
+# tokens but leave cost at 0 by design. Pricing is the CLI's job, at promote
+# time, from litellm's price table. A model litellm cannot price (local /
+# self-hosted) is the normal case for open-source models, not a failure: it
+# stays at 0 with no tag and no warning.
+
+
+def _litellm_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """The number litellm itself puts on these tokens -- never a hardcoded dollar figure."""
+    in_cost, out_cost = litellm.cost_per_token(
+        model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens
+    )
+    return float(in_cost) + float(out_cost)
+
+
+class TestCostAtPromotion:
+    def test_tokens_without_cost_are_priced_from_litellm(self) -> None:
+        events = [
+            _model_call(
+                0, model_input="q", model_id="gpt-4o-mini", input_tokens=1200, output_tokens=300
+            ),
+            _final("done", 1),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        expected = _litellm_cost("gpt-4o-mini", 1200, 300)
+        assert expected > 0
+        assert built.cost_usd == pytest.approx(expected)
+        assert built.cost_source == "estimated"
+
+    def test_unpriced_model_stays_at_zero_with_no_tag_and_no_noise(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # litellm's pricer opens a socket to a local Ollama daemon for
+        # ``ollama/...`` ids and prints a provider banner for bare unknown
+        # ones -- an unpriced model must never reach it at all.
+        def _never(*_args: Any, **_kwargs: Any) -> tuple[float, float]:
+            raise AssertionError("litellm.cost_per_token must not be called for an unpriced model")
+
+        monkeypatch.setattr(litellm, "cost_per_token", _never)
+        events = [
+            _model_call(
+                0, model_input="q", model_id="llama3.1:8b", input_tokens=900, output_tokens=200
+            ),
+            _final("done", 1),
+        ]
+
+        with caplog.at_level(logging.DEBUG):
+            built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.0
+        assert built.cost_source is None
+        assert built.blocked is None
+        assert not [w for w in built.warnings if "cost" in w.lower()]
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_recorded_cost_is_left_untouched(self) -> None:
+        events = [
+            _model_call(
+                0,
+                model_input="q",
+                model_id="gpt-4o-mini",
+                input_tokens=1200,
+                output_tokens=300,
+                cost_usd=0.0123,
+            ),
+            _final("done", 1),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.0123
+        assert built.cost_source == "recorded"
+
+    def test_zero_tokens_and_zero_cost_estimate_nothing(self) -> None:
+        events = [_model_call(0, model_input="q", model_id="gpt-4o-mini"), _final("done", 1)]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.0
+        assert built.cost_source is None
+
+    def test_several_model_calls_are_summed_per_event(self) -> None:
+        # Each event is priced by its own model_id; a recorded cost is kept
+        # as-is; an unpriced event contributes 0; one estimated event makes
+        # the whole figure "estimated".
+        events = [
+            _model_call(
+                0, model_input="q", model_id="gpt-4o-mini", input_tokens=1000, output_tokens=100
+            ),
+            _tool_call("search_orders", 1),
+            _model_call(
+                2, model_input="q", model_id="m", input_tokens=500, output_tokens=50, cost_usd=0.01
+            ),
+            _model_call(
+                3, model_input="q", model_id="llama3.1:8b", input_tokens=400, output_tokens=40
+            ),
+            _final("done", 4),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == pytest.approx(_litellm_cost("gpt-4o-mini", 1000, 100) + 0.01)
+        assert built.cost_source == "estimated"
+
+    def test_recorded_plus_unpriced_is_tagged_recorded(self) -> None:
+        events = [
+            _model_call(
+                0, model_input="q", model_id="m", input_tokens=500, output_tokens=50, cost_usd=0.02
+            ),
+            _tool_call("search_orders", 1),
+            _model_call(
+                2, model_input="q", model_id="llama3.1:8b", input_tokens=400, output_tokens=40
+            ),
+            _final("done", 3),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.02
+        assert built.cost_source == "recorded"
+
+    def test_cost_round_trips_through_the_promoted_case_file(self, tmp_path: Path) -> None:
+        events = [
+            _model_call(
+                0, model_input="q", model_id="gpt-4o-mini", input_tokens=1200, output_tokens=300
+            ),
+            _final("done", 1),
+        ]
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+        case = PromotedCase(
+            name=built.example.id,
+            suite="support_agent",
+            from_capture="cap_abc",
+            cost_usd=built.cost_usd,
+            cost_source=built.cost_source,
+            example=built.example,
+        )
+
+        path = write_promoted_case(case, base=tmp_path)
+        reloaded = PromotedCase.model_validate_json(path.read_text(encoding="utf-8"))
+
+        assert reloaded.cost_usd == pytest.approx(built.cost_usd)
+        assert reloaded.cost_source == "estimated"
+        # The run-facing example never carries the capture's cost: it is
+        # provenance of the recorded run, not something a replay reproduces.
+        assert "cost_usd" not in built.example.model_dump()
+
+    def test_promoted_case_written_before_cost_fields_still_parses(self) -> None:
+        legacy = json.loads(_case("legacy", "ex_1").model_dump_json())
+        legacy.pop("cost_usd")
+        legacy.pop("cost_source")
+
+        case = PromotedCase.model_validate(legacy)
+
+        assert case.cost_usd == 0.0
+        assert case.cost_source is None
+
+    def test_conversation_grouping_carries_the_cost(self) -> None:
+        envelope = _envelope(
+            capture_id="cap_t1",
+            conversation_id="conv_1",
+            turn_index=0,
+            events=[
+                _model_call(
+                    0,
+                    model_input="hi",
+                    model_id="gpt-4o-mini",
+                    input_tokens=1200,
+                    output_tokens=300,
+                ),
+                _final("done", 1),
+            ],
+        )
+
+        [(_, built)] = build_conversation_examples([_record(envelope)], PromoteOptions())
+
+        assert built.cost_usd == pytest.approx(_litellm_cost("gpt-4o-mini", 1200, 300))
+        assert built.cost_source == "estimated"

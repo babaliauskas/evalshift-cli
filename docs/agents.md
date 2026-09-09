@@ -278,6 +278,31 @@ calls win and promotion warns, naming the tools on both sides. A difference is
 often legitimate (the app filtered or rewrote a call); the warning is there so
 you can tell that from a gap in what was captured.
 
+### What the recorded run cost
+
+The SDK never prices anything: a `model_call`'s `cost_usd` is `0.0` unless your
+own instrumentation set it, and the provider client wrappers record
+`input_tokens` / `output_tokens` but leave cost at 0 by design. Promotion fills
+the gap. Each promoted case file carries `cost_usd` — the run's `model_call`
+events summed — and `cost_source`, saying where the figure came from:
+
+- `"recorded"` — every non-zero part of the sum is what your instrumentation
+  set. A recorded cost is kept exactly as recorded, never re-estimated.
+- `"estimated"` — at least one `model_call` recorded tokens but no cost, and the
+  CLI priced it from litellm's price table for that call's own `model_id` (an
+  alias or provider-prefixed id resolves through the model registry first). A
+  run mixing recorded and estimated calls is tagged `estimated`: the figure is
+  only as certain as its least certain part.
+- absent (`null`) with `cost_usd: 0.0` — nothing was priced: the run recorded
+  no tokens, or its model has no entry in litellm's table. A local or
+  self-hosted model (`llama3.1:8b`, anything behind an OpenAI-compatible
+  endpoint) is the normal case here, not a failure — it stays at 0 silently,
+  with no warning.
+
+The figure is provenance of the capture and lives on the case file only; the
+run-facing example in `golden.jsonl` never carries it, because a replay against
+a candidate model does not reproduce it.
+
 ### Wrapper arguments are unwrapped (legacy captures)
 
 This applies only to captures promoted from **executed** calls — that is, ones
