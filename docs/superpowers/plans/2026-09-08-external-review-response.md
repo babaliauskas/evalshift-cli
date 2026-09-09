@@ -181,9 +181,10 @@ Phases are ordered by (validity × user harm) ÷ cost. Phase 0 is all documentat
 
 **Files:** `README.md:253-256`, `docs/agents.md:3-5`, `docs/agents.md:167-170`, `llms-full.txt` (agent section).
 
-- [ ] **Step 1:** Replace "how it sequences them" with what is actually tested: which tools, what arguments, order and parallelism *within the first tool-emitting round*.
-- [ ] **Step 2:** Move the one-call-per-example statement from `docs/agents.md:167-170` to the top of the agents page, and add a one-liner in the README agent section.
-- [ ] **Step 3:** Commit: `docs(agents): state first-round-only replay scope where the claim is made`.
+- [x] **Step 1:** Replace "how it sequences them" with what is actually tested: which tools, what arguments, order and parallelism *within the first tool-emitting round*.
+- [x] **Step 2:** Move the one-call-per-example statement from `docs/agents.md:167-170` to the top of the agents page, and add a one-liner in the README agent section.
+- [x] **Step 3:** Commit: `docs(agents): state first-round-only replay scope where the claim is made`.
+  Done inside the Phase 2 docs pass (4c3db27): the single-shot default is stated at the top of `docs/agents.md` and in the README agent paragraph, alongside the `--rounds all` opt-in, so no caveat had to be written and then reverted.
 
 ### Task 1.2 `[cli]` Document drift-vs-correctness and the `prompts`/`suites` relationship
 
@@ -206,35 +207,47 @@ Goal: teacher-forced multi-round replay. For round *k* > 1, the candidate is giv
 
 **Files:** new `docs/superpowers/specs/2026-09-XX-teacher-forced-replay-design.md`.
 
-- [ ] **Step 1:** Write the design: work-item shape (one `WorkItem` per round, or one per example with an inner loop), how recorded tool results are injected (provider-native `tool_result` messages built from `ToolResultEvent.result`, keyed by `call_id`), what happens when the candidate calls a tool with no fixture (halt-and-flag per SDK D-decision, or substitute a synthetic "unavailable" result), cache-key changes (round index), cost estimate changes (`utils/cost.py` multiplies by rounds), and policy/report changes (per-round divergence).
-- [ ] **Step 2:** Decide the default: `rounds: first` stays default for cost; `rounds: all` opts into teacher forcing. Confirm `promote.py:91` already has the enum.
+- [x] **Step 1:** Write the design: work-item shape (one `WorkItem` per round, or one per example with an inner loop), how recorded tool results are injected (provider-native `tool_result` messages built from `ToolResultEvent.result`, keyed by `call_id`), what happens when the candidate calls a tool with no fixture (halt-and-flag per SDK D-decision, or substitute a synthetic "unavailable" result), cache-key changes (round index), cost estimate changes (`utils/cost.py` multiplies by rounds), and policy/report changes (per-round divergence).
+- [x] **Step 2:** Decide the default: `rounds: first` stays default for cost; `rounds: all` opts into teacher forcing. Confirm `promote.py:91` already has the enum.
 - [ ] **Step 3:** Review with maintainer; then continue.
+  Spec: `docs/superpowers/specs/2026-09-09-teacher-forced-replay-design.md` (1c3abbe). Written and implemented without the maintainer review (they were away and asked for the phase to be done); the decisions to confirm are listed under **Maintainer decisions to confirm** below. Key choice: pure teacher forcing — the candidate's own calls are never fed back, so "candidate calls a tool with no fixture" cannot arise and no halt-and-flag policy was needed; self-conditioned replay is out of scope. Fixtures are positional (`tool_result_fixtures[k][i]` ↔ `expected_tool_rounds[k][i]`), not keyed by `call_id`, because `ExpectedToolCall` deliberately carries none. One `WorkItem` per example with an inner loop (one `raw.jsonl` row per example per role, resume per example).
 
 ### Task 2.2 `[cli]` Fixture loading
 
 **Files:** `src/evalshift/captures/promote.py` (`_tool_rounds` `:457-483`, history recovery `:554-581`), `src/evalshift/suite/models.py` (`SuiteExample`), `tests/unit/test_promote.py`.
 
-- [ ] **Step 1:** Failing test: promoting a two-round capture with `rounds: all` yields `expected_tool_rounds` of length 2 and a new `tool_result_fixtures: dict[call_id, result]` (or per-round list) on the example.
-- [ ] **Step 2:** Implement; keep v0.1–v0.3 suites loading unchanged.
-- [ ] **Step 3:** Commit: `feat(promote): carry recorded tool results as replay fixtures`.
+- [x] **Step 1:** Failing test: promoting a two-round capture with `rounds: all` yields `expected_tool_rounds` of length 2 and a new `tool_result_fixtures: dict[call_id, result]` (or per-round list) on the example.
+- [x] **Step 2:** Implement; keep v0.1–v0.3 suites loading unchanged.
+- [x] **Step 3:** Commit: `feat(promote): carry recorded tool results as replay fixtures`.
+  Done: contract d20e2db (`SuiteExample.tool_result_fixtures`, `ToolResultFixture`, `rounds_to_replay()`; `ToolCall.round_index`, `ToolTrace.round_count`/`round()`/`rounds()`), promotion abbe3a5, example regenerated 2b6d153 (`capture sync --force`; case files also gained the `cost_usd`/`cost_source` fields 0638b61 never regenerated). Pairing: `call_id` first (executed and requested calls alike), then name within the same round; coverage stops at the first round with an unpaired call and warns. **Behaviour change:** `--rounds all` no longer flattens `expected_tools`; it is `expected_tool_rounds[0]` under both settings.
 
 ### Task 2.3 `[cli]` Multi-round runner loop
 
 **Files:** `src/evalshift/runner/orchestrator.py` (`_build_work_list` `:588-600`, dispatch `:1021-1038`), `src/evalshift/runner/models.py`, `src/evalshift/models/client.py`, `tests/unit/test_orchestrator.py`, `tests/integration/`.
 
-- [ ] **Step 1:** Failing integration test using the mocked client: candidate emits tool call in round 1, receives fixture result, emits round-2 call; both rounds recorded on the result.
-- [ ] **Step 2:** Implement loop with a hard cap equal to `len(expected_tool_rounds)`; unmatched fixture → record `fixture_missing` and stop the loop for that example.
-- [ ] **Step 3:** Extend cache key with round index; extend cost pre-flight with round count.
-- [ ] **Step 4:** Commit: `feat(runner): teacher-forced multi-round replay`.
+- [x] **Step 1:** Failing integration test using the mocked client: candidate emits tool call in round 1, receives fixture result, emits round-2 call; both rounds recorded on the result.
+- [x] **Step 2:** Implement loop with a hard cap equal to `len(expected_tool_rounds)`; unmatched fixture → record `fixture_missing` and stop the loop for that example.
+- [x] **Step 3:** Extend cache key with round index; extend cost pre-flight with round count.
+- [x] **Step 4:** Commit: `feat(runner): teacher-forced multi-round replay`.
+  Done in 14c57da (merged a288dfd) + 7034b71. Deviations from the step text, per the spec: the cap is `len(fixtures) + 1` (the answer round after the last covered round is replayed too, so text evaluators get the candidate's real answer), and there is no runtime `fixture_missing` — coverage is settled at promotion and validated at suite load. Round 0 dispatches byte-identically to before; rounds ≥ 1 go through `complete_messages_with_tools` with positional ids `call_r{j}_{i}`. Error in round k → `Call.error = "round k/n: …"`, no trace; single-shot errors keep the bare text. `cache_key(round_index=None)` keeps every existing key (tool path still bypasses the cache). `ReplayClient` fixtures accept an optional `"round"`. Cost prompt now prints the estimate's call count (counts rounds); `total_evaluations` and the progress bar stay per `Call` row.
 
 ### Task 2.4 `[cli]` Score and report per round
 
 **Files:** `src/evalshift/evaluators/tool_selection.py`, `tool_trace_structure.py`, `analysis/policy.py`, `reports/html.py` + template, `docs/agents.md`, `docs/evaluators.md`.
 
-- [ ] **Step 1:** Failing tests: tool_selection compares round *k* output to `expected_tool_rounds[k]`; report shows a per-round divergence row.
-- [ ] **Step 2:** Implement; policy budget `max_tool_divergence` counts an example as diverged if any replayed round diverges (document this).
-- [ ] **Step 3:** Update docs and revert the Phase 1.1 caveat to describe the new capability.
-- [ ] **Step 4:** Commit: `feat(evaluators): per-round tool scoring for multi-round replay`.
+- [x] **Step 1:** Failing tests: tool_selection compares round *k* output to `expected_tool_rounds[k]`; report shows a per-round divergence row.
+- [x] **Step 2:** Implement; policy budget `max_tool_divergence` counts an example as diverged if any replayed round diverges (document this).
+- [x] **Step 3:** Update docs and revert the Phase 1.1 caveat to describe the new capability.
+- [x] **Step 4:** Commit: `feat(evaluators): per-round tool scoring for multi-round replay`.
+  Done in c9e5a4b, ab2247e, dbc0400 (merged 38d83dc); docs 4c3db27. Shared helpers in `evaluators/tool_rounds.py`. Multi-round mode is entered only when a trace has `round_count > 1`, so a `--rounds first` suite that still carries `expected_tool_rounds` scores exactly as before. Scores are the mean over replayed rounds (a round with no ground truth and no calls on either side is skipped), per-round detail under `metadata.rounds`; top-level names stay flattened for existing consumers. No policy code change: the mean drops below 1.0 on any diverged round, pinned by `test_policy.py::TestAMultiRoundDivergenceCountsAsDiverged`. Report: one line per round in the tools column, `Round k:` trace-diff prefixes; bundle events carry the real `round`.
+
+#### Maintainer decisions to confirm (Phase 2)
+
+1. **Pure teacher forcing** (recorded calls + results fed back, never the candidate's own). Self-conditioned replay would need name+argument fixture lookup and a halt-and-flag policy; deferred.
+2. **`--rounds all` no longer flattens `expected_tools`** (CHANGELOG *Changed*). The `agent_trace` evaluator is the path for externally produced multi-round traces.
+3. **The answer round is replayed** (rounds = covered + 1), costing one extra call per fully covered example so text evaluators compare real final answers.
+4. **`--rounds all` on a capture with no recorded results** warns and silently promotes a single-shot case (identical to `--rounds first`). Could be made a hard error in one line of `build_example_from_capture` if preferred.
+5. **Progress bar counts `Call` rows, the cost estimate counts rounds**, so the two numbers differ on a multi-round suite.
 
 ---
 
@@ -456,4 +469,5 @@ Options already named by the author:
 | 2026-09-09 | 6.1–6.2 | Phase 6 done out of order (before 2–4, at the maintainer's request). cli: 3dbf245, 1e1de65, 5da36c1, d9c4eba. sdk: ea54c0a. Version bump deferred to the 0.14.0 release commit. |
 | 2026-09-09 | 5.1–5.5 | Phase 5 complete. Shared base written by the coordinator (sdk 42e3c78), then four parallel agents: openai, anthropic and genai wrappers in SDK worktrees, cost estimation on cli main. sdk: 42e3c78, e062a58, 6098bdc, 0afee20 (merge), 2d4e65b (pre-existing mypy failure in `tests/test_toolset.py`), 9f58ab7, 5ceb191, ad025f6 (docs). cli: 0638b61. Gates green in both repos (sdk 709 tests, cli 2049). Version bump deferred to the release commit (SDK 0.4.0: `[openai]`/`[anthropic]`/`[google-genai]` extras). Open: `toolset._normalize_gemini_tool` should read `parameters_json_schema`; `validate --suite-name` (Task 0.7) still missing. |
 | 2026-09-09 | 4.1–4.3 | Phase 4 complete, run as three parallel Opus agents (sdk; cli main; cli worktree for 4.3) plus one follow-up to fold the Gemini gaps into `dropped_params`. sdk: 781bf46, 387f975. cli: e9894c9, 23f42c0, 8e8f211 (merge), d0f356f. End-to-end verified with the dev SDK: an OpenAI-shaped strict tool + `tool_choice: required` + `parallel_tool_calls: false` capture promotes with those keys and a `strict: true` sidecar; `translate_generation_config` emits both; `detect_dropped_params` reports `['parallel_tool_calls', 'tools.strict']` for a Gemini target and nothing for Anthropic. Open: `validate --suite-name` (Task 0.7) still missing; the capture-first example still records executed-only until SDK 0.4.0 ships. |
+| 2026-09-09 | 2.1–2.4, 1.1 | Phase 2 complete. Spec + model contract by the coordinator (1c3abbe, d20e2db), then three parallel Opus agents: promotion on main (abbe3a5, 2b6d153), runner in a worktree (14c57da, merged a288dfd, follow-up 7034b71), scoring/report/bundle in a worktree (c9e5a4b, ab2247e, dbc0400, merged 38d83dc); docs pass 4c3db27 also closes Task 1.1. Gates green: ruff, format, `mypy --strict`, 2156 tests, pre-commit. End-to-end verified on the capture-first captures synced with `--rounds all` against a fake client: 10 model calls for 6 rows, round-2 messages carry the recorded calls plus fixture results, per-round scores in `scores.jsonl`, and the report reads "Round 1: Target omitted page_oncall / Round 2: Target added search_logs". Five maintainer decisions listed under Task 2.4. Open: Task 0.7 (`validate --suite-name`), Task 1.2, Phase 7; the capture-first example stays on `--rounds first`. |
 | 2026-09-09 | 3.0–3.4 | Phase 3 complete, run as three parallel Opus agents (cli; sdk core; sdk helpers in a worktree) then one for LangChain. cli: 6b8f210, 76a8c43, 3222b6a. sdk: aad7a21, ba8bffa, ff7a272, d69d397, 19964ee, 836ea92. Task 3.0 added: the CLI's `extra="forbid"` trace model must accept the field before the SDK writes it. End-to-end verified with the dev SDK: 2.1.0 envelopes with requested calls promote with `promotion_source: requested`. Open: whole-capture fallback when only some model calls carry the field (per-round hybrid considered, not done); capture-first example still records executed-only until SDK 0.4.0 ships the kwarg. |
