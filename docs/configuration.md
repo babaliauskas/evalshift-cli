@@ -528,6 +528,18 @@ A list of pairwise judges. Each entry has:
 | `criterion_prompt` | string | yes      | Free-form criterion the judge applies (e.g. "which output preserves more factual detail?"). |
 | `judge_model`      | string | optional | Model used as the judge (built-in default `gemini-3.1-flash-lite-preview`). Prefer a judge from a third model family so it isn't grading its own relatives. |
 
+**Judge family.** LLM judges tend to prefer output from their own relatives
+(self-preference bias), and nothing in the scoring can remove that. When a
+`judge_model` resolves to the same provider as `defaults.source_model` or
+`defaults.target_model`, `evalshift doctor` prints a warn-level `judge family`
+row and `evalshift validate` a matching `⚠` line — never a failure, because
+`init` deliberately scaffolds a same-provider judge so a first run needs one
+API key. The report repeats the note above the verdict whenever a judge that
+actually contributed `llm_judge` rows shares a family with an arm, and
+`report.json` carries it as `judge_family_overlap`. "Family" is the provider
+the model id resolves to (`anthropic`, `openai`, `google`); ids the registry
+cannot place never match.
+
 The judge sees both outputs (with random A/B order to defang positional
 bias) and produces strict-JSON `{"winner": "A"|"B"|"tie", "reason":
 "..."}`. Target wins → `(0.0, 1.0)`; tie → `(0.5, 0.5)`; source wins →

@@ -22,6 +22,7 @@ from typer.testing import CliRunner
 from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.cli.commands.doctor import (
     CONFIG_FILENAME,
+    JUDGE_FAMILY_CHECK,
     PROVIDER_KEYS,
     SDK_DISTRIBUTION,
     CheckResult,
@@ -657,3 +658,88 @@ class TestSdkCheck:
         result = runner.invoke(app, ["doctor"])
         assert result.exit_code == 0
         assert "evalshift-sdk" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# judge family — the judge grades its own relatives
+# ---------------------------------------------------------------------------
+
+
+def _write_judge_config(
+    cwd: Path,
+    *,
+    source: str | None = "anthropic/claude-sonnet-4-5",
+    target: str | None = "gemini/gemini-2.5-pro",
+    judges: tuple[str, ...] = ("gemini/gemini-3.1-flash-lite-preview",),
+) -> None:
+    defaults = ""
+    if source is not None:
+        defaults += f"  source_model: {source}\n"
+    if target is not None:
+        defaults += f"  target_model: {target}\n"
+    judge_block = "".join(
+        f"    - criterion_name: c{i}\n      criterion_prompt: which is better?\n"
+        f"      judge_model: {judge}\n"
+        for i, judge in enumerate(judges)
+    )
+    (cwd / CONFIG_FILENAME).write_text(
+        "prompts:\n  - {id: a, detection: manual, content: hi}\n"
+        + (f"defaults:\n{defaults}" if defaults else "")
+        + (f"evaluators:\n  llm_judge:\n{judge_block}" if judges else ""),
+        encoding="utf-8",
+    )
+
+
+def _judge_rows(results: list[CheckResult]) -> list[CheckResult]:
+    return [r for r in results if r.name.startswith(JUDGE_FAMILY_CHECK)]
+
+
+class TestJudgeFamilyCheck:
+    def test_warns_when_the_judge_shares_the_target_family(self, tmp_path: Path) -> None:
+        _write_judge_config(tmp_path)
+        rows = _judge_rows(run_checks(cwd=tmp_path, env=_empty_env()))
+        assert len(rows) == 1
+        assert rows[0].status == "warn"
+        assert "gemini/gemini-3.1-flash-lite-preview" in rows[0].detail
+        assert "target" in rows[0].detail
+        assert "google" in rows[0].detail
+        assert "self-preference" in rows[0].detail
+
+    def test_warning_never_fails_the_command(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _write_judge_config(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0, result.stdout
+        assert "self-preference" in result.stdout
+
+    def test_ok_row_when_the_judge_is_a_third_family(self, tmp_path: Path) -> None:
+        _write_judge_config(tmp_path, judges=("openai/gpt-4.1-mini",))
+        rows = _judge_rows(run_checks(cwd=tmp_path, env=_empty_env()))
+        assert len(rows) == 1
+        assert rows[0].status == "ok"
+        assert "third" in rows[0].detail
+
+    def test_one_row_per_overlapping_judge(self, tmp_path: Path) -> None:
+        _write_judge_config(
+            tmp_path,
+            judges=("gemini/g-a", "gemini/g-a", "anthropic/claude-haiku-4-5"),
+        )
+        rows = _judge_rows(run_checks(cwd=tmp_path, env=_empty_env()))
+        assert [r.status for r in rows] == ["warn", "warn"]
+        assert "gemini/g-a" in rows[0].detail and "target" in rows[0].detail
+        assert "claude-haiku-4-5" in rows[1].detail and "source" in rows[1].detail
+
+    def test_silent_when_no_judge_is_configured(self, tmp_path: Path) -> None:
+        _write_judge_config(tmp_path, judges=())
+        assert _judge_rows(run_checks(cwd=tmp_path, env=_empty_env())) == []
+
+    def test_silent_when_the_arms_are_not_configured(self, tmp_path: Path) -> None:
+        # doctor takes no --from/--to; with no defaults there is nothing to
+        # compare the judge against, and guessing would be noise.
+        _write_judge_config(tmp_path, source=None, target=None)
+        assert _judge_rows(run_checks(cwd=tmp_path, env=_empty_env())) == []
+
+    def test_silent_when_no_config_exists(self, tmp_path: Path) -> None:
+        assert _judge_rows(run_checks(cwd=tmp_path, env=_empty_env())) == []

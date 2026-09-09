@@ -128,6 +128,13 @@ evalshift doctor
   when nothing drifts; warn (exit 0) on pin drift --
   stale (pin < local), unpinned (input absent -> action default may lag), ahead (all pins >
   local). Fix line names the exact `evalshift-version: "<local>"` to set. See CI pin drift.
+  Adds a `judge family` row when the config wires llm_judge AND names both
+  defaults.source_model and target_model: warn (exit 0), one row per distinct judge_model whose
+  resolved provider equals an arm's ("judge `<m>` shares a model family (<provider>) with the
+  target model -- ... self-preference bias ..."); ok ("N judge models from a third family")
+  when none overlaps; no row when either arm is unset or no llm_judge is configured. Provider
+  "other" (id the registry cannot place) never matches. Same wording from `validate`; the report
+  repeats it (see Judge family below).
 evalshift run [-f/--from MODEL] [-t/--to MODEL] [-c CONFIG] [-s/--suite FILE]
     [--suite-name NAME] [--resume] [-y/--yes]
   Paired run over (prompt x example x {source,target}). --from/--to override
@@ -342,7 +349,9 @@ evalshift cache clear
 Hidden debug commands:
 evalshift validate [-s SUITE=golden.jsonl] [-c CONFIG]   (config+suite+prompt cross-check;
     after the success line prints the CI pin drift warning if any -- advisory, exit unchanged,
-    no-op in CI where the running CLI is the pin)
+    no-op in CI where the running CLI is the pin -- and one `⚠` line per llm_judge judge_model
+    sharing a provider with defaults.source_model/target_model, same wording as doctor's
+    `judge family` row; advisory, exit unchanged)
 evalshift test-call -m/--model MODEL [-p/--prompt TEXT] [-t/--temperature 0..2=0]
     [--max-tokens 1..8192=256] [--tools FILE]   (single live call; --tools prints a ToolTrace)
 
@@ -660,6 +669,13 @@ report.json as dropped_params, and render a "Constraints not honoured" banner be
 sampling one. migration_policy.fail_on_dropped_params: true turns the caveat into a failing
 verdict. A tool_choice on a TOOL-LESS example is not recorded here: it is stripped at dispatch
 with a warning, and it says something about the suite, not about either target's capabilities.
+Judge family (report.json judge_family_overlap: list of {judge_model, provider, roles}): computed
+at REPORT time from state.json models + the config's llm_judge entries for the run's suite
+(evaluators_for(suite_name); name rule "llm_judge.<criterion_name>"), restricted to judges that
+actually wrote scores.jsonl rows (kind == "llm_judge", or the legacy name prefix). A judge whose
+resolved provider equals an arm's renders a third "The judge graded its own relatives" banner
+after the two above (self-preference bias; advisory, no policy knob). Empty when no config is
+loadable, no judge contributed, or no judge overlaps. Provider "other" never matches.
 
 ## Migration policy verdict algorithm
 

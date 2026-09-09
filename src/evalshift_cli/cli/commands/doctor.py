@@ -46,6 +46,11 @@ from evalshift_cli.config.models import EvalShiftConfig
 from evalshift_cli.evaluators import tool_selection
 from evalshift_cli.evaluators.base import EvalRecord
 from evalshift_cli.evaluators.failures import BROKEN_HARNESS_CAUSES
+from evalshift_cli.models.family import (
+    configured_judge_models,
+    describe_overlap,
+    judge_family_overlaps,
+)
 from evalshift_cli.models.registry import PROVIDER_ENV_VARS
 from evalshift_cli.suite.models import SuiteExample
 from evalshift_cli.utils.ci_pin import check_ci_pin, find_action_pins
@@ -53,6 +58,8 @@ from evalshift_cli.utils.ci_pin import check_ci_pin, find_action_pins
 CheckStatus = Literal["ok", "warn", "fail"]
 
 CONFIG_FILENAME: Final = "evalshift.yaml"
+# Row name for the judge-family check (one row per overlapping judge).
+JUDGE_FAMILY_CHECK: Final = "judge family"
 # The capture SDK: a declared dependency of this package, and the owner of the
 # import name ``evalshift`` (this package imports as ``evalshift_cli``).
 SDK_DISTRIBUTION: Final = "evalshift-sdk"
@@ -109,6 +116,7 @@ def run_checks(cwd: Path, env: Mapping[str, str]) -> list[CheckResult]:
     results.extend(_api_key_check(env, aliases) for aliases in PROVIDER_KEYS)
     results.append(_config_check(cwd))
     results.extend(_tool_consistency_checks(cwd))
+    results.extend(_judge_family_checks(cwd))
     results.extend(_ci_pin_check(cwd))
     return results
 
@@ -345,6 +353,48 @@ def _tool_consistency_checks(cwd: Path) -> list[CheckResult]:
     return out
 
 
+def _judge_family_checks(cwd: Path) -> list[CheckResult]:
+    """Report every configured judge that shares a model family with an arm.
+
+    One :data:`JUDGE_FAMILY_CHECK` row per overlapping judge (``warn``), or
+    a single ``ok`` row when judges are configured and none overlaps. Never
+    ``fail``: a same-family judge is a bias to know about, not a broken
+    setup — ``init`` deliberately scaffolds one so a first run needs a
+    single API key.
+
+    Silent when there is no loadable config, no ``llm_judge`` evaluator, or
+    no ``defaults.source_model`` / ``target_model`` to compare against
+    (``doctor`` takes no ``--from`` / ``--to``, and guessing the arms would
+    make the row noise).
+    """
+    cfg_path = cwd / CONFIG_FILENAME
+    if not cfg_path.exists():
+        return []
+    try:
+        cfg = load_config(cfg_path)
+    except ConfigError:
+        return []
+    judges = configured_judge_models(cfg)
+    source = cfg.defaults.source_model
+    target = cfg.defaults.target_model
+    if not judges or source is None or target is None:
+        return []
+    overlaps = judge_family_overlaps(judge_models=judges, source_model=source, target_model=target)
+    if not overlaps:
+        n = len(judges)
+        return [
+            CheckResult(
+                name=JUDGE_FAMILY_CHECK,
+                status="ok",
+                detail=f"{n} judge model{'s' if n != 1 else ''} from a third family",
+            ),
+        ]
+    return [
+        CheckResult(name=JUDGE_FAMILY_CHECK, status="warn", detail=describe_overlap(o))
+        for o in overlaps
+    ]
+
+
 def _ci_pin_check(cwd: Path) -> list[CheckResult]:
     """Report whether CI installs a CLI at least as new as this one.
 
@@ -457,6 +507,7 @@ __all__ = [
     "BROKEN_HARNESS_MIN_ROWS",
     "BROKEN_HARNESS_RATE",
     "CONFIG_FILENAME",
+    "JUDGE_FAMILY_CHECK",
     "PROVIDER_KEYS",
     "SDK_DISTRIBUTION",
     "SDK_IMPORT_NAME",

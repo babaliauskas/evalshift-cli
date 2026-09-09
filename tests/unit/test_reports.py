@@ -35,8 +35,13 @@ def _scaffold_full_run(
     *,
     non_deterministic_models: list[str] | None = None,
     dropped_params: dict[str, list[str]] | None = None,
+    with_judge_scores: bool = False,
 ) -> tuple[Path, str]:
-    """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json."""
+    """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json.
+
+    ``with_judge_scores`` adds an ``llm_judge.helpfulness`` row per example
+    so the report sees a judge that actually contributed verdicts.
+    """
     run_id = "r_20260601_aaaaaa"
     run_dir = tmp_path / ".evalshift" / "runs" / run_id
 
@@ -126,6 +131,20 @@ def _scaffold_full_run(
             delta=-1.0,
         ),
     ]
+    if with_judge_scores:
+        rows.extend(
+            EvalRecord(
+                run_id=run_id,
+                prompt_id="greet",
+                example_id=ex_id,
+                evaluator_name="llm_judge.helpfulness",
+                kind="llm_judge",
+                source_score=0.5,
+                target_score=0.5,
+                delta=0.0,
+            )
+            for ex_id in ("ex1", "ex2")
+        )
     (run_dir / SCORES_FILENAME).write_text(
         "\n".join(r.model_dump_json() for r in rows) + "\n",
         encoding="utf-8",
@@ -885,6 +904,89 @@ class TestHtmlRender:
         out = write_html(payload, run_dir)
         assert out.name == REPORT_HTML_FILENAME
         assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# Judge family note — the judge graded its own relatives
+# ---------------------------------------------------------------------------
+
+_JUDGES = {"llm_judge.helpfulness": "gemini/gemini-3.1-flash-lite-preview"}
+
+
+class TestJudgeFamilyNote:
+    def test_payload_names_the_judge_that_shares_the_arms_family(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id, judge_models=_JUDGES)
+        # Both scaffold arms are gemini, as is the judge.
+        assert payload.judge_family_overlap == [
+            {
+                "judge_model": "gemini/gemini-3.1-flash-lite-preview",
+                "provider": "google",
+                "roles": ["source", "target"],
+            }
+        ]
+
+    def test_html_renders_a_one_line_note_and_json_carries_it(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir, judge_models=_JUDGES)
+
+        html = render_html(payload)
+        assert "shares a model family" in html
+        assert "gemini/gemini-3.1-flash-lite-preview" in html
+
+        write_report_json(payload, run_dir)
+        data = json.loads((run_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8"))
+        assert data["judge_family_overlap"][0]["provider"] == "google"
+
+    def test_no_note_when_the_judge_contributed_no_scores(self, tmp_path: Path) -> None:
+        # Configured but never ran (applies_to matched nothing, or the run
+        # predates the criterion): there is no verdict to caveat.
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=False)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id, judge_models=_JUDGES)
+        assert payload.judge_family_overlap == []
+        assert "shares a model family" not in render_html(payload)
+
+    def test_no_note_for_a_third_family_judge(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        payload = build_report_payload(
+            cwd / ".evalshift" / "runs" / run_id,
+            judge_models={"llm_judge.helpfulness": "openai/gpt-4.1-mini"},
+        )
+        assert payload.judge_family_overlap == []
+        assert "shares a model family" not in render_html(payload)
+
+    def test_default_payload_has_no_overlap_and_json_still_has_the_key(
+        self, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir)
+        assert payload.judge_family_overlap == []
+        write_report_json(payload, run_dir)
+        data = json.loads((run_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8"))
+        assert data["judge_family_overlap"] == []
+
+    def test_report_command_reads_the_judges_from_the_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        (cwd / "evalshift.yaml").write_text(
+            "prompts:\n  - {id: greet, detection: manual, content: hi}\n"
+            "evaluators:\n  llm_judge:\n    - criterion_name: helpfulness\n"
+            "      criterion_prompt: which helps more?\n"
+            "      judge_model: gemini/gemini-3.1-flash-lite-preview\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(cwd)
+        result = runner.invoke(app, ["report", run_id, "--no-insights"])
+        assert result.exit_code == 0, result.stdout
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        data = json.loads((run_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8"))
+        assert data["judge_family_overlap"][0]["roles"] == ["source", "target"]
+        assert "shares a model family" in (run_dir / REPORT_HTML_FILENAME).read_text(
+            encoding="utf-8"
+        )
 
 
 # ---------------------------------------------------------------------------

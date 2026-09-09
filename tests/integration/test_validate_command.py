@@ -123,3 +123,43 @@ class TestValidateCiPin:
         assert result.stdout.index("compatible") < result.stdout.index(
             "CI installs evalshift 0.0.1"
         )
+
+
+# ---------------------------------------------------------------------------
+# Judge family (advisory — never changes the exit code)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateJudgeFamily:
+    def _project(self, tmp_path: Path, *, judge: str) -> Path:
+        import shutil
+
+        shutil.copytree(FIXTURES_DIR / "validate_ok", tmp_path, dirs_exist_ok=True)
+        cfg = tmp_path / "evalshift.yaml"
+        cfg.write_text(
+            cfg.read_text(encoding="utf-8")
+            + "defaults:\n  source_model: anthropic/claude-sonnet-4-5\n"
+            "  target_model: gemini/gemini-2.5-pro\n"
+            "evaluators:\n  llm_judge:\n    - criterion_name: c\n"
+            f"      criterion_prompt: which is better?\n      judge_model: {judge}\n",
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_warns_after_the_success_line_when_the_judge_shares_a_family(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(self._project(tmp_path, judge="gemini/gemini-3.1-flash-lite-preview"))
+        result = runner.invoke(app, ["validate"])
+        assert result.exit_code == 0, result.stdout
+        assert "self-preference" in result.stdout
+        assert "target" in result.stdout
+        assert result.stdout.index("compatible") < result.stdout.index("self-preference")
+
+    def test_silent_for_a_third_family_judge(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(self._project(tmp_path, judge="openai/gpt-4.1-mini"))
+        result = runner.invoke(app, ["validate"])
+        assert result.exit_code == 0, result.stdout
+        assert "self-preference" not in result.stdout

@@ -31,6 +31,12 @@ from evalshift_cli.cli.commands._suites import SUITE_FILENAME
 from evalshift_cli.cli.commands.doctor import CONFIG_FILENAME
 from evalshift_cli.config.loader import ConfigError, load_config
 from evalshift_cli.config.models import EvalShiftConfig, PromptDefinition
+from evalshift_cli.models.family import (
+    JudgeFamilyOverlap,
+    configured_judge_models,
+    describe_overlap,
+    judge_family_overlaps,
+)
 from evalshift_cli.parsers.base import PromptParseError, PromptParser, PromptTemplate
 from evalshift_cli.parsers.manual import ManualParser
 from evalshift_cli.parsers.python_string import PythonStringParser
@@ -130,6 +136,23 @@ def validate(
     finding = check_ci_pin(project_root, __version__)
     if finding is not None:
         console.print(f"[yellow]⚠[/yellow] {escape(finding.message)}")
+    # Advisory, same wording as the `doctor` row: a judge from the same
+    # family as an arm biases every llm_judge verdict toward that arm.
+    for overlap in _judge_family_overlaps(cfg):
+        console.print(f"[yellow]⚠[/yellow] {escape(describe_overlap(overlap))}")
+
+
+def _judge_family_overlaps(cfg: EvalShiftConfig) -> list[JudgeFamilyOverlap]:
+    """Judges sharing a family with a configured arm; empty when the arms are unset."""
+    source = cfg.defaults.source_model
+    target = cfg.defaults.target_model
+    if source is None or target is None:
+        return []
+    return judge_family_overlaps(
+        judge_models=configured_judge_models(cfg),
+        source_model=source,
+        target_model=target,
+    )
 
 
 __all__ = ["validate"]

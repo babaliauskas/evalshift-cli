@@ -110,6 +110,23 @@
 </div>
 {% endif %}
 
+{% if judge_family_overlap %}
+{# One line, not a banner: it qualifies the llm_judge rows only, and those
+   are advisory in the init scaffold. After the banners, which weaken more. #}
+<div class="warn-banner">
+  <div class="warn-banner-head">The judge graded its own relatives</div>
+  <p>
+    {%- for o in judge_family_overlap %}
+      {%- if not loop.first %}{{ " " }}{% endif -%}
+      Judge <code>{{ o.judge_model }}</code> shares a model family ({{ o.provider }}) with the
+      {{ o.roles|join(" and ") }} model.
+    {%- endfor %}
+    LLM judges tend to prefer their own relatives' output (self-preference bias), so
+    <code>llm_judge</code> verdicts may lean toward that arm. Prefer a judge from a third family.
+  </p>
+</div>
+{% endif %}
+
   <section>
     <div class="hero">
       {% if decision %}

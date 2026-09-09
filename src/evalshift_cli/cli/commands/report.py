@@ -63,6 +63,7 @@ def run_report(
     # column. If the user moved the config or the report runs against
     # a foreign run dir, fall back to no tool detection.
     tool_evaluator_names: frozenset[str] = frozenset()
+    judge_models: dict[str, str] = {}
     try:
         cfg = load_config(config_path)
     except ConfigError:
@@ -71,11 +72,18 @@ def run_report(
         # Resolved for the suite the run was launched against, so a
         # per-suite evaluator block reaches the report the same way it
         # reached scoring.
-        tool_evaluator_names = cfg.evaluators_for(state.suite_name).tool_evaluator_names
+        evaluators = cfg.evaluators_for(state.suite_name)
+        tool_evaluator_names = evaluators.tool_evaluator_names
+        # Same name rule as evaluate's PairwiseJudgeEvaluator construction,
+        # so the judge-family note matches judges to the rows they wrote.
+        judge_models = {
+            f"llm_judge.{j.criterion_name}": j.judge_model for j in evaluators.llm_judge
+        }
 
     payload = build_report_payload(
         run_dir,
         tool_evaluator_names=tool_evaluator_names,
+        judge_models=judge_models,
     )
 
     # The narrative is prose *around* the payload, never part of it —
