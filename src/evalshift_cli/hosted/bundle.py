@@ -141,6 +141,7 @@ def build_bundle(
             comparisons=comparisons,
             records=scores,
             calls=calls,
+            dropped_params=state.dropped_params,
         )
     else:
         decision = inconclusive_decision(

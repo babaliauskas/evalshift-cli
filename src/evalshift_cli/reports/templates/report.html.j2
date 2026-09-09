@@ -67,6 +67,36 @@
 </div>
 {% endif %}
 
+{% if dropped_params %}
+{# Same place and styling as the banner above, and deliberately after it:
+   uncontrolled sampling weakens every number in the run, a dropped constraint
+   only the arm that lost it. #}
+{% set affected = dropped_params.keys()|list %}
+{% set solo_param = dropped_params.values()|map("length")|sum == 1 %}
+<div class="warn-banner">
+  <div class="warn-banner-head">
+    {%- if affected == [target_model] %}Constraints not honoured by the target
+    {%- elif affected|length == 1 %}Constraints not honoured by <code>{{ affected[0] }}</code>
+    {%- else %}Constraints not honoured by both arms
+    {%- endif -%}
+  </div>
+  <p>
+    {# Separators live outside the <code> chips, as in the banner above: the
+       chips are padded, so a comma set directly against one leaves a gap. #}
+    {%- for model, params in dropped_params.items() %}
+      {%- if not loop.first %}{{ "; " }}{% endif -%}
+      <code>{{ model }}</code> does not accept
+      {% for param in params %}{% if not loop.first %}{{ " and " if loop.last else ", " }}{% endif %}<code>{{ param }}</code>{% endfor -%}
+    {%- endfor %}.
+    The replay sent {{ "that constraint" if solo_param else "those constraints" }}
+    because the source capture recorded {{ "it" if solo_param else "them" }}; LiteLLM
+    dropped {{ "it" if solo_param else "them" }} so the call would still succeed. Differences
+    measured on {{ "that arm" if affected|length == 1 else "those arms" }} therefore mix the model
+    change with a missing constraint, not the model change alone.
+  </p>
+</div>
+{% endif %}
+
   <section>
     <div class="hero">
       {% if decision %}

@@ -228,6 +228,9 @@ class ReportData:
     methodology_notes: list[str] = field(default_factory=list)
     # Models whose sampling is non-deterministic; drives the report banner.
     non_deterministic_models: list[str] = field(default_factory=list)
+    # Canonical model id -> generation parameters LiteLLM dropped on that arm
+    # because the model does not accept them; drives the second banner.
+    dropped_params: dict[str, list[str]] = field(default_factory=dict)
 
 
 def build_report_payload(
@@ -291,6 +294,7 @@ def build_report_payload(
         prompt_sections=sections,
         methodology_notes=methodology_notes(state),
         non_deterministic_models=list(state.non_deterministic_models),
+        dropped_params={k: list(v) for k, v in state.dropped_params.items()},
     )
 
 
@@ -918,6 +922,7 @@ def _to_jsonable(report: ReportData) -> dict[str, Any]:
         ],
         "methodology_notes": report.methodology_notes,
         "non_deterministic_models": report.non_deterministic_models,
+        "dropped_params": report.dropped_params,
     }
 
 

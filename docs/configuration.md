@@ -87,8 +87,9 @@ migration_policy:
 
 Those values are the ones `evalshift init` writes, and they are also the
 `MigrationPolicy` field defaults a config that omits the block inherits — the
-one difference is `tool_argument_drift_floor`, which init leaves out of the
-scaffold and every config therefore inherits at `0.9`. They are a
+two differences are `tool_argument_drift_floor` and `fail_on_dropped_params`,
+which init leaves out of the scaffold and every config therefore inherits at
+`0.9` and `false`. They are a
 first-migration starting point, deliberately loose enough that a fresh suite
 reports its regressions instead of failing on a couple of reworded tool
 arguments. Tighten them as the suite grows and the migration nears merge; the
@@ -212,6 +213,22 @@ Two behaviours to know:
   zero is a default, not a measurement). Record-derived budgets report
   `conclusive: false` on a scope that scored zero records — their
   `0/0` default looks clean but measures nothing.
+
+* **`fail_on_dropped_params` gates constraints, not scores.** Default
+  `false`. A promoted capture can pin generation parameters
+  (`response_format`, `tool_choice`, `parallel_tool_calls`, `top_p`, a
+  completion cap), and EvalShift replays them — but `drop_params` means a
+  model that never accepted one still answers, minus the constraint. The run
+  probes both arms at start and records the shortfall in `state.json` under
+  `dropped_params`; the report shows a **Constraints not honoured** banner
+  either way. Setting this to `true` makes a non-empty `dropped_params` fail
+  the verdict outright, whatever the scores said, with a reason naming each
+  model and parameter. Turn it on when the constraint *is* the contract — a
+  suite of captures that pinned `response_format` measures nothing useful
+  against a target that will not produce structured output. It is a top-level
+  field only: a model either accepts a parameter or does not, which no subset
+  of examples can vary, so `slices` has no equivalent. Runs recorded before
+  this field existed carry no `dropped_params` and are never failed by it.
 
 Verdicts are `pass`, `conditional_pass`, `fail`, or `inconclusive`.
 When configured, `analyze` writes `migration_decision.json` next to

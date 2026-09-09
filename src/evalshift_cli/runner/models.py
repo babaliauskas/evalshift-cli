@@ -154,6 +154,14 @@ class RunState(_StrictModel):
             run and a subsequent ``evalshift report`` must not rewrite what
             was true when the calls were made. Empty for every run where
             both arms sample deterministically.
+        dropped_params: Canonical model id → the sorted generation parameters
+            the suite's captures asked for that LiteLLM says the model does
+            not accept. ``models/client.py`` sets ``drop_params=True``, so
+            those calls still succeed — with the constraint missing. Recorded
+            at run start for the same reason as ``non_deterministic_models``:
+            the answer must be the one that was true when the calls were made.
+            Models that honour everything are absent, so an empty dict means
+            every recorded constraint reached both arms.
         evaluator_coverage: Per-evaluator attempted-vs-recorded counts,
             written by the ``evaluate`` stage rather than the orchestrator —
             it is the one piece of run-level state only scoring knows. Empty
@@ -176,6 +184,9 @@ class RunState(_StrictModel):
     # Defaulted so state.json files written before this field existed still
     # load under extra="forbid" and --resume keeps working across upgrades.
     non_deterministic_models: list[str] = Field(default_factory=list)
+    # Defaulted for the same reason as the field above: state.json files
+    # written before it existed must still load under extra="forbid".
+    dropped_params: dict[str, list[str]] = Field(default_factory=dict)
     # Written by `evalshift evaluate`, which rewrites state.json once scoring
     # finishes. Defaulted because every state.json is written by the
     # orchestrator first, long before any evaluator has run.

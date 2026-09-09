@@ -68,7 +68,7 @@ as one section under the pipeline block (also on stage failure); errors are neve
 
 | File | Stage | Contents |
 |---|---|---|
-| state.json | run | status (in_progress/completed/failed), models, config_hash, counters, non_deterministic_models, evaluator_coverage (written by evaluate: attempted vs recorded per axis, the pairs that produced no row, + the axis's blocking flag; absent flag reads as true) |
+| state.json | run | status (in_progress/completed/failed), models, config_hash, counters, non_deterministic_models, dropped_params, evaluator_coverage (written by evaluate: attempted vs recorded per axis, the pairs that produced no row, + the axis's blocking flag; absent flag reads as true) |
 | raw.jsonl | run | one model call per line: prompt, output, tokens, cost, latency, tool trace, error |
 | scores.jsonl | evaluate | one EvalRecord per (pair x evaluator): source/target scores in [0,1], delta |
 | analysis.json | analyze | per-(prompt,evaluator,slice) statistics + severity |
@@ -496,6 +496,9 @@ migration_policy:                   # optional; fractions not percents
   tool_argument_drift_floor: float = 0.9 (0..1)  # target arg score below which a call counts as drifted
   max_cost_increase: float = 0.30 (0..10)
   max_latency_increase: float = 0.30 (0..10)
+  fail_on_dropped_params: bool = false  # fail when state.json dropped_params is non-empty,
+  #   i.e. an arm could not honour a generation constraint the capture recorded. Top level only
+  #   (a model either accepts a param or does not; not a per-slice property).
   # ^ defaults = what `init` writes: a first-migration starting point, loose enough that a
   #   fresh suite REPORTS regressions instead of failing on a few reworded tool arguments.
   #   Tighten as the suite grows: `init --profile cost-reduction|quantization|provider-switch|

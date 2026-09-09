@@ -332,6 +332,19 @@ class MigrationDecision:
             raise ValueError(f"not a migration decision: {exc}") from exc
 
 
+def _dropped_params_reason(dropped_params: Mapping[str, Sequence[str]]) -> str:
+    """One sentence naming every model and the parameters it could not honour."""
+    per_model = "; ".join(
+        f"{model} dropped {', '.join(params)}" for model, params in sorted(dropped_params.items())
+    )
+    return (
+        "migration_policy.fail_on_dropped_params is set and this run could not "
+        f"replay every recorded generation constraint: {per_model}. Those calls "
+        "succeeded without the constraint (drop_params), so the scores describe a "
+        "different experiment than the capture recorded."
+    )
+
+
 def evaluate_migration_policy(
     *,
     run_id: str,
@@ -341,11 +354,19 @@ def evaluate_migration_policy(
     comparisons: list[ComparisonResult],
     records: list[EvalRecord],
     calls: list[Call],
+    dropped_params: Mapping[str, Sequence[str]] | None = None,
 ) -> MigrationDecision:
     """Evaluate a run against the configured migration policy.
 
     Only *blocking* evaluator records/comparisons gate the verdict; advisory
     ones are summarised separately (``advisory`` / ``advisory_regressions``).
+
+    Args:
+        dropped_params: ``state.json``'s record of generation parameters
+            LiteLLM dropped per model, consulted only when
+            ``policy.fail_on_dropped_params`` is set. Optional and defaulted
+            because run directories written before the field existed have no
+            such record — and "we do not know" must not become "it failed".
     """
     blocking_records = [r for r in records if r.blocking]
     advisory_records = [r for r in records if not r.blocking]
@@ -485,6 +506,16 @@ def evaluate_migration_policy(
             if verdict == "inconclusive"
             else None
         )
+
+    if policy.fail_on_dropped_params and dropped_params:
+        # An explicit opt-in, so it overrides every other verdict including a
+        # clean pass: the user has said the constraint *is* the contract, and
+        # an arm that never received it did not run the experiment they wrote.
+        # The existing reason is kept rather than replaced -- a budget breach
+        # or an inconclusive sample is still true and still worth naming.
+        dropped_reason = _dropped_params_reason(dropped_params)
+        reason = f"{reason} {dropped_reason}" if reason else dropped_reason
+        verdict = "fail"
 
     return MigrationDecision(
         run_id=run_id,
