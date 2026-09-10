@@ -718,6 +718,53 @@ footer p { margin: 0; }
   .hero, .split, .split-even, .reg-grid { grid-template-columns: 1fr; }
   .strip { grid-template-columns: repeat(2, 1fr); }
   .strip-cell { border-right: none; border-bottom: 1px solid var(--hairline); }
+
+  /* Tables keep every column and scroll sideways — a phone can't carry an
+     eleven-column economics row any other way. Two things make the scroll
+     usable: the first column stays put so a row keeps its name while the
+     numbers slide under it, and the prose columns get a floor so the fixed-
+     width numeric columns can't squeeze them into one word per line. */
+  .scroll td:first-child, .scroll th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    /* Opaque, or the cells scrolling underneath show through. The row's tint
+       is an alpha wash, so it is stacked over the panel colour rather than
+       replacing it. */
+    background: var(--panel);
+    box-shadow: inset -1px 0 0 var(--hairline);
+  }
+  .scroll thead th:first-child { background: linear-gradient(var(--strip), var(--strip)) var(--panel); }
+  tr.ex-regression td:first-child { background: linear-gradient(var(--bad-wash), var(--bad-wash)) var(--panel); }
+  tr.ex-improved td:first-child { background: linear-gradient(var(--ok-wash), var(--ok-wash)) var(--panel); }
+  /* A pinned column has to be narrow enough to leave room for the rest of the
+     row, so long example ids and evaluator names wrap instead of holding it
+     open. */
+  .scroll td:first-child { min-width: 150px; max-width: 44vw; }
+  .scroll td:first-child code { white-space: normal; overflow-wrap: anywhere; }
+  .stack { min-width: 200px; }
+  th.wrap, td.tool-change { min-width: 220px; }
+}
+
+@media (max-width: 600px) {
+  body { padding: 20px 12px 48px; }
+  .page { gap: 24px; }
+  h1 { font-size: 26px; }
+  .hero-value .big { font-size: 24px; }
+  .strip-value { font-size: 17px; }
+  .card, .pad, .insight, .method-meta { padding: 16px; }
+  .method-list { padding: 16px 16px 16px 32px; }
+  th { padding: 9px 12px; }
+  td { padding: 11px 12px; font-size: 14px; }
+  table.econ th, table.econ td { padding-left: 12px; padding-right: 12px; }
+  /* The regression header ellipsizes its evaluator label to stay on one line;
+     at phone width that line is the whole finding, so let it wrap below the
+     id instead. */
+  .reg-head { gap: 8px 12px; padding: 12px 14px; }
+  .reg-what { flex: 1 1 60%; min-width: 0; white-space: normal; }
+  .reg-body { padding: 14px; }
+  .trace-list { padding: 12px 12px 12px 26px; }
+  .transcript-body { padding: 0 12px 12px 28px; }
 }
 
 @media print {
