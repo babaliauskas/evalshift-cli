@@ -237,6 +237,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   import from `evalshift_cli`. No shim is possible — shipping any `evalshift/`
   file would recreate the collision — so this ships as a minor bump (0.14.0).
   Design: `docs/superpowers/specs/2026-09-09-namespace-collision-design.md`.
+- Docs: the capture guides (`README.md`, `DOCS.md`, `docs/sdk.md`,
+  `docs/getting-started.md`, `llms-full.txt`) now cover the SDK 0.4.0 provider
+  client wrappers (`wrap_openai` / `wrap_anthropic` / `wrap_genai`), the
+  `requested_tool_calls` promotion path and `capture sync --rounds`, and no
+  longer tell users to install `evalshift-sdk` in a separate venv — the CLI
+  depends on it since the `evalshift_cli` rename. The capture-first example
+  README explains why its cases are `promotion_source: executed`.
 - Documented the config version policy: `version: 1` bumps only for breaking
   changes; additive fields ride on the CLI version and the CI pin check is the
   mechanism that keeps CI's reader at least as new as the local writer.

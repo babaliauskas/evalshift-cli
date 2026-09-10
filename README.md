@@ -135,6 +135,11 @@ verbatim, or pass your own `(value) -> value` callable. `@capture.tool` takes no
 they run inside. `tools=` is required at the same entry points: the toolset the
 agent was offered, or `[]` if it never calls tools.
 
+Calling OpenAI, Anthropic or Google GenAI directly? Wrap the client once —
+`wrap_openai(OpenAI())`, `wrap_anthropic(...)`, `wrap_genai(...)` (SDK 0.4.0+) —
+and every model call is recorded with no per-call code: the tools offered, the
+calls the model requested, usage and latency.
+
 Nothing is recorded unless `EVALSHIFT_CAPTURE=1` is set, so the decorators are
 safe to leave in production permanently:
 

@@ -19,7 +19,8 @@ your agent (evalshift-sdk)  →  .evalshift/captures/<suite>/cap_<hex>.json
 ```
 
 - **Disk is the only interface.** The SDK never imports or calls the CLI, and
-  the CLI never imports the SDK. Either one works without the other.
+  the CLI reads captures from disk without calling SDK code (`doctor` only
+  checks which package the `evalshift` import name resolves to).
 - **One environment or two.** The CLI imports as `evalshift_cli` and depends on
   the SDK, so `pip install evalshift` gives you both and `import evalshift` is
   always the SDK. A production agent that only records captures installs
@@ -63,6 +64,23 @@ value — `None` included — raises `TypeError`. Details:
 `tools` is required on the same entry points: the toolset the agent was offered,
 or `[]` if it never calls tools. Omitting it is a `TypeError` too.
 
+**Provider client wrappers (SDK 0.4.0+).** If the agent calls OpenAI, Anthropic
+or Google GenAI directly, wrap the client once instead of calling
+`record_model_call` by hand — `wrap_openai(OpenAI())`, `wrap_anthropic(Anthropic())`,
+`wrap_genai(genai.Client())` from `evalshift.adapters.<provider>`, installed with
+`pip install "evalshift-sdk[openai]"` / `[anthropic]` / `[google-genai]`. Every
+intercepted call — sync, async and streaming — records one `model_call` with
+the model id, the tools offered, the calls the model **requested**
+(`requested_tool_calls`), input, output, token usage, latency and the tool-use
+generation settings (`tool_choice`, `parallel_tool_calls`, a tool's `strict`
+flag). `wrap_openai` with a `base_url` covers OpenAI-compatible servers (Ollama,
+vLLM, Groq, OpenRouter). If you keep `record_model_call`, pass
+`requested_tool_calls=extract_requested_tool_calls(response)` on every model
+call: `capture sync` then scores against what the model *asked for* rather than
+what the app executed (`promotion_source: requested`), and `run` replays the
+case under the same tool-use constraints the source ran under. See
+[Agent migrations](agents.md#requested-calls-are-the-ground-truth-when-they-were-captured).
+
 Pass the **messages list** (not a bare string) as the model-call input where you
 can: `capture sync` recovers conversation history verbatim from a messages list,
 and only approximates it when all it has is a bare string. See
@@ -101,8 +119,12 @@ recorded tool calls → `expected_tools`, final output → `expected`, messages 
 block in `evalshift.yaml`.
 
 Strictness knobs for the derived tool expectations: `--strict-args`,
-`--names-only`, `--tool-count`. `--tag` adds slice tags, `--print` previews the
-config block without writing, `--keep-duplicates` disables dedup.
+`--names-only`, `--tool-count`, and `--rounds first|all` — whether only the
+first agent round or every recorded round becomes ground truth; `all` also
+carries the recorded tool results so `run` replays later rounds teacher-forced
+(see [Agent rounds](agents.md#agent-rounds-and-what-a-replay-can-reproduce)).
+`--tag` adds slice tags, `--print` previews the config block without writing,
+`--keep-duplicates` disables dedup.
 
 Full behaviour: [Configuration](configuration.md) and the
 [Capturing from production](https://github.com/babaliauskas/evalshift-cli/blob/main/DOCS.md#capturing-from-production)
@@ -125,6 +147,9 @@ from production traffic rather than hand-written examples.
   managed `suites:` block `capture sync` filled in.
 - [Getting started](getting-started.md) — the capture-first `evalshift init` flow.
 - [Multi-turn conversations](conversations.md) — how history is recovered.
+- **Provider clients** need no per-call code: `wrap_openai` / `wrap_anthropic` /
+  `wrap_genai` (SDK 0.4.0+, extras `[openai]`, `[anthropic]`, `[google-genai]`)
+  proxy a client you already built and record every call, streams included.
 - **LangChain** needs no decorators: the SDK ships an `EvalShiftCallbackHandler`
   (`pip install "evalshift-sdk[langchain]"`) that records a chain or agent run
   from the `callbacks=[...]` list, into the same captures as step 1.

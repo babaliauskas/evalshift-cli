@@ -42,7 +42,9 @@ exist; --no-wire-agents disables it.
 Quickstart (recommended, capture-first):
 1. pip install evalshift
 2. evalshift init                       -> minimal capture-first evalshift.yaml
-3. pip install evalshift-sdk            -> IN THE AGENT'S OWN VENV (shared import name `evalshift`)
+3. pip install evalshift-sdk            -> already pulled in by `pip install evalshift` (the CLI depends on
+                                           it; `import evalshift` is the SDK, the CLI imports as evalshift_cli).
+                                           Install it alone in a production agent that only records.
 4. decorate the agent (@capture.agent(suite=..., redact=True, tools=[]), @capture.tool(name=...)), run it
    with EVALSHIFT_CAPTURE=1 -> writes .evalshift/captures/<suite>/cap_<hex>.json
    redact= is REQUIRED on every sdk capture point (@capture.agent, capture.agent_session,
@@ -51,6 +53,14 @@ Quickstart (recommended, capture-first):
    (value) -> value callable. Any other value, None included, raises TypeError. There is no
    configure(redact=...) — it was removed in 0.3.0. tools= is REQUIRED on the same entry
    points: the toolset the agent was offered, or [] if it never calls tools.
+   Alternative to hand-written record_model_call (evalshift-sdk 0.4.0+): wrap the provider client
+   once — wrap_openai / wrap_anthropic / wrap_genai from evalshift.adapters.<provider>, extras
+   [openai] / [anthropic] / [google-genai]; wrap_openai(OpenAI(base_url=...)) covers Ollama, vLLM,
+   Groq, OpenRouter. Every call (sync/async/stream) records model_id, offered tools,
+   requested_tool_calls, input/output, usage, latency and tool_choice / parallel_tool_calls /
+   strict. With record_model_call, pass requested_tool_calls=extract_requested_tool_calls(response)
+   on EVERY model call ([] when none) so capture sync scores against the model's requested calls
+   (promotion_source: requested) instead of the executed ones.
 5. evalshift capture sync               -> captures become .evalshift/suites/<suite>/golden.jsonl
                                            and the managed `suites:` block in evalshift.yaml
 6. evalshift all --suite-name <suite> --to <candidate-model>   (real API calls; costs money —
@@ -1092,7 +1102,7 @@ suites:
 
 # Capture-first flow (real project)
 evalshift init --provider gemini            # minimal config only
-pip install evalshift-sdk                   # in the AGENT's venv (separate from CLI's!)
+pip install evalshift-sdk                   # already a dependency of the CLI; alone in a capture-only agent
 EVALSHIFT_CAPTURE=1 python my_agent.py      # record captures via SDK instrumentation
 evalshift capture list
 evalshift capture sync                      # promote all -> .evalshift/suites/<suite>/golden.jsonl

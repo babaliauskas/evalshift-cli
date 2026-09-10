@@ -117,7 +117,10 @@ EVALSHIFT_CAPTURE=1 python your_agent.py   # writes .evalshift/captures/
 ```
 
 Captures are off unless `EVALSHIFT_CAPTURE=1` is set, so the decorator can
-stay in production code. Full contract: [Capture SDK](sdk.md). If you can't
+stay in production code. If the agent calls OpenAI, Anthropic or Google GenAI
+directly, wrap the client once — `wrap_openai(OpenAI())`, `wrap_anthropic`,
+`wrap_genai` (SDK 0.4.0+) — and every model call is recorded with no further
+code. Full contract: [Capture SDK](sdk.md). If you can't
 instrument the agent, write `golden.jsonl` by hand instead — see
 [Configuration](configuration.md).
 

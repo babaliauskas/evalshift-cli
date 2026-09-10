@@ -151,7 +151,7 @@ See [Project setup](#project-setup) and [Capturing from production](#capturing-f
 
 ## Capturing from production
 
-The evalshift-sdk (separate package, `pip install evalshift-sdk`, in your agent's venv) records real agent runs as JSON capture files under `.evalshift/captures/<suite>/cap_<hex>.json` when `EVALSHIFT_CAPTURE=1` is set. The CLI turns those captures into golden suites:
+The evalshift-sdk (`pip install evalshift-sdk` — already a dependency of the CLI, or installed alone in a production agent) records real agent runs as JSON capture files under `.evalshift/captures/<suite>/cap_<hex>.json` when `EVALSHIFT_CAPTURE=1` is set. Instrument with `@capture.agent` / `@capture.tool` / `record_model_call`, the LangChain `EvalShiftCallbackHandler`, or (SDK 0.4.0+) a provider client wrapper — `wrap_openai` / `wrap_anthropic` / `wrap_genai` — which records the model id, offered tools, `requested_tool_calls`, usage, latency and the tool-use generation settings (`tool_choice`, `parallel_tool_calls`, `strict`) from every call, streams included, with no per-call code; a hand-written `record_model_call` should pass `requested_tool_calls=extract_requested_tool_calls(response)` so promotion can use the model's requested calls (step 3 below). The CLI turns those captures into golden suites:
 
 ```bash
 evalshift capture list                 # table of recorded captures (--json for machine-readable)

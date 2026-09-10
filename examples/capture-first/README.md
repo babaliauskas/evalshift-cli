@@ -53,6 +53,10 @@ Three details in `agent.py` are what make a capture *promotable*:
   capture whose model call recorded no toolset (`no usable recorded toolset`).
 * `@capture.tool` — each recorded call becomes an `expected_tools` entry with
   `provenance: captured`, the ground truth a candidate model is scored against.
+  These captures predate the SDK's `requested_tool_calls`, so every promoted
+  case says `promotion_source: executed`; an agent that also passes
+  `record_model_call(requested_tool_calls=...)` (SDK 0.4.0+) is scored against
+  what the model *asked for* instead.
 
 ### 2. Scaffold the config
 
