@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from evalshift.evaluators.failures import ARGUMENT_VALUE_DRIFT, TOOL_ORDER_DRIFT
-from evalshift.traces.diff import diff_traces
-from evalshift.traces.models import AgentTrace
+from evalshift_cli.evaluators.failures import ARGUMENT_VALUE_DRIFT, TOOL_ORDER_DRIFT
+from evalshift_cli.traces.diff import diff_traces
+from evalshift_cli.traces.models import AgentTrace
 
 
 def _tool(name: str, index: int, args: dict[str, object] | None = None) -> dict[str, object]:

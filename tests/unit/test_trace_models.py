@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.traces.loader import (
+from evalshift_cli.traces.loader import (
     TraceLoadError,
     index_traces,
     load_traces_jsonl,
     pairs_for_prompt_examples,
     write_traces_jsonl,
 )
-from evalshift.traces.models import AgentTrace, ToolCallEvent
+from evalshift_cli.traces.models import AgentTrace, ModelCallEvent, ToolCallEvent
 
 
 def _trace(*, role: str = "source", example_id: str = "ex1") -> dict[str, object]:
@@ -174,3 +174,86 @@ def test_utc_event_timestamps_serialize_the_way_the_bundle_schema_demands() -> N
     dumped = trace.model_dump(mode="json")
     for event in dumped["events"]:
         assert str(event["timestamp"]).endswith("Z")
+
+
+# --- requested_tool_calls: the tool calls the model asked for ----------------
+#
+# Cross-repo contract. "Offered" is `tools_offered`/`toolset_ref`, "requested"
+# is this field, "executed" is the `tool_call`/`tool_result` events the app
+# recorded while actually running the tools. The three can legitimately differ.
+
+
+def _model_call(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "type": "model_call",
+        "sequence_index": 0,
+        "timestamp": "2026-06-09T12:00:00Z",
+        "metadata": {},
+        "model_id": "src-model",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_model_call_requested_tool_calls_defaults_to_none() -> None:
+    """Absent on every capture written before the SDK's 2.1.0 bump — and must stay loadable."""
+    event = ModelCallEvent.model_validate(_model_call())
+
+    assert event.requested_tool_calls is None
+
+
+def test_model_call_round_trips_requested_tool_calls() -> None:
+    event = ModelCallEvent.model_validate(
+        _model_call(
+            requested_tool_calls=[
+                {"name": "issue_refund", "arguments": {"ticket_id": "T-1032"}, "call_id": "c1"},
+                {"name": "notify_security_team"},
+            ],
+        ),
+    )
+
+    assert event.requested_tool_calls is not None
+    first, second = event.requested_tool_calls
+    assert (first.name, first.arguments, first.call_id) == (
+        "issue_refund",
+        {"ticket_id": "T-1032"},
+        "c1",
+    )
+    # `arguments` defaults to an empty dict and `call_id` to None — a provider
+    # that reports a no-argument call, or one with no id, is not an error.
+    assert (second.name, second.arguments, second.call_id) == ("notify_security_team", {}, None)
+
+    assert ModelCallEvent.model_validate(event.model_dump(mode="json")) == event
+
+
+def test_requested_tool_calls_follows_tools_offered_in_field_order() -> None:
+    """Cross-repo contract: the SDK vendors this model and compares it field for field."""
+    fields = list(ModelCallEvent.model_fields)
+
+    assert fields[fields.index("tools_offered") + 1] == "requested_tool_calls"
+
+
+def test_requested_tool_call_rejects_unknown_keys() -> None:
+    """Strict like every other trace model: a typo'd key is an error, not a warning."""
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        ModelCallEvent.model_validate(
+            _model_call(requested_tool_calls=[{"name": "x", "arguments": {}, "index": 0}]),
+        )
+
+
+def test_requested_tool_calls_survive_the_trace_jsonl_round_trip(tmp_path: Path) -> None:
+    payload = _trace()
+    events = payload["events"]
+    assert isinstance(events, list)
+    events.append(
+        _model_call(
+            sequence_index=4,
+            requested_tool_calls=[{"name": "issue_refund", "arguments": {"ticket_id": "T-1032"}}],
+        ),
+    )
+    trace = AgentTrace.model_validate(payload)
+    path = tmp_path / "traces.jsonl"
+
+    write_traces_jsonl(path, [trace])
+
+    assert load_traces_jsonl(path) == [trace]

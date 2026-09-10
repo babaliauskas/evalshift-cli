@@ -16,10 +16,10 @@ from typing import Any
 import httpx
 import pytest
 
-from evalshift.hosted.bundle import BUNDLE_FILENAME, build_bundle
-from evalshift.hosted.client import HostedClient, HostedHTTPError
-from evalshift.hosted.push import PushError, PushResult, push_bundle
-from evalshift.runner.checkpoint import PUSH_STATE_FILENAME
+from evalshift_cli.hosted.bundle import BUNDLE_FILENAME, build_bundle
+from evalshift_cli.hosted.client import HostedClient, HostedHTTPError
+from evalshift_cli.hosted.push import PushError, PushResult, push_bundle
+from evalshift_cli.runner.checkpoint import PUSH_STATE_FILENAME
 from tests.conftest import FakeHostedClient, write_completed_run, write_project_files
 
 CLIENT_RUN_ID = "r_20260516_abcdef"
@@ -89,8 +89,8 @@ def _install(
 ) -> None:
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
-    monkeypatch.setattr("evalshift.hosted.push._put_with_retries", lambda *a, **k: None)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push._put_with_retries", lambda *a, **k: None)
 
 
 def _write_checkpoint(run_dir: Path, payload: dict[str, Any]) -> None:

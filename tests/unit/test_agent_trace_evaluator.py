@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from evalshift.config.models import AgentTraceEvaluatorConfig
-from evalshift.evaluators.agent_trace import AgentTraceEvaluator
-from evalshift.evaluators.failures import (
+from evalshift_cli.config.models import AgentTraceEvaluatorConfig
+from evalshift_cli.evaluators.agent_trace import AgentTraceEvaluator
+from evalshift_cli.evaluators.failures import (
     ARGUMENT_VALUE_DRIFT,
     DANGEROUS_ACTION_DRIFT,
     MISSING_VERIFICATION_STEP,
 )
-from evalshift.traces.models import AgentTrace
+from evalshift_cli.traces.models import AgentTrace
 
 
 def _trace(events: list[dict[str, object]], *, role: str = "source") -> AgentTrace:

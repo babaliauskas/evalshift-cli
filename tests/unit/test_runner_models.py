@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`evalshift.runner.models`.
+"""Unit tests for :mod:`evalshift_cli.runner.models`.
 
 The most important property: every model round-trips losslessly through
 ``model_dump_json`` / ``model_validate_json``. The orchestrator relies
@@ -12,7 +12,13 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from evalshift.runner.models import Call, EvaluatorCoverage, RunModels, RunState
+from evalshift_cli.runner.models import (
+    Call,
+    EvaluatorCoverage,
+    RunModels,
+    RunState,
+    representative_calls,
+)
 
 # ---------------------------------------------------------------------------
 # Call
@@ -253,3 +259,93 @@ class TestEvaluatorCoverage:
         )
         restored = EvaluatorCoverage.model_validate_json(entry.model_dump_json())
         assert restored.blocking is False
+
+
+class TestSampleIndex:
+    """``samples_per_example`` (Task 7.1) adds a sample dimension to both rows."""
+
+    def test_call_sample_index_defaults_to_zero(self) -> None:
+        call = Call(run_id="r", prompt_id="p", example_id="e", model_id="m", role="source")
+        assert call.sample_index == 0
+
+    def test_call_written_before_the_field_existed_loads_as_sample_zero(self) -> None:
+        raw = (
+            '{"run_id": "r", "prompt_id": "p", "example_id": "e", '
+            '"model_id": "m", "role": "source", "text": "x"}'
+        )
+        assert Call.model_validate_json(raw).sample_index == 0
+
+    def test_call_sample_index_round_trips(self) -> None:
+        call = Call(
+            run_id="r", prompt_id="p", example_id="e", model_id="m", role="target", sample_index=2
+        )
+        assert Call.model_validate_json(call.model_dump_json()).sample_index == 2
+
+    def test_call_negative_sample_index_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            Call(
+                run_id="r",
+                prompt_id="p",
+                example_id="e",
+                model_id="m",
+                role="source",
+                sample_index=-1,
+            )
+
+    def test_run_state_samples_per_example_defaults_to_one(self) -> None:
+        state = RunState(
+            run_id="r_20260601_abc123",
+            config_hash="abcd",
+            started_at=_now(),
+            models=RunModels(source="a", target="b"),
+            prompt_ids=["p1"],
+            suite_path="./golden.jsonl",
+            total_evaluations=2,
+        )
+        assert state.samples_per_example == 1
+        assert RunState.model_validate_json(state.model_dump_json()).samples_per_example == 1
+
+    def test_run_state_samples_per_example_round_trips(self) -> None:
+        state = RunState(
+            run_id="r_20260601_abc123",
+            config_hash="abcd",
+            started_at=_now(),
+            models=RunModels(source="a", target="b"),
+            prompt_ids=["p1"],
+            suite_path="./golden.jsonl",
+            total_evaluations=6,
+            samples_per_example=3,
+        )
+        assert RunState.model_validate_json(state.model_dump_json()).samples_per_example == 3
+
+
+class TestRepresentativeCalls:
+    """Consumers that show one output per (prompt, example, role) read sample 0."""
+
+    def _call(self, *, example_id: str, role: str, sample_index: int) -> Call:
+        return Call(
+            run_id="r",
+            prompt_id="p",
+            example_id=example_id,
+            model_id="m",
+            role=role,  # type: ignore[arg-type]
+            text=f"{example_id}/{role}/{sample_index}",
+            sample_index=sample_index,
+        )
+
+    def test_keeps_only_sample_zero_in_order(self) -> None:
+        calls = [
+            self._call(example_id="a", role="source", sample_index=1),
+            self._call(example_id="a", role="source", sample_index=0),
+            self._call(example_id="a", role="target", sample_index=0),
+            self._call(example_id="b", role="source", sample_index=2),
+        ]
+        kept = representative_calls(calls)
+        assert [c.text for c in kept] == ["a/source/0", "a/target/0"]
+
+    def test_single_sample_run_is_returned_unchanged(self) -> None:
+        calls = [
+            self._call(example_id="a", role="source", sample_index=0),
+            self._call(example_id="a", role="target", sample_index=0),
+        ]
+        assert representative_calls(calls) == calls

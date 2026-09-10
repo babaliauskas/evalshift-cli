@@ -22,11 +22,11 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.models.client import ModelClient, ToolCompletionResult
-from evalshift.runner import orchestrator as orch_module
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.models.client import ModelClient, ToolCompletionResult
+from evalshift_cli.runner import orchestrator as orch_module
 
 runner = CliRunner()
 
@@ -296,7 +296,7 @@ class TestToolPipeline:
         )
 
         async def fake_text(self: ModelClient, **kwargs: Any) -> Any:
-            from evalshift.models.client import CompletionResult
+            from evalshift_cli.models.client import CompletionResult
 
             return CompletionResult(
                 text="ok",
@@ -361,7 +361,7 @@ class TestBrokenHarnessReachesTheVerdictBlock:
 
     ``all`` scores with ``quiet=True`` because the evaluate stage runs inside
     a Live grid this table would fight with, so the finding is handed back on
-    :class:`~evalshift.cli.commands.evaluate.EvaluateResult` and rendered here
+    :class:`~evalshift_cli.cli.commands.evaluate.EvaluateResult` and rendered here
     instead — directly above the verdict it invalidates, since a verdict read
     first is a verdict believed.
     """

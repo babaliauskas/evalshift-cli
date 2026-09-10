@@ -19,17 +19,17 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.analysis.statistics import ComparisonResult
-from evalshift.cli.commands.all import (
+from evalshift_cli.analysis.statistics import ComparisonResult
+from evalshift_cli.cli.commands.all import (
     _bar,
     _compose_verdict,
     _evaluator_family_summary,
 )
-from evalshift.cli.commands.analyze import AnalyzeResult
-from evalshift.cli.commands.analyze import run_analyze as _real_run_analyze
-from evalshift.cli.commands.doctor import CheckResult
-from evalshift.cli.main import app
-from evalshift.config.models import (
+from evalshift_cli.cli.commands.analyze import AnalyzeResult
+from evalshift_cli.cli.commands.analyze import run_analyze as _real_run_analyze
+from evalshift_cli.cli.commands.doctor import CheckResult
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.models import (
     EvalShiftConfig,
     EvaluatorsConfig,
     LLMJudgeConfig,
@@ -37,7 +37,7 @@ from evalshift.config.models import (
     SemanticEvaluatorConfig,
     StructuralEvaluatorConfig,
 )
-from evalshift.models.client import CompletionResult, ModelClient
+from evalshift_cli.models.client import CompletionResult, ModelClient
 
 runner = CliRunner()
 
@@ -390,7 +390,7 @@ class TestEndToEnd:
 
             return Result()
 
-        monkeypatch.setattr("evalshift.cli.commands.all.push_local_run", fake_push_local_run)
+        monkeypatch.setattr("evalshift_cli.cli.commands.all.push_local_run", fake_push_local_run)
 
         def fake_run_analyze(*, run_id: str, config_path: Path, runs_base: Path) -> AnalyzeResult:
             real = _real_run_analyze(run_id=run_id, config_path=config_path, runs_base=runs_base)
@@ -407,7 +407,7 @@ class TestEndToEnd:
                 n_records=real.n_records,
             )
 
-        monkeypatch.setattr("evalshift.cli.commands.all.run_analyze", fake_run_analyze)
+        monkeypatch.setattr("evalshift_cli.cli.commands.all.run_analyze", fake_run_analyze)
 
         result = runner.invoke(app, ["all", "--yes", "--push", "--gate", "critical"])
 
@@ -438,7 +438,7 @@ class TestEndToEnd:
 
             return Result()
 
-        monkeypatch.setattr("evalshift.cli.commands.all.push_local_run", fake_push_local_run)
+        monkeypatch.setattr("evalshift_cli.cli.commands.all.push_local_run", fake_push_local_run)
 
         result = runner.invoke(app, ["all", "--yes", "--push"])
 
@@ -487,7 +487,7 @@ class TestEndToEnd:
                 ),
             ]
 
-        monkeypatch.setattr("evalshift.cli.commands.all.run_checks", fake_run_checks)
+        monkeypatch.setattr("evalshift_cli.cli.commands.all.run_checks", fake_run_checks)
 
         result = runner.invoke(app, ["all", "--yes"])
 

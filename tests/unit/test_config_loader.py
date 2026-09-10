@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.config.loader`.
+"""Tests for :mod:`evalshift_cli.config.loader`.
 
 We assert two things across all paths:
 
@@ -14,13 +14,13 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from evalshift.config.loader import (
+from evalshift_cli.config.loader import (
     ConfigError,
     ConfigErrorDetail,
     _format_loc,
     load_config,
 )
-from evalshift.config.models import EvalShiftConfig
+from evalshift_cli.config.models import EvalShiftConfig
 
 # ---------------------------------------------------------------------------
 # Helpers

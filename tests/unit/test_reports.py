@@ -9,30 +9,40 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.analysis.policy import evaluate_migration_policy
-from evalshift.analysis.statistics import UNMEASURED_NOTE_PREFIX
-from evalshift.cli.commands.analyze import ANALYSIS_FILENAME
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.config.models import MigrationPolicy
-from evalshift.evaluators.base import EvalRecord
-from evalshift.reports.html import REPORT_HTML_FILENAME, render_html, write_html
-from evalshift.reports.json import (
+from evalshift_cli.analysis.policy import evaluate_migration_policy
+from evalshift_cli.analysis.statistics import UNMEASURED_NOTE_PREFIX
+from evalshift_cli.cli.commands.analyze import ANALYSIS_FILENAME
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.models import MigrationPolicy
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.reports.html import REPORT_HTML_FILENAME, render_html, write_html
+from evalshift_cli.reports.json import (
     REPORT_JSON_FILENAME,
     TopRegression,
     build_report_payload,
+    write_report_json,
 )
-from evalshift.runner.checkpoint import append_call, write_state
-from evalshift.runner.models import Call, RunModels, RunState
-from evalshift.traces.loader import TRACES_FILENAME
+from evalshift_cli.runner.checkpoint import append_call, write_state
+from evalshift_cli.runner.models import Call, RunModels, RunState
+from evalshift_cli.traces.loader import TRACES_FILENAME
 
 runner = CliRunner()
 
 
 def _scaffold_full_run(
-    tmp_path: Path, *, non_deterministic_models: list[str] | None = None
+    tmp_path: Path,
+    *,
+    non_deterministic_models: list[str] | None = None,
+    dropped_params: dict[str, list[str]] | None = None,
+    samples_per_example: int = 1,
+    with_judge_scores: bool = False,
 ) -> tuple[Path, str]:
-    """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json."""
+    """Scaffold a run dir with raw.jsonl, scores.jsonl, and analysis.json.
+
+    ``with_judge_scores`` adds an ``llm_judge.helpfulness`` row per example
+    so the report sees a judge that actually contributed verdicts.
+    """
     run_id = "r_20260601_aaaaaa"
     run_dir = tmp_path / ".evalshift" / "runs" / run_id
 
@@ -61,44 +71,52 @@ def _scaffold_full_run(
             total_evaluations=4,
             completed_evaluations=4,
             non_deterministic_models=non_deterministic_models or [],
+            dropped_params=dropped_params or {},
+            samples_per_example=samples_per_example,
         ),
     )
 
-    # raw.jsonl with two pairs.
+    # raw.jsonl with two pairs (times ``samples_per_example`` samples each; a
+    # later sample's text is suffixed so a consumer that shows the wrong one
+    # is caught).
     for ex_id, src_text, tgt_text in (
         ("ex1", "Hello there!", "Hi"),
         ("ex2", "Greetings, friend.", "yo"),
     ):
-        append_call(
-            run_dir,
-            Call(
-                run_id=run_id,
-                prompt_id="greet",
-                example_id=ex_id,
-                model_id="gemini/gemini-2.5-flash",
-                role="source",
-                text=src_text,
-                cost_usd=0.0001,
-                latency_ms=100,
-                input_tokens=20,
-                output_tokens=10,
-            ),
-        )
-        append_call(
-            run_dir,
-            Call(
-                run_id=run_id,
-                prompt_id="greet",
-                example_id=ex_id,
-                model_id="gemini/gemini-2.5-pro",
-                role="target",
-                text=tgt_text,
-                cost_usd=0.0002,
-                latency_ms=120,
-                input_tokens=22,
-                output_tokens=15,
-            ),
-        )
+        for sample in range(samples_per_example):
+            suffix = f" [sample {sample}]" if sample else ""
+            append_call(
+                run_dir,
+                Call(
+                    run_id=run_id,
+                    prompt_id="greet",
+                    example_id=ex_id,
+                    model_id="gemini/gemini-2.5-flash",
+                    role="source",
+                    text=src_text + suffix,
+                    cost_usd=0.0001,
+                    latency_ms=100,
+                    input_tokens=20,
+                    output_tokens=10,
+                    sample_index=sample,
+                ),
+            )
+            append_call(
+                run_dir,
+                Call(
+                    run_id=run_id,
+                    prompt_id="greet",
+                    example_id=ex_id,
+                    model_id="gemini/gemini-2.5-pro",
+                    role="target",
+                    text=tgt_text + suffix,
+                    cost_usd=0.0002,
+                    latency_ms=120,
+                    input_tokens=22,
+                    output_tokens=15,
+                    sample_index=sample,
+                ),
+            )
 
     # scores.jsonl
     rows = [
@@ -121,6 +139,20 @@ def _scaffold_full_run(
             delta=-1.0,
         ),
     ]
+    if with_judge_scores:
+        rows.extend(
+            EvalRecord(
+                run_id=run_id,
+                prompt_id="greet",
+                example_id=ex_id,
+                evaluator_name="llm_judge.helpfulness",
+                kind="llm_judge",
+                source_score=0.5,
+                target_score=0.5,
+                delta=0.0,
+            )
+            for ex_id in ("ex1", "ex2")
+        )
     (run_dir / SCORES_FILENAME).write_text(
         "\n".join(r.model_dump_json() for r in rows) + "\n",
         encoding="utf-8",
@@ -297,7 +329,7 @@ class TestReportPayload:
             assert by_example["ex2"].input_text is None
 
     def test_top_regression_input_truncated_at_cap(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import INPUT_TEXT_MAX_CHARS, _render_input_text
+        from evalshift_cli.reports.json import INPUT_TEXT_MAX_CHARS, _render_input_text
 
         big = "x" * (INPUT_TEXT_MAX_CHARS + 500)
         rendered = _render_input_text({"input": big}, example_id="ex1")
@@ -307,7 +339,7 @@ class TestReportPayload:
         assert "ex1" in rendered
 
     def test_render_input_text_multi_var_is_json(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _render_input_text
+        from evalshift_cli.reports.json import _render_input_text
 
         rendered = _render_input_text({"a": 1, "b": "two"}, example_id="ex1")
         assert rendered is not None
@@ -563,7 +595,7 @@ class TestHtmlRender:
         assert "target minus source" in html
 
     def test_evaluator_labels_are_friendly(self) -> None:
-        from evalshift.reports.html import _evaluator_label, _test_label
+        from evalshift_cli.reports.html import _evaluator_label, _test_label
 
         assert _evaluator_label("semantic.cosine") == "Semantic similarity"
         assert _evaluator_label("llm_judge.equivalence") == "LLM judge: equivalence"
@@ -644,8 +676,8 @@ class TestHtmlRender:
         assert "gemini/gemini-3.5-flash-lite" in html
 
     def test_regression_reason_explains_why(self) -> None:
-        from evalshift.reports.html import _regression_reason
-        from evalshift.reports.json import ToolChange
+        from evalshift_cli.reports.html import _regression_reason
+        from evalshift_cli.reports.json import ToolChange
 
         def _reason(**overrides: object) -> str:
             defaults: dict[str, object] = {
@@ -703,7 +735,7 @@ class TestHtmlRender:
             assert "source 1.00 → target 0.00" in html
 
     def test_latency_uses_human_units(self, tmp_path: Path) -> None:
-        from evalshift.reports.html import _latency
+        from evalshift_cli.reports.html import _latency
 
         # No live calls (all cached) → em dash, never a misleading "0 ms".
         assert _latency(0.0, 0) == "—"
@@ -883,6 +915,89 @@ class TestHtmlRender:
 
 
 # ---------------------------------------------------------------------------
+# Judge family note — the judge graded its own relatives
+# ---------------------------------------------------------------------------
+
+_JUDGES = {"llm_judge.helpfulness": "gemini/gemini-3.1-flash-lite-preview"}
+
+
+class TestJudgeFamilyNote:
+    def test_payload_names_the_judge_that_shares_the_arms_family(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id, judge_models=_JUDGES)
+        # Both scaffold arms are gemini, as is the judge.
+        assert payload.judge_family_overlap == [
+            {
+                "judge_model": "gemini/gemini-3.1-flash-lite-preview",
+                "provider": "google",
+                "roles": ["source", "target"],
+            }
+        ]
+
+    def test_html_renders_a_one_line_note_and_json_carries_it(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir, judge_models=_JUDGES)
+
+        html = render_html(payload)
+        assert "shares a model family" in html
+        assert "gemini/gemini-3.1-flash-lite-preview" in html
+
+        write_report_json(payload, run_dir)
+        data = json.loads((run_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8"))
+        assert data["judge_family_overlap"][0]["provider"] == "google"
+
+    def test_no_note_when_the_judge_contributed_no_scores(self, tmp_path: Path) -> None:
+        # Configured but never ran (applies_to matched nothing, or the run
+        # predates the criterion): there is no verdict to caveat.
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=False)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id, judge_models=_JUDGES)
+        assert payload.judge_family_overlap == []
+        assert "shares a model family" not in render_html(payload)
+
+    def test_no_note_for_a_third_family_judge(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        payload = build_report_payload(
+            cwd / ".evalshift" / "runs" / run_id,
+            judge_models={"llm_judge.helpfulness": "openai/gpt-4.1-mini"},
+        )
+        assert payload.judge_family_overlap == []
+        assert "shares a model family" not in render_html(payload)
+
+    def test_default_payload_has_no_overlap_and_json_still_has_the_key(
+        self, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir)
+        assert payload.judge_family_overlap == []
+        write_report_json(payload, run_dir)
+        data = json.loads((run_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8"))
+        assert data["judge_family_overlap"] == []
+
+    def test_report_command_reads_the_judges_from_the_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, with_judge_scores=True)
+        (cwd / "evalshift.yaml").write_text(
+            "prompts:\n  - {id: greet, detection: manual, content: hi}\n"
+            "evaluators:\n  llm_judge:\n    - criterion_name: helpfulness\n"
+            "      criterion_prompt: which helps more?\n"
+            "      judge_model: gemini/gemini-3.1-flash-lite-preview\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(cwd)
+        result = runner.invoke(app, ["report", run_id, "--no-insights"])
+        assert result.exit_code == 0, result.stdout
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        data = json.loads((run_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8"))
+        assert data["judge_family_overlap"][0]["roles"] == ["source", "target"]
+        assert "shares a model family" in (run_dir / REPORT_HTML_FILENAME).read_text(
+            encoding="utf-8"
+        )
+
+
+# ---------------------------------------------------------------------------
 # CLI command
 # ---------------------------------------------------------------------------
 
@@ -937,7 +1052,7 @@ class TestReportCommand:
 # ---------------------------------------------------------------------------
 
 
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace  # noqa: E402
 
 
 class TestTraceRendering:
@@ -946,8 +1061,8 @@ class TestTraceRendering:
         run_dir = cwd / ".evalshift" / "runs" / run_id
         # Replace the calls in raw.jsonl with tool-bearing ones so the
         # trace plumbing shows up end-to-end.
-        from evalshift.runner.checkpoint import append_call
-        from evalshift.runner.models import Call
+        from evalshift_cli.runner.checkpoint import append_call
+        from evalshift_cli.runner.models import Call
 
         (run_dir / "raw.jsonl").unlink()
         for ex_id in ("ex1", "ex2"):
@@ -1076,7 +1191,7 @@ class TestMultiTurnTranscript:
         assert rows_by_id["ex2"].turn_index is None
 
     def test_serialised_payload_includes_history_and_turn_index(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _to_jsonable
+        from evalshift_cli.reports.json import _to_jsonable
 
         cwd, run_id = self._scaffold_multiturn_run(tmp_path)
         payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
@@ -1427,7 +1542,7 @@ class TestEmptyOutputTracking:
         assert by_example["ex1"].target_empty_output is False
 
     def test_serialised_payload_includes_empty_output_fields(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _to_jsonable
+        from evalshift_cli.reports.json import _to_jsonable
 
         cwd, run_id = _scaffold_full_run(tmp_path)
         run_dir = cwd / ".evalshift" / "runs" / run_id
@@ -1495,7 +1610,7 @@ class TestEmptyOutputTracking:
 
 
 def test_unmeasured_comparison_does_not_render_as_too_few_samples() -> None:
-    from evalshift.reports.html import _verdict
+    from evalshift_cli.reports.html import _verdict
 
     note = f"{UNMEASURED_NOTE_PREFIX} this evaluator scored no comparable pair"
     head, blurb = _verdict("insufficient", [note])
@@ -1510,8 +1625,13 @@ def test_unmeasured_comparison_does_not_render_as_too_few_samples() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
+def _scaffold_two_axis_run(tmp_path: Path, *, rounds: bool = False) -> tuple[Path, str]:
     """A run where one evaluator name scored both ``tool_selection`` axes.
+
+    ``rounds=True`` makes ``ex1`` a teacher-forced two-round replay: the
+    divergence record then carries the per-round breakdown the evaluator
+    writes for a multi-round trace, which is what the report renders one line
+    per round from.
 
     Shaped exactly like the frozen ``project_insights`` fixture and just as
     hostile: every conformance row is ``0.0 / 0.0`` — both models called a
@@ -1549,6 +1669,21 @@ def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
             completed_evaluations=4,
         ),
     )
+
+    def _two_round_trace(second: str) -> ToolTrace:
+        return ToolTrace(
+            calls=[
+                ToolCall(
+                    tool_name="get_recent_files",
+                    arguments={},
+                    sequence_index=0,
+                    round_index=0,
+                ),
+                ToolCall(tool_name=second, arguments={}, sequence_index=1, round_index=1),
+            ],
+            round_count=2,
+        )
+
     for example_id in ("ex1", "ex2"):
         for role, model_id in (
             ("source", "gemini/gemini-3.5-flash-lite"),
@@ -1564,6 +1699,11 @@ def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
                     role=role,
                     text="",
                     finish_reason="tool_calls",
+                    trace=(
+                        _two_round_trace("archive_project" if role == "source" else "display_info")
+                        if rounds and example_id == "ex1"
+                        else None
+                    ),
                 ),
             )
 
@@ -1602,6 +1742,30 @@ def _scaffold_two_axis_run(tmp_path: Path) -> tuple[Path, str]:
                 "source_set": ["get_recent_files"],
                 "target_set": ["display_info"],
                 "failure_categories": ["TOOL_SELECTION_DRIFT"],
+                **(
+                    {
+                        "rounds": [
+                            {
+                                "round": 0,
+                                "expected_names": [],
+                                "source_names": ["get_recent_files"],
+                                "target_names": ["get_recent_files"],
+                                "source_score": 1.0,
+                                "target_score": 1.0,
+                            },
+                            {
+                                "round": 1,
+                                "expected_names": [],
+                                "source_names": ["archive_project"],
+                                "target_names": ["display_info"],
+                                "source_score": 1.0,
+                                "target_score": 0.0,
+                            },
+                        ],
+                    }
+                    if rounds
+                    else {}
+                ),
             },
         ),
         EvalRecord(
@@ -1744,7 +1908,7 @@ class TestADivergenceFindingNamesTheTools:
         assert "get_projects" in render_html(payload)
 
     def test_the_tool_change_reaches_report_json(self, tmp_path: Path) -> None:
-        from evalshift.reports.json import _to_jsonable
+        from evalshift_cli.reports.json import _to_jsonable
 
         run_dir, _ = _scaffold_two_axis_run(tmp_path)
         payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
@@ -1810,7 +1974,7 @@ class TestReportShell:
         assert "4 calls" in html
 
     def test_header_timestamp_is_human_readable(self) -> None:
-        from evalshift.reports.html import _display_timestamp
+        from evalshift_cli.reports.html import _display_timestamp
 
         assert _display_timestamp("2026-08-23T15:01:56.674222+00:00") == "2026-08-23 15:01:56 UTC"
         # An offset other than UTC is converted, not relabelled.
@@ -1821,7 +1985,7 @@ class TestReportShell:
         assert _display_timestamp("not a date") == "not a date"
 
     def test_suite_pill_prefers_the_suite_directory_name(self) -> None:
-        from evalshift.reports.html import _suite_name
+        from evalshift_cli.reports.html import _suite_name
 
         assert _suite_name("/tmp/p/.evalshift/suites/main_chat/golden.jsonl") == "main_chat"
         assert _suite_name("/tmp/golden.jsonl") == "golden"
@@ -1836,7 +2000,7 @@ class TestReportShell:
         assert "Avg score" in html
 
     def test_run_deltas_are_none_when_the_source_side_measured_nothing(self) -> None:
-        from evalshift.reports.html import _pct_delta
+        from evalshift_cli.reports.html import _pct_delta
 
         assert _pct_delta(0.0, 1.0) is None
         assert _pct_delta(1.0, 2.0) == pytest.approx(100.0)
@@ -1854,7 +2018,7 @@ class TestReportShell:
         Counting it as passed is the bug commit 4a83c40 fixed for the
         narrative; the verdict panel must not reintroduce it.
         """
-        from evalshift.reports.html import _budget_tally
+        from evalshift_cli.reports.html import _budget_tally
 
         budgets = [
             {"name": "a", "passed": True, "conclusive": True},
@@ -1899,8 +2063,8 @@ class TestReportResolvesPerSuiteEvaluators:
         *,
         suite_name: str | None,
     ) -> frozenset[str]:
-        from evalshift.cli.commands import report as report_module
-        from evalshift.runner.checkpoint import read_state
+        from evalshift_cli.cli.commands import report as report_module
+        from evalshift_cli.runner.checkpoint import read_state
 
         root, run_id = _scaffold_full_run(tmp_path)
         config_path = root / "evalshift.yaml"
@@ -1937,3 +2101,293 @@ class TestReportResolvesPerSuiteEvaluators:
     ) -> None:
         names = self._captured_names(monkeypatch, tmp_path, suite_name=None)
         assert names == frozenset()
+
+
+class TestDroppedParamsBanner:
+    """The report must say when the replay's constraints did not reach a model.
+
+    ``drop_params=True`` keeps the call alive at the cost of the constraint.
+    Without this banner the arm looks like a clean model swap when it is a
+    model swap plus a missing constraint.
+    """
+
+    def test_absent_when_every_constraint_was_honoured(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        assert payload.dropped_params == {}
+        assert "Constraints not honoured" not in render_html(payload)
+
+    def test_payload_carries_the_run_state_record(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-pro": ["response_format", "tool_choice"]}
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        assert payload.dropped_params == {
+            "gemini/gemini-2.5-pro": ["response_format", "tool_choice"]
+        }
+
+    def test_report_json_emits_the_field(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-pro": ["tool_choice"]}
+        )
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir)
+        out = write_report_json(payload, run_dir)
+
+        assert json.loads(out.read_text())["dropped_params"] == {
+            "gemini/gemini-2.5-pro": ["tool_choice"]
+        }
+
+    def test_banner_names_the_target_and_its_params(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-pro": ["response_format", "tool_choice"]}
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert "Constraints not honoured by the target" in html
+        assert "<code>response_format</code>" in html
+        assert "<code>tool_choice</code>" in html
+        # Above the numbers it qualifies, next to the determinism banner.
+        assert html.index("Constraints not honoured") < html.index("<h2>")
+
+    def test_banner_names_the_source_when_that_is_the_affected_arm(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, dropped_params={"gemini/gemini-2.5-flash": ["tool_choice"]}
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert "Constraints not honoured by <code>gemini/gemini-2.5-flash</code>" in html
+
+    def test_banner_lists_every_affected_model(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path,
+            dropped_params={
+                "gemini/gemini-2.5-flash": ["tool_choice"],
+                "gemini/gemini-2.5-pro": ["response_format"],
+            },
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert "Constraints not honoured by both arms" in html
+        assert "<code>gemini/gemini-2.5-flash</code>" in html
+        assert "<code>gemini/gemini-2.5-pro</code>" in html
+
+    def test_banner_follows_the_determinism_banner(self, tmp_path: Path) -> None:
+        """Sampling weakens every p-value; a dropped constraint weakens one arm."""
+        cwd, run_id = _scaffold_full_run(
+            tmp_path,
+            non_deterministic_models=["gemini/gemini-2.5-pro"],
+            dropped_params={"gemini/gemini-2.5-pro": ["tool_choice"]},
+        )
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        html = render_html(payload)
+
+        assert html.index("Sampling is not controlled") < html.index("Constraints not honoured")
+
+
+class TestPerRoundToolChange:
+    """A teacher-forced replay diverged in *a round*, and the report says which.
+
+    One flattened arrow — ``a, b → a, c`` — cannot say whether the target
+    called the wrong tool or called the right ones in the wrong order across
+    the loop. The per-round rows are the finding.
+    """
+
+    def test_the_rounds_are_read_off_the_record_metadata(self) -> None:
+        from evalshift_cli.reports.json import _tool_change
+
+        change = _tool_change(
+            {
+                "mode": "set",
+                "source_set": ["a", "b"],
+                "target_set": ["a", "c"],
+                "rounds": [
+                    {
+                        "round": 0,
+                        "expected_names": ["a"],
+                        "source_names": ["a"],
+                        "target_names": ["a"],
+                        "source_score": 1.0,
+                        "target_score": 1.0,
+                    },
+                    {
+                        "round": 1,
+                        "expected_names": ["b"],
+                        "source_names": ["b"],
+                        "target_names": ["c"],
+                        "source_score": 1.0,
+                        "target_score": 0.0,
+                    },
+                ],
+            },
+        )
+
+        assert change is not None
+        assert change.rounds is not None
+        assert [r.round for r in change.rounds] == [0, 1]
+        assert change.rounds[0].diverged is False
+        assert change.rounds[1].diverged is True
+        assert change.rounds[1].expected_names == ["b"]
+
+    def test_a_single_round_record_carries_no_rounds(self) -> None:
+        from evalshift_cli.reports.json import _tool_change, _tool_change_to_dict
+
+        change = _tool_change({"source_names": ["a"], "target_names": ["b"]})
+        assert change is not None
+        assert change.rounds is None
+        assert _tool_change_to_dict(change) == {
+            "source_names": ["a"],
+            "target_names": ["b"],
+        }
+
+    def test_report_json_carries_the_rounds(self, tmp_path: Path) -> None:
+        from evalshift_cli.reports.json import _to_jsonable
+
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        rows = _to_jsonable(payload)["prompt_sections"][0]["example_rows"]
+        by_id = {row["example_id"]: row for row in rows}
+        assert by_id["ex1"]["tool_change"]["rounds"] == [
+            {
+                "round": 0,
+                "source_names": ["get_recent_files"],
+                "target_names": ["get_recent_files"],
+                "expected_names": [],
+                "diverged": False,
+            },
+            {
+                "round": 1,
+                "source_names": ["archive_project"],
+                "target_names": ["display_info"],
+                "expected_names": [],
+                "diverged": True,
+            },
+        ]
+        # ex2 is single-round and must be untouched.
+        assert by_id["ex2"]["tool_change"] == {
+            "source_names": ["get_projects"],
+            "target_names": ["get_projects"],
+        }
+
+    def test_the_html_renders_one_line_per_round(self, tmp_path: Path) -> None:
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        html = render_html(payload)
+        assert "archive_project" in html
+        assert "r2" in html
+
+    def test_the_raw_trace_listing_labels_its_rounds(self, tmp_path: Path) -> None:
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        html = render_html(payload)
+        assert "round 2" in html
+
+    def test_the_tool_diffs_name_the_round_that_diverged(self, tmp_path: Path) -> None:
+        run_dir, _ = _scaffold_two_axis_run(tmp_path, rounds=True)
+        payload = build_report_payload(run_dir, tool_evaluator_names=frozenset({"routing"}))
+        messages = [d.message for d in payload.prompt_sections[0].top_regressions[0].tool_diffs]
+        assert messages == [
+            "Round 2: Position 1: source called archive_project, target called display_info.",
+        ]
+
+
+class TestPerRoundToolDiffs:
+    """Positions restart each round, so the diff must too."""
+
+    def test_positions_reset_and_messages_name_the_round(self) -> None:
+        from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+        from evalshift_cli.reports.json import _build_tool_diffs
+
+        def _multi(*rounds: list[str]) -> ToolTrace:
+            calls: list[ToolCall] = []
+            for round_index, names in enumerate(rounds):
+                for name in names:
+                    calls.append(
+                        ToolCall(
+                            tool_name=name,
+                            arguments={},
+                            sequence_index=len(calls),
+                            round_index=round_index,
+                        ),
+                    )
+            return ToolTrace(calls=calls, round_count=len(rounds))
+
+        diffs = _build_tool_diffs(_multi(["a"], ["b"]), _multi(["a"], ["c"]))
+
+        assert [d.kind for d in diffs] == ["tool_order_or_selection"]
+        assert diffs[0].message == "Round 2: Position 1: source called b, target called c."
+
+    def test_a_single_round_diff_message_is_unchanged(self) -> None:
+        from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+        from evalshift_cli.reports.json import _build_tool_diffs
+
+        source = ToolTrace(calls=[ToolCall(tool_name="a", arguments={}, sequence_index=0)])
+        target = ToolTrace(calls=[ToolCall(tool_name="b", arguments={}, sequence_index=0)])
+
+        diffs = _build_tool_diffs(source, target)
+
+        assert diffs[0].message == "Position 1: source called a, target called b."
+
+
+class TestSamplesPerExampleInReport:
+    """``samples_per_example`` (Task 7.1)."""
+
+    def test_single_sample_run_shows_no_samples_pill(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+        assert payload.samples_per_example == 1
+        assert "samples per example" not in render_html(payload)
+
+    def test_repeated_sampling_run_shows_the_pill_and_keeps_one_row_per_example(
+        self, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, samples_per_example=3)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+
+        assert payload.samples_per_example == 3
+        assert payload.n_examples == 2
+        assert payload.n_calls == 12
+        html = render_html(payload)
+        assert "3 samples per example" in html
+        # Example rows show sample 0's output, once per example.
+        (section,) = payload.prompt_sections
+        assert len(section.example_rows) == 2
+        assert "[sample 1]" not in html
+        assert "[sample 2]" not in html
+
+    def test_report_json_carries_the_sample_count(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path, samples_per_example=2)
+        run_dir = cwd / ".evalshift" / "runs" / run_id
+        payload = build_report_payload(run_dir)
+        write_report_json(payload, run_dir)
+        data = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+        assert data["samples_per_example"] == 2
+
+    def test_determinism_banner_suggests_repeated_sampling_only_when_n_is_one(
+        self, tmp_path: Path
+    ) -> None:
+        cwd, run_id = _scaffold_full_run(
+            tmp_path, non_deterministic_models=["gemini/gemini-2.5-pro"]
+        )
+        html = render_html(build_report_payload(cwd / ".evalshift" / "runs" / run_id))
+        assert "samples_per_example" in html
+
+        again = tmp_path / "again"
+        again.mkdir()
+        cwd, run_id = _scaffold_full_run(
+            again,
+            non_deterministic_models=["gemini/gemini-2.5-pro"],
+            samples_per_example=2,
+        )
+        html = render_html(build_report_payload(cwd / ".evalshift" / "runs" / run_id))
+        assert "Sampling is not controlled" in html
+        assert "samples_per_example" not in html

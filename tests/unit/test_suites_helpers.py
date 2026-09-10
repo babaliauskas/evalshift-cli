@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from evalshift.captures.toolset import EMPTY_TOOLSET_FINGERPRINT
-from evalshift.cli.commands._suites import (
+from evalshift_cli.captures.toolset import EMPTY_TOOLSET_FINGERPRINT
+from evalshift_cli.cli.commands._suites import (
     SUITE_FILENAME,
     AmbiguousSuiteError,
     UnknownSuiteNameError,
@@ -20,9 +20,9 @@ from evalshift.cli.commands._suites import (
     resolve_suite_path,
     suite_entry_payload,
 )
-from evalshift.config.models import EvalShiftConfig
-from evalshift.evaluators.tool_models import ToolSpec
-from evalshift.suite.models import ExpectedToolCall, SuiteExample
+from evalshift_cli.config.models import EvalShiftConfig
+from evalshift_cli.evaluators.tool_models import ToolSpec
+from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 
 
 def _config(**extra: Any) -> EvalShiftConfig:

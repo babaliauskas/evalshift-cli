@@ -12,10 +12,10 @@ from typing import Any, cast
 
 import pytest
 
-from evalshift.analysis.policy import BlockingRegression, FailureCategoryCount
-from evalshift.insights.facts import Facts, build_facts
-from evalshift.insights.generator import generate_insight, validate_numbers
-from evalshift.models.client import ModelClient
+from evalshift_cli.analysis.policy import BlockingRegression, FailureCategoryCount
+from evalshift_cli.insights.facts import Facts, build_facts
+from evalshift_cli.insights.generator import generate_insight, validate_numbers
+from evalshift_cli.models.client import ModelClient
 from tests.unit.insights_factories import (
     FakeModelClient,
     budgets,

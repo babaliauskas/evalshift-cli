@@ -38,11 +38,11 @@ from typing import Any
 
 import pytest
 
-from evalshift.evaluators.base import EvalRecord
-from evalshift.hosted.bundle import BundleBuildResult, build_bundle
-from evalshift.hosted.client import HostedHTTPError
-from evalshift.runner.checkpoint import append_call, write_state
-from evalshift.runner.models import Call, RunModels, RunState
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.hosted.bundle import BundleBuildResult, build_bundle
+from evalshift_cli.hosted.client import HostedHTTPError
+from evalshift_cli.runner.checkpoint import append_call, write_state
+from evalshift_cli.runner.models import Call, RunModels, RunState
 
 DEFAULT_RUN_ID = "r_20260516_abcdef"
 

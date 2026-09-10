@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from evalshift.cli.commands.run import UnknownSuiteNameError, _resolve_suite_path
-from evalshift.config.models import EvalShiftConfig
+from evalshift_cli.cli.commands.run import UnknownSuiteNameError, _resolve_suite_path
+from evalshift_cli.config.models import EvalShiftConfig
 
 
 def _cfg(suites: dict[str, Any] | None = None) -> EvalShiftConfig:

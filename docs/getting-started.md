@@ -22,9 +22,9 @@ Verify the install:
 evalshift --version
 ```
 
-The capture SDK is a separate package that goes in **your agent's** virtualenv,
-not this one — both use the top-level import name `evalshift`, so they must not
-share an environment:
+That also installs the capture SDK (`evalshift-sdk`, import name `evalshift`):
+the CLI depends on it, so the same environment can instrument your agent. A
+production agent that only records captures installs the SDK alone:
 
 ```bash
 uv pip install evalshift-sdk
@@ -86,6 +86,10 @@ You'll see a short table:
 * Red ✗ — hard failure (e.g. an `evalshift.yaml` that doesn't validate).
   Doctor exits 1.
 
+The second row, `evalshift-sdk`, confirms that `import evalshift` in this
+environment is the capture SDK — yellow when it is missing or shadowed by an
+older CLI install.
+
 If a workflow under `.github/workflows/` uses the GitHub Action, the table
 also has a `ci pin` row — yellow when CI pins an older CLI than yours (or
 none at all); see [Pin drift](github-action.md#pin-drift).
@@ -113,7 +117,10 @@ EVALSHIFT_CAPTURE=1 python your_agent.py   # writes .evalshift/captures/
 ```
 
 Captures are off unless `EVALSHIFT_CAPTURE=1` is set, so the decorator can
-stay in production code. Full contract: [Capture SDK](sdk.md). If you can't
+stay in production code. If the agent calls OpenAI, Anthropic or Google GenAI
+directly, wrap the client once — `wrap_openai(OpenAI())`, `wrap_anthropic`,
+`wrap_genai` (SDK 0.4.0+) — and every model call is recorded with no further
+code. Full contract: [Capture SDK](sdk.md). If you can't
 instrument the agent, write `golden.jsonl` by hand instead — see
 [Configuration](configuration.md).
 

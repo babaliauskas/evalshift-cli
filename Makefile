@@ -1,7 +1,7 @@
 # Developer convenience targets for evalshift-cli.
 
 SERVER_SCHEMA ?= ../evalshift-server/schemas/bundle_manifest.schema.json
-CLI_SCHEMA := src/evalshift/hosted/bundle_manifest.schema.json
+CLI_SCHEMA := src/evalshift_cli/hosted/bundle_manifest.schema.json
 
 .PHONY: help ci test lint format typecheck sync-schema check-schema
 
@@ -28,13 +28,13 @@ test:
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
-	uv run mypy --strict src/evalshift
+	uv run mypy --strict src/evalshift_cli
 
 format:
 	uv run ruff format .
 
 typecheck:
-	uv run mypy --strict src/evalshift
+	uv run mypy --strict src/evalshift_cli
 
 sync-schema:
 	@test -f "$(SERVER_SCHEMA)" || (echo "server schema not found at $(SERVER_SCHEMA); set SERVER_SCHEMA=..." && exit 1)

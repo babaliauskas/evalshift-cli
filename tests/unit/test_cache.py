@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.cache`.
+"""Tests for :mod:`evalshift_cli.cache`.
 
 Two layers:
 
@@ -18,9 +18,9 @@ import pytest
 import pytest_asyncio
 from typer.testing import CliRunner
 
-from evalshift.cache.store import CacheStore, cache_key
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.cli.main import app
+from evalshift_cli.cache.store import CacheStore, cache_key
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.cli.main import app
 
 # Use an in-memory database for every test to keep them fast and hermetic.
 IN_MEMORY_DB = "sqlite+aiosqlite:///:memory:"
@@ -405,6 +405,98 @@ class TestCacheKey:
         )
         assert a == b
 
+    # -- round_index (teacher-forced multi-round replay) --
+
+    def test_no_round_index_is_byte_identical_to_pre_round_payload(self) -> None:
+        """Omitting ``round_index`` must not change the hashed payload.
+
+        Same inclusion rule as ``history`` / ``generation_config`` /
+        ``toolset_fingerprint``: hashed only when not ``None``, so every key
+        minted before the round dimension existed stays valid.
+        """
+        import hashlib
+        import json
+
+        model_id = "gemini/gemini-2.5-flash"
+        prompt_text = "hi"
+        inputs = {"x": 1}
+        temperature = 0.0
+        max_tokens = 1024
+
+        old_payload = json.dumps(
+            {
+                "model_id": model_id,
+                "prompt_text": prompt_text,
+                "inputs": inputs,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        expected = hashlib.sha256(old_payload.encode("utf-8")).hexdigest()
+
+        assert (
+            cache_key(
+                model_id=model_id,
+                prompt_text=prompt_text,
+                inputs=inputs,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            == expected
+        )
+        assert (
+            cache_key(
+                model_id=model_id,
+                prompt_text=prompt_text,
+                inputs=inputs,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                round_index=None,
+            )
+            == expected
+        )
+
+    def test_round_index_zero_differs_from_none(self) -> None:
+        """``0`` is a real round, not "no round": it must hash differently to ``None``."""
+        base = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=None,
+        )
+        round_zero = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=0,
+        )
+        assert base != round_zero
+
+    def test_different_rounds_produce_different_keys(self) -> None:
+        a = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=0,
+        )
+        b = cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            round_index=1,
+        )
+        assert a != b
+
 
 # ---------------------------------------------------------------------------
 # CacheStore — async round-trip
@@ -543,7 +635,7 @@ class TestCacheClearCommand:
         # Redirect the default cache path into tmp so we don't touch the
         # user's real ~/.evalshift/cache.db.
         monkeypatch.setattr(
-            "evalshift.cache.schema.DEFAULT_CACHE_PATH",
+            "evalshift_cli.cache.schema.DEFAULT_CACHE_PATH",
             tmp_path / "cache.db",
         )
         result = runner.invoke(app, ["cache", "clear"])
@@ -553,3 +645,32 @@ class TestCacheClearCommand:
     def test_cache_help_lists_clear(self) -> None:
         result = runner.invoke(app, ["cache", "--help"])
         assert "clear" in result.stdout
+
+
+class TestCacheKeySampleIndex:
+    """``samples_per_example`` (Task 7.1): the sample index follows ``round_index``'s
+    inclusion rule, so a single-sample run keeps every key it already had, while a
+    repeated-sampling run forks one key per sample instead of serving every sample
+    from the first cached response."""
+
+    def _key(self, sample_index: int | None) -> str:
+        return cache_key(
+            model_id="m",
+            prompt_text="hi",
+            inputs={},
+            temperature=0.0,
+            max_tokens=1024,
+            sample_index=sample_index,
+        )
+
+    def test_none_keeps_the_existing_key(self) -> None:
+        legacy = cache_key(
+            model_id="m", prompt_text="hi", inputs={}, temperature=0.0, max_tokens=1024
+        )
+        assert self._key(None) == legacy
+
+    def test_zero_differs_from_none(self) -> None:
+        assert self._key(0) != self._key(None)
+
+    def test_different_samples_produce_different_keys(self) -> None:
+        assert self._key(0) != self._key(1)

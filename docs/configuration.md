@@ -81,12 +81,15 @@ migration_policy:
   max_tool_argument_drift: 0.20
   max_tool_divergence: 0.20  # share of pairs where the target routed elsewhere
   tool_argument_drift_floor: 0.9   # below this a call counts as drifted
-  max_cost_increase: 0.50    # target may cost up to 50% more
-  max_latency_increase: 2.0  # …and be up to 200% slower (small→large migration)
+  max_cost_increase: 0.30    # target may cost up to 30% more
+  max_latency_increase: 0.30 # …and be up to 30% slower
 ```
 
-The rate values above are the defaults `evalshift init` writes (and the
-`MigrationPolicy` field defaults a config that omits the block inherits): a
+Those values are the ones `evalshift init` writes, and they are also the
+`MigrationPolicy` field defaults a config that omits the block inherits — the
+two differences are `tool_argument_drift_floor` and `fail_on_dropped_params`,
+which init leaves out of the scaffold and every config therefore inherits at
+`0.9` and `false`. They are a
 first-migration starting point, deliberately loose enough that a fresh suite
 reports its regressions instead of failing on a couple of reworded tool
 arguments. Tighten them as the suite grows and the migration nears merge; the
@@ -144,6 +147,8 @@ than the source, counted over *those* rows only. It has deliberately no
 materiality floor of its own — an argument score slides continuously (a
 reworded query is not a wrong call), whereas a divergence score below `1.0`
 means the target called a tool the source did not, or skipped one it did.
+On a teacher-forced multi-round replay the row's score is the mean over the
+replayed rounds, so an example counts as diverged if **any** round diverged.
 
 A `tool_selection.conformance` row where **both** models missed the recorded
 ground truth by the same margin is excluded from every policy rate: its zero
@@ -211,6 +216,26 @@ Two behaviours to know:
   `conclusive: false` on a scope that scored zero records — their
   `0/0` default looks clean but measures nothing.
 
+* **`fail_on_dropped_params` gates constraints, not scores.** Default
+  `false`. A promoted capture can pin generation parameters
+  (`response_format`, `tool_choice`, `parallel_tool_calls`, `top_p`, a
+  completion cap), and EvalShift replays them — but `drop_params` means a
+  model that never accepted one still answers, minus the constraint. The run
+  probes both arms at start and records the shortfall in `state.json` under
+  `dropped_params`; the report shows a **Constraints not honoured** banner
+  either way. Recorded alongside the probe's answer are the constraints LiteLLM
+  claims to support and then never sends — on Gemini, `parallel_tool_calls` and
+  a tool's `strict` flag, the latter under the pseudo-parameter name
+  **`tools.strict`** since it lives on the `tools` array rather than in the
+  generation config. Setting this to `true` makes a non-empty `dropped_params` fail
+  the verdict outright, whatever the scores said, with a reason naming each
+  model and parameter. Turn it on when the constraint *is* the contract — a
+  suite of captures that pinned `response_format` measures nothing useful
+  against a target that will not produce structured output. It is a top-level
+  field only: a model either accepts a parameter or does not, which no subset
+  of examples can vary, so `slices` has no equivalent. Runs recorded before
+  this field existed carry no `dropped_params` and are never failed by it.
+
 Verdicts are `pass`, `conditional_pass`, `fail`, or `inconclusive`.
 When configured, `analyze` writes `migration_decision.json` next to
 `analysis.json`; `report` renders it as the top-level migration verdict.
@@ -218,6 +243,14 @@ Use `--policy-gate` on `analyze` or `all` to fail CI for `fail` and
 `conditional_pass`.
 
 ## `prompts`
+
+`prompts` is the **template axis** and [`suites`](#suites) the **dataset
+axis**: a run renders every prompt template with every example of one
+suite, so both are always present, and `prompts` is required even for a
+capture-first project. There the single `replay` prompt that `init` writes
+(`content: "{{input}}"`) is a passthrough — a promoted capture's example is
+`{"input": "<full rendered prompt>"}`, and echoing it back verbatim is what
+makes captured inputs replayable against a second model.
 
 A list of prompt definitions. Each entry has:
 
@@ -265,6 +298,7 @@ A list of prompt definitions. Each entry has:
 | `cache`         | bool   | `true`                        | Read/write the local SQLite cache at `~/.evalshift/cache.db`. Covers run-stage completions plus `semantic` embeddings and `llm_judge` verdicts. |
 | `max_cost_usd`  | float  | 50.0                          | Soft ceiling reserved for future enforcement. The pre-flight cost prompt currently triggers above $10 (skip with `--yes`). |
 | `max_tokens`    | int    | 4096 (`> 0`)                  | Completion length cap sent to every model call. Raise it if outputs are being truncated (the provider returns `finish_reason == "length"`); a `prompts[].max_tokens` entry overrides it per prompt. Truncated calls are detected, surfaced in the report, and **excluded from the regression statistics** so a cut-off output can't manufacture a false regression. |
+| `samples_per_example` | int | 1 (1 ≤ x ≤ 20)           | How many times each `(prompt, example)` is sent to **each** model. Above 1, every sample is its own live call (the cache keys on the sample index), sample *i* of the source is scored against sample *i* of the target, and the example's row in `scores.jsonl` becomes the **mean over samples** with the per-sample scores and the within-example `delta_variance` under `metadata.samples`. The paired tests still run over examples, not samples, so this reduces noise without inflating `n`. Cost and the call count multiply by it; only worth turning on for a model that samples non-deterministically (see the report banner). See [Methodology](methodology.md#limitations-to-be-aware-of). |
 
 ### Run insights
 
@@ -299,8 +333,10 @@ bad generations fall back to deterministic templated prose.
 
 ## `evaluators`
 
-Three sub-keys, all optional. **At least one evaluator must be
-configured for `evalshift evaluate` to do anything.**
+Seven sub-keys, all optional — `structural`, `semantic`, `tool_selection`,
+`tool_arguments`, `tool_trace_structure`, `agent_trace` and `llm_judge`, each
+documented below. **At least one evaluator must be configured for
+`evalshift evaluate` to do anything.**
 
 ### `blocking` (every evaluator)
 
@@ -316,6 +352,16 @@ small suite sizes fresh captures start with, embedding drift and judge
 noise would otherwise dominate the verdict. Flip them to `blocking: true`
 once your suite is large enough that you trust their calls. Deterministic
 evaluators (structural, tool-call) default to blocking.
+
+Note the asymmetry: the **library default** for every evaluator, `semantic`
+and `llm_judge` included, is `blocking: true`, so a hand-written config
+that omits the key gates on them while an `init`-generated one does not.
+That is deliberate — flipping the library default would silently turn a
+failing migration into a passing one for every existing config that relies
+on the omitted key, and a gate loosened under a minor release is worse than
+the asymmetry. It stays until a `version: 2` schema. Write `blocking: false`
+explicitly when you want init's behaviour in a hand-written file (see the
+[FAQ](faq.md#why-does-a-hand-written-config-block-on-semantic-when-init-does-not)).
 
 ### `evaluators.structural`
 
@@ -342,6 +388,8 @@ A single object (not a list).
 The semantic evaluator scores the **target's similarity to the source**:
 target_score = cosine(source, target), source_score = 1.0. A
 negative `delta` means the target drifted from the source's meaning.
+`blocking` defaults to `true` in the library but `init` writes `false` —
+see [`blocking`](#blocking-every-evaluator) for why.
 
 ### `evaluators.tool_selection`
 
@@ -501,11 +549,24 @@ A list of pairwise judges. Each entry has:
 | `criterion_prompt` | string | yes      | Free-form criterion the judge applies (e.g. "which output preserves more factual detail?"). |
 | `judge_model`      | string | optional | Model used as the judge (built-in default `gemini-3.1-flash-lite-preview`). Prefer a judge from a third model family so it isn't grading its own relatives. |
 
+**Judge family.** LLM judges tend to prefer output from their own relatives
+(self-preference bias), and nothing in the scoring can remove that. When a
+`judge_model` resolves to the same provider as `defaults.source_model` or
+`defaults.target_model`, `evalshift doctor` prints a warn-level `judge family`
+row and `evalshift validate` a matching `⚠` line — never a failure, because
+`init` deliberately scaffolds a same-provider judge so a first run needs one
+API key. The report repeats the note above the verdict whenever a judge that
+actually contributed `llm_judge` rows shares a family with an arm, and
+`report.json` carries it as `judge_family_overlap`. "Family" is the provider
+the model id resolves to (`anthropic`, `openai`, `google`); ids the registry
+cannot place never match.
+
 The judge sees both outputs (with random A/B order to defang positional
 bias) and produces strict-JSON `{"winner": "A"|"B"|"tie", "reason":
 "..."}`. Target wins → `(0.0, 1.0)`; tie → `(0.5, 0.5)`; source wins →
 `(1.0, 0.0)`. Malformed responses degrade to `(0.5, 0.5)` with the
-error preserved.
+error preserved. `blocking` defaults to `true` in the library but `init`
+writes `false` — see [`blocking`](#blocking-every-evaluator) for why.
 
 ## `slices`
 
@@ -542,7 +603,20 @@ The suite is JSON Lines — one example per non-blank line. Each row:
 
 Also present (v0.2, tool-call ground truth — see `docs/agents.md`):
 `expected_tools`, `expected_tool_count`, `expected_no_tools`,
-`expected_parallel`.
+`expected_parallel`, plus `expected_tool_rounds` (v0.3 — the whole recorded
+agent loop, one list per tool-emitting model call; `expected_tools` is
+`expected_tool_rounds[0]`) and `tool_result_fixtures` (the recorded results of
+those calls, one inner list per covered round, positionally aligned with
+`expected_tool_rounds`; each entry is `{tool_name, result, error}`). Written by
+`capture promote` / `sync --rounds all`; when present the runner replays the
+example teacher-forced, one round per covered round plus the answer round, and
+the tool evaluators score per round — see
+[Agent rounds](agents.md#agent-rounds-and-what-a-replay-can-reproduce). `null`
+(the default, and every suite written before the field existed) means
+single-shot replay. Fixtures must line up: they require `expected_tool_rounds`,
+cannot cover more rounds than it has, and each covered round must have one
+result per expected call with matching `tool_name`, else the suite fails to
+load.
 
 Each `expected_tools` entry carries `provenance`: `captured` (the default, and
 what `capture promote` / `capture sync` write) means its arguments were
@@ -567,7 +641,7 @@ walkthrough — all optional, additive, single-turn suites parse unchanged):
 | `history`          | list of `{role, content}` or `null`  | optional | Conversation prefix replayed verbatim before the current turn (teacher-forced). `role` is `system`, `user`, or `assistant`; at most one `system` message, and it must come first if present. `null` (the default) means single-turn — no message-mode dispatch. |
 | `conversation_id`  | string or `null`                     | optional | Id of the recorded conversation this turn came from. Provenance only. |
 | `turn_index`       | integer (`>= 0`) or `null`           | optional | Zero-based position of this turn within its conversation. Shown as a `turn N` badge in the HTML report. |
-| `generation_config` | object or `null`                    | optional | Generation settings recorded by the SDK on the capture's first model call (`temperature`, `response_mime_type`, `response_schema`, ...). Written by `capture promote`/`sync`; the runner translates it at dispatch — `temperature` overrides the model default, and `response_mime_type: application/json` (plus an optional `response_schema`) becomes a LiteLLM `response_format` on both the source and target calls. Delete the field to disable the override; unknown keys inside it are ignored. |
+| `generation_config` | object or `null`                    | optional | Generation settings recorded by the SDK on the capture's first model call (`temperature`, `response_mime_type`, `response_schema`, `tool_choice`, `parallel_tool_calls`, `tool_config`, ...). Written by `capture promote`/`sync`; the runner translates it at dispatch — `temperature` overrides the model default, `response_mime_type: application/json` (plus an optional `response_schema`) becomes a LiteLLM `response_format`, and `tool_choice` / `tool_config` / `parallel_tool_calls` become an OpenAI-style `tool_choice` + `parallel_tool_calls` that LiteLLM maps per provider — all on both the source and target calls. See [Agents → Tool-choice constraints are replayed too](agents.md#tool-choice-constraints-are-replayed-too). Delete the field to disable the override; keys the runner cannot translate are ignored with a warning. |
 
 Unknown keys are rejected (typos fail fast).
 
@@ -575,7 +649,9 @@ Unknown keys are rejected (typos fail fast).
 
 A map of named suites so `evalshift run --suite-name <name>` can resolve a
 suite path without retyping it. Optional — omit it and `run` uses `--suite`
-(or the default `golden.jsonl`).
+(or the default `golden.jsonl`). Suites are the dataset axis of a run, the
+inputs that get rendered through every entry under [`prompts`](#prompts),
+which is why a capture-first config still carries a (passthrough) prompt.
 
 ```yaml
 suites:
@@ -739,7 +815,11 @@ paired statistics (`--keep-duplicates` opts out). The dedup set is seeded
 from the cases already in the suite dir, so re-syncing after recording more
 captures can't slip a duplicate past it. Useful flags: `--input-var`
 (default `input`), `--suite <name>` to filter to one suite, `--tag`,
-`--names-only`, `--tool-count`, `--strict-args`, `--force`/`-f` to overwrite
+`--names-only`, `--tool-count`, `--strict-args`, `--rounds first|all`
+(`first`, the default, scores single-shot replay against round 1; `all`
+carries the recorded tool results so `run` replays every round teacher-forced
+— see [Agent rounds](agents.md#agent-rounds-and-what-a-replay-can-reproduce)),
+`--force`/`-f` to overwrite
 existing suite files, and `--print` to preview the wiring without writing
 (`--write` is the default). After syncing, run the whole pipeline against a
 named suite with `evalshift all --suite-name <suite>` (it mirrors

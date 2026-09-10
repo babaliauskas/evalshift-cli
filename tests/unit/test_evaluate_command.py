@@ -14,28 +14,29 @@ import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
-from evalshift.analysis.slicing import build_slices, build_unmeasured
-from evalshift.analysis.statistics import analyze
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.cli.commands.evaluate import (
+from evalshift_cli.analysis.slicing import build_slices, build_unmeasured
+from evalshift_cli.analysis.statistics import analyze
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.cli.commands.evaluate import (
     SCORES_FILENAME,
     _build_evaluators,
     _coverage_for,
+    _pair_calls,
     _PairedCalls,
     _score_all,
     _score_one,
 )
-from evalshift.cli.main import app
-from evalshift.config.models import ToolSelectionEvaluatorConfig
-from evalshift.evaluators.base import PairedScore
-from evalshift.evaluators.llm_judge import PairwiseJudgeEvaluator
-from evalshift.evaluators.semantic import CosineSimilarityEvaluator
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.evaluators.tool_selection import ToolSelectionEvaluator
-from evalshift.models.client import ModelClient
-from evalshift.runner.checkpoint import append_call, read_state, write_state
-from evalshift.runner.models import Call, EvaluatorCoverage, RunModels, RunState
-from evalshift.suite.models import ChatMessage, Suite, SuiteExample
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.models import ToolSelectionEvaluatorConfig
+from evalshift_cli.evaluators.base import PairedScore
+from evalshift_cli.evaluators.llm_judge import PairwiseJudgeEvaluator
+from evalshift_cli.evaluators.semantic import CosineSimilarityEvaluator
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.evaluators.tool_selection import ToolSelectionEvaluator
+from evalshift_cli.models.client import ModelClient
+from evalshift_cli.runner.checkpoint import append_call, read_state, write_state
+from evalshift_cli.runner.models import Call, EvaluatorCoverage, RunModels, RunState
+from evalshift_cli.suite.models import ChatMessage, Suite, SuiteExample
 from tests.unit.suite_examples import suite_example
 
 runner = CliRunner()
@@ -226,7 +227,7 @@ class TestEvaluateHappy:
         assert by_name["structural.regex"]["blocking"] is False
 
     def test_old_scores_row_without_blocking_loads_as_blocking(self) -> None:
-        from evalshift.evaluators.base import EvalRecord
+        from evalshift_cli.evaluators.base import EvalRecord
 
         row = EvalRecord.model_validate(
             {
@@ -749,7 +750,7 @@ class TestToolArgumentsEmbeddings:
 
     @staticmethod
     def _config(tmp_path: Path, *, semantic: bool) -> Any:
-        from evalshift.config.loader import load_config
+        from evalshift_cli.config.loader import load_config
 
         semantic_block = "  semantic:\n    embedding_model: text-embedding-3-small\n"
         cfg_yaml = f"""
@@ -845,7 +846,7 @@ class TestToolArgumentsToolsetResolver:
     @classmethod
     def _project(cls, tmp_path: Path) -> tuple[Any, Path, str]:
         """Write a config, a golden suite naming a toolset, and its sidecar."""
-        from evalshift.config.loader import load_config
+        from evalshift_cli.config.loader import load_config
 
         ref = fingerprint_tools([cls._TOOL])
         toolsets = tmp_path / ".evalshift" / "toolsets"
@@ -1064,7 +1065,7 @@ def _judge_response(text: str) -> Any:
 
 class TestJudgeClientSharingAndReporting:
     def test_build_evaluators_threads_shared_judge_client(self, tmp_path: Path) -> None:
-        from evalshift.config.loader import load_config
+        from evalshift_cli.config.loader import load_config
 
         cfg = load_config(_write_config(tmp_path, with_judge=True))
         judge_client = ModelClient()
@@ -1080,14 +1081,14 @@ class TestJudgeClientSharingAndReporting:
         # temperature value, the client adapts, scoring completes, and the
         # judge model joins non_deterministic_models in the state written
         # alongside evaluator_coverage.
-        from evalshift.models import client as client_module
+        from evalshift_cli.models import client as client_module
 
         # Redirect the default cache path into tmp so the judge's verdict
         # cache can't serve a hit from (or write into) the user's real
         # ~/.evalshift/cache.db — a hit would skip the dispatch this test
         # exists to exercise.
         monkeypatch.setattr(
-            "evalshift.cache.schema.DEFAULT_CACHE_PATH",
+            "evalshift_cli.cache.schema.DEFAULT_CACHE_PATH",
             tmp_path / "cache.db",
         )
         _write_config(tmp_path, with_judge=True)
@@ -1185,3 +1186,234 @@ class TestPerSuiteEvaluators:
     ) -> None:
         names = self._evaluator_names(monkeypatch, tmp_path, suite_name=None)
         assert names == {"structural.length"}
+
+
+# ---------------------------------------------------------------------------
+# samples_per_example (Task 7.1) — per-sample pairing, one row per example
+# ---------------------------------------------------------------------------
+
+
+def _sample_call(*, example_id: str, role: str, sample_index: int, text: str) -> Call:
+    return Call(
+        run_id="r1",
+        prompt_id="greet",
+        example_id=example_id,
+        model_id=f"m/{role}",
+        role=role,  # type: ignore[arg-type]
+        text=text,
+        sample_index=sample_index,
+    )
+
+
+class _ScoreByTextEvaluator:
+    """Target score is parsed from the target text, so each sample scores differently."""
+
+    name = "custom.by_text"
+    kind = "by_text"
+
+    async def score(
+        self,
+        *,
+        prompt_id: str,
+        example_id: str,
+        input_vars: dict[str, Any],
+        source_output: str,
+        target_output: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> PairedScore | None:
+        if target_output == "skip":
+            return None
+        if target_output == "boom":
+            raise RuntimeError("judge exploded")
+        return PairedScore(
+            source_score=1.0,
+            target_score=float(target_output),
+            explanation=f"target said {target_output}",
+            metadata={"raw": target_output},
+        )
+
+
+class TestPairCallsPerSample:
+    def test_pairs_source_and_target_of_the_same_sample(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "r1"
+        for sample in (0, 1):
+            append_call(
+                run_dir,
+                _sample_call(example_id="ex1", role="source", sample_index=sample, text="s"),
+            )
+            append_call(
+                run_dir,
+                _sample_call(example_id="ex1", role="target", sample_index=sample, text="t"),
+            )
+        # A target with no matching-sample source is not a pair.
+        append_call(
+            run_dir, _sample_call(example_id="ex1", role="target", sample_index=2, text="t")
+        )
+
+        pairs = _pair_calls(run_dir)
+
+        assert [(p.example_id, p.sample_index) for p in pairs] == [("ex1", 0), ("ex1", 1)]
+        for pair in pairs:
+            assert pair.source.sample_index == pair.target.sample_index == pair.sample_index
+
+
+def _pairs_with_samples(targets: dict[str, list[str]]) -> list[_PairedCalls]:
+    pairs: list[_PairedCalls] = []
+    for example_id, texts in targets.items():
+        for sample, text in enumerate(texts):
+            pairs.append(
+                _PairedCalls(
+                    prompt_id="greet",
+                    example_id=example_id,
+                    source=_sample_call(
+                        example_id=example_id, role="source", sample_index=sample, text="s"
+                    ),
+                    target=_sample_call(
+                        example_id=example_id, role="target", sample_index=sample, text=text
+                    ),
+                    sample_index=sample,
+                )
+            )
+    return pairs
+
+
+async def _cells(targets: dict[str, list[str]]) -> list[Any]:
+    return await _score_all(
+        Console(),
+        [_ScoreByTextEvaluator()],  # type: ignore[list-item]
+        _pairs_with_samples(targets),
+        "r1",
+        {},
+        concurrency=4,
+        quiet=True,
+    )
+
+
+class TestSampleReduction:
+    async def test_single_sample_output_is_byte_identical_to_before(self) -> None:
+        cells = await _cells({"ex1": ["0.5"]})
+        (cell,) = cells
+        record = cell.record
+        assert record is not None
+        assert record.explanation == "target said 0.5"
+        assert record.metadata == {"raw": "0.5"}
+        assert "samples" not in record.metadata
+
+    async def test_scores_are_means_with_within_pair_variance(self) -> None:
+        cells = await _cells({"ex1": ["0.2", "0.4", "0.9"]})
+        (cell,) = cells
+        record = cell.record
+        assert record is not None
+        assert record.source_score == pytest.approx(1.0)
+        assert record.target_score == pytest.approx(0.5)
+        assert record.delta == pytest.approx(-0.5)
+        samples = record.metadata["samples"]
+        assert samples["n"] == 3
+        assert samples["scored"] == 3
+        assert samples["source_scores"] == [1.0, 1.0, 1.0]
+        assert samples["target_scores"] == pytest.approx([0.2, 0.4, 0.9])
+        assert samples["deltas"] == pytest.approx([-0.8, -0.6, -0.1])
+        # population variance of the deltas
+        assert samples["delta_variance"] == pytest.approx(
+            sum((d + 0.5) ** 2 for d in (-0.8, -0.6, -0.1)) / 3
+        )
+        assert record.explanation == "mean of 3 samples · target said 0.2"
+        assert record.metadata["raw"] == "0.2"
+        assert record.error is None
+
+    async def test_one_example_row_per_evaluator_regardless_of_samples(self) -> None:
+        cells = await _cells({"ex1": ["0.2", "0.4"], "ex2": ["1.0", "1.0"]})
+        assert [(c.example_id, c.kind) for c in cells] == [("ex1", "by_text"), ("ex2", "by_text")]
+        coverage = _coverage_for(cells)
+        assert [(e.kind, e.attempted, e.recorded) for e in coverage] == [("by_text", 2, 2)]
+
+    async def test_a_failed_sample_is_dropped_from_the_mean(self) -> None:
+        cells = await _cells({"ex1": ["0.2", "boom", "0.4"]})
+        (cell,) = cells
+        record = cell.record
+        assert record is not None
+        assert record.error is None
+        assert record.target_score == pytest.approx(0.3)
+        samples = record.metadata["samples"]
+        assert samples["n"] == 3
+        assert samples["scored"] == 2
+        assert samples["delta_variance"] == pytest.approx(0.01)
+        assert record.explanation == "mean of 2 samples · target said 0.2"
+
+    async def test_error_only_when_every_sample_failed(self) -> None:
+        cells = await _cells({"ex1": ["boom", "boom"]})
+        (cell,) = cells
+        record = cell.record
+        assert record is not None
+        assert record.error == "evaluator error: judge exploded"
+        assert record.source_score == 0.5
+        assert record.metadata["samples"]["scored"] == 0
+
+    async def test_unmeasured_samples_do_not_count(self) -> None:
+        cells = await _cells({"ex1": ["skip", "0.6"], "ex2": ["skip", "skip"]})
+        assert [(c.example_id, c.record is not None) for c in cells] == [
+            ("ex1", True),
+            ("ex2", False),
+        ]
+        ex1 = cells[0].record
+        assert ex1 is not None
+        assert ex1.target_score == pytest.approx(0.6)
+        assert ex1.metadata["samples"] == {
+            "n": 2,
+            "scored": 1,
+            "source_scores": [1.0],
+            "target_scores": [0.6],
+            "deltas": pytest.approx([-0.4]),
+            "delta_variance": 0.0,
+        }
+        coverage = _coverage_for(cells)
+        assert [(e.attempted, e.recorded) for e in coverage] == [(2, 1)]
+
+
+class TestEvaluateWithSamples:
+    def test_scores_jsonl_has_one_row_per_example_and_evaluator(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _write_config(tmp_path)
+        run_id = _scaffold_run(tmp_path)
+        run_dir = tmp_path / ".evalshift" / "runs" / run_id
+        # A second sample for every (example, role).
+        for ex_id in ("ex1", "ex2"):
+            for role, model_id, text in (
+                ("source", "gemini/gemini-2.5-flash", "Hi Alex (short)"),
+                ("target", "gemini/gemini-2.5-pro", "Hi Alex! How are you?"),
+            ):
+                append_call(
+                    run_dir,
+                    Call(
+                        run_id=run_id,
+                        prompt_id="greet",
+                        example_id=ex_id,
+                        model_id=model_id,
+                        role=role,  # type: ignore[arg-type]
+                        text=text,
+                        sample_index=1,
+                    ),
+                )
+        state = read_state(run_dir)
+        write_state(
+            run_dir,
+            state.model_copy(update={"samples_per_example": 2, "total_evaluations": 8}),
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["evaluate", run_id])
+        assert result.exit_code == 0, result.stdout
+
+        rows = [
+            json.loads(line)
+            for line in (run_dir / SCORES_FILENAME).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        # 2 examples x 2 evaluators, not 4 sample pairs x 2.
+        assert len(rows) == 4
+        for row in rows:
+            assert row["metadata"]["samples"]["n"] == 2
+            assert row["metadata"]["samples"]["scored"] == 2
+        coverage = read_state(run_dir).evaluator_coverage
+        assert [(c.attempted, c.recorded) for c in coverage] == [(2, 2), (2, 2)]

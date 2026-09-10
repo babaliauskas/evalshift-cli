@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.main import app
+from evalshift_cli.cli.main import app
 
 runner = CliRunner()
 

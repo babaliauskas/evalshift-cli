@@ -15,23 +15,23 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from evalshift.analysis.policy import (
+from evalshift_cli.analysis.policy import (
     BlockingRegression,
     BudgetResult,
     FailureCategoryCount,
     MigrationDecision,
     PolicyMetricSummary,
 )
-from evalshift.analysis.statistics import UNMEASURED_NOTE_PREFIX, ComparisonResult
-from evalshift.evaluators.base import EvalRecord
-from evalshift.insights.facts import ExampleFact
-from evalshift.models.client import CompletionResult
-from evalshift.reports.economics import PromptEconomics, RoleEconomics
-from evalshift.runner.models import RunModels, RunState
+from evalshift_cli.analysis.statistics import UNMEASURED_NOTE_PREFIX, ComparisonResult
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.insights.facts import ExampleFact
+from evalshift_cli.models.client import CompletionResult
+from evalshift_cli.reports.economics import PromptEconomics, RoleEconomics
+from evalshift_cli.runner.models import RunModels, RunState
 
 
 class FakeModelClient:
-    """A :class:`~evalshift.models.client.ModelClient` stand-in.
+    """A :class:`~evalshift_cli.models.client.ModelClient` stand-in.
 
     Replays queued response texts and counts calls, so a test can assert that a
     cache hit cost nothing without mocking a provider.

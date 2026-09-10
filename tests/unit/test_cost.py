@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.utils.cost`."""
+"""Tests for :mod:`evalshift_cli.utils.cost`."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from evalshift.utils import cost as cost_module
-from evalshift.utils.cost import CostEstimate, estimate_run_cost
+from evalshift_cli.utils import cost as cost_module
+from evalshift_cli.utils.cost import CostEstimate, estimate_run_cost
 
 
 @pytest.fixture(autouse=True)
@@ -186,6 +186,60 @@ class TestPerExampleExtraChars:
 
 
 # ---------------------------------------------------------------------------
+# Teacher-forced multi-round replay: calls per example
+# ---------------------------------------------------------------------------
+
+
+class TestPerExampleCalls:
+    def test_default_is_one_call_per_example(self) -> None:
+        """Omitting ``per_example_calls`` and passing all-ones must agree exactly."""
+        default = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+        )
+        ones = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[1, 1, 1],
+        )
+        assert default == ones
+        # 2 prompts x 3 examples x 2 models
+        assert default.total_calls == 12
+
+    def test_multi_round_examples_multiply_total_calls(self) -> None:
+        estimate = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[3, 1, 2],
+        )
+        # 2 prompts x (3 + 1 + 2) calls x 2 models
+        assert estimate.total_calls == 24
+
+    def test_multi_round_examples_raise_estimated_cost(self) -> None:
+        single = estimate_run_cost(
+            template="Hi",
+            examples=[{}],
+            n_prompts=1,
+            models=["gemini/gemini-2.5-flash"],
+            per_example_calls=[1],
+        )
+        triple = estimate_run_cost(
+            template="Hi",
+            examples=[{}],
+            n_prompts=1,
+            models=["gemini/gemini-2.5-flash"],
+            per_example_calls=[3],
+        )
+        assert triple.estimated_usd == pytest.approx(single.estimated_usd * 3)
+
+
+# ---------------------------------------------------------------------------
 # Render fallback
 # ---------------------------------------------------------------------------
 
@@ -256,3 +310,88 @@ class TestDefensiveFallbacks:
             models=["gemini/gemini-2.5-flash"],
         )
         assert estimate.estimated_usd == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Per-call pricing for promotion
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateCallCost:
+    """``estimate_call_cost`` prices one recorded call from litellm's table."""
+
+    def test_prices_a_model_in_the_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+
+        # 1000 * 0.001 + 100 * 0.002 under the autouse stub.
+        assert cost_module.estimate_call_cost("gpt-4o-mini", 1000, 100) == pytest.approx(1.2)
+
+    def test_resolves_registry_aliases_and_provider_prefixes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # litellm keys many entries without the provider prefix the registry
+        # adds; the lookup must try the stripped form too.
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gemini-2.5-flash": {}})
+
+        assert cost_module.estimate_call_cost("gemini-2.5-flash", 10, 10) == pytest.approx(0.03)
+
+    def test_unpriced_model_never_reaches_litellm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(**_: Any) -> tuple[float, float]:
+            raise AssertionError("cost_per_token must not be called")
+
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+        monkeypatch.setattr(cost_module.litellm, "cost_per_token", boom)
+
+        assert cost_module.estimate_call_cost("llama3.1:8b", 900, 200) == 0.0
+
+    def test_zero_tokens_cost_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+
+        assert cost_module.estimate_call_cost("gpt-4o-mini", 0, 0) == 0.0
+
+    def test_pricer_failure_is_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def boom(**_: Any) -> tuple[float, float]:
+            raise RuntimeError("no price")
+
+        monkeypatch.setattr(cost_module.litellm, "model_cost", {"gpt-4o-mini": {}})
+        monkeypatch.setattr(cost_module.litellm, "cost_per_token", boom)
+
+        assert cost_module.estimate_call_cost("gpt-4o-mini", 10, 10) == 0.0
+
+
+class TestSamplesPerExample:
+    def test_default_and_one_agree_exactly(self) -> None:
+        default = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+        )
+        one = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            samples_per_example=1,
+        )
+        assert default == one
+
+    def test_samples_multiply_calls_and_cost(self) -> None:
+        single = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[3, 1, 2],
+        )
+        triple = estimate_run_cost(
+            template="Hi",
+            examples=[{}, {}, {}],
+            n_prompts=2,
+            models=["gemini/gemini-2.5-flash", "gemini/gemini-2.5-pro"],
+            per_example_calls=[3, 1, 2],
+            samples_per_example=3,
+        )
+        assert single.total_calls == 24
+        assert triple.total_calls == 72
+        assert triple.estimated_usd == pytest.approx(single.estimated_usd * 3)

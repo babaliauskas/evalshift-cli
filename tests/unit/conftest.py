@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from evalshift.insights.facts import Facts, build_facts
+from evalshift_cli.insights.facts import Facts, build_facts
 from tests.unit.insights_factories import passing_run_kwargs, sample_run_kwargs
 
 

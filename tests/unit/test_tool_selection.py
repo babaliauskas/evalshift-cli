@@ -1,14 +1,14 @@
-"""Tests for :class:`evalshift.evaluators.tool_selection.ToolSelectionEvaluator`."""
+"""Tests for :class:`evalshift_cli.evaluators.tool_selection.ToolSelectionEvaluator`."""
 
 from __future__ import annotations
 
 import pytest
 
-from evalshift.config.models import ToolSelectionEvaluatorConfig
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.evaluators.tool_selection import (
+from evalshift_cli.config.models import ToolSelectionEvaluatorConfig
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.evaluators.tool_selection import (
     KIND_CONFORMANCE,
     KIND_DIVERGENCE,
     ToolSelectionEvaluator,
@@ -16,7 +16,7 @@ from evalshift.evaluators.tool_selection import (
     _multiset_match,
     _sequence_match,
 )
-from evalshift.suite.models import ExpectedToolCall, SuiteExample
+from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 from tests.scoring_fixtures import (
     DIVERGENT_EXAMPLES,
     PROMPT_ID,
@@ -530,3 +530,227 @@ class TestNothingMeasuredEmitsNothing:
             )
         )
         assert [(r.kind, r.delta) for r in records] == [(KIND_DIVERGENCE, -1.0)]
+
+
+# ---------------------------------------------------------------------------
+# Teacher-forced multi-round replay
+# ---------------------------------------------------------------------------
+
+
+def _multi(*rounds: list[str], final_text: str | None = None) -> ToolTrace:
+    """A trace spanning several teacher-forced rounds, one list of names each."""
+    calls: list[ToolCall] = []
+    for round_index, names in enumerate(rounds):
+        for name in names:
+            calls.append(
+                ToolCall(
+                    tool_name=name,
+                    arguments={},
+                    sequence_index=len(calls),
+                    round_index=round_index,
+                ),
+            )
+    return ToolTrace(calls=calls, final_text=final_text, round_count=len(rounds))
+
+
+def _rounds_example(rounds: list[list[str]]) -> SuiteExample:
+    return suite_example(
+        id="ex1",
+        inputs={},
+        expected_tools=[ExpectedToolCall(tool_name=n) for n in rounds[0]],
+        expected_tool_rounds=[[ExpectedToolCall(tool_name=n) for n in r] for r in rounds],
+    )
+
+
+class TestPerRoundConformance:
+    """Round *k* is graded against ``expected_tool_rounds[k]``, then averaged.
+
+    A single-shot replay could never reach round 2, so the flattened
+    yardstick it was graded against was unreachable by construction. With
+    teacher-forced replay each round is a fair comparison on its own, and the
+    record's score is their mean.
+    """
+
+    async def test_a_single_round_trace_carries_no_rounds_key(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_example(expected=["a"]),
+            source=_trace("a"),
+            target=_trace("b"),
+        )
+        assert "rounds" not in record.metadata
+        assert (record.source_score, record.target_score) == (1.0, 0.0)
+
+    async def test_the_score_is_the_mean_over_rounds(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["a"], ["c"]),
+        )
+        assert record.source_score == pytest.approx(1.0)
+        assert record.target_score == pytest.approx(0.5)
+
+    async def test_a_round_past_the_ground_truth_wants_no_calls(self) -> None:
+        """The answer round: the recorded agent stopped, so calling is wrong."""
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_rounds_example([["a"]]),
+            source=_multi(["a"], [], final_text="done"),
+            target=_multi(["a"], ["b"]),
+        )
+        assert record.source_score == pytest.approx(1.0)
+        assert record.target_score == pytest.approx(0.5)
+
+    async def test_an_empty_round_with_no_ground_truth_does_not_dilute_the_mean(self) -> None:
+        """Both sides answered instead of calling — nothing was measured there."""
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_rounds_example([["a"]]),
+            source=_multi(["a"], [], final_text="done"),
+            target=_multi(["b"], [], final_text="done"),
+        )
+        assert record.source_score == pytest.approx(1.0)
+        assert record.target_score == pytest.approx(0.0)
+
+    async def test_metadata_keeps_flat_names_and_adds_per_round_detail(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["a"], ["c"]),
+        )
+        assert record.metadata["expected_names"] == ["a", "b"]
+        assert record.metadata["source_names"] == ["a", "b"]
+        assert record.metadata["target_names"] == ["a", "c"]
+        assert record.metadata["rounds"] == [
+            {
+                "round": 0,
+                "expected_names": ["a"],
+                "source_names": ["a"],
+                "target_names": ["a"],
+                "source_score": 1.0,
+                "target_score": 1.0,
+            },
+            {
+                "round": 1,
+                "expected_names": ["b"],
+                "source_names": ["b"],
+                "target_names": ["c"],
+                "source_score": 1.0,
+                "target_score": 0.0,
+            },
+        ]
+
+    async def test_expected_set_matches_per_round_not_across_rounds(self) -> None:
+        """Order-insensitive within a round, never across one.
+
+        The flattened yardstick let a target that made every call in the wrong
+        round score 1.0; per round it does not.
+        """
+        record = await _axis(
+            _evaluator(conformance="expected_set", divergence="off"),
+            KIND_CONFORMANCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["b"], ["a"]),
+        )
+        assert record.target_score == pytest.approx(0.0)
+
+    async def test_expected_no_tools_is_unchanged_by_rounds(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_example(expected_no_tools=True),
+            source=_multi([], []),
+            target=_multi(["a"], []),
+        )
+        assert record.metadata["mode"] == "expected_no_tools"
+        assert "rounds" not in record.metadata
+        assert (record.source_score, record.target_score) == (1.0, 0.0)
+
+    async def test_both_sides_missing_every_round_is_still_a_shared_miss(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="off"),
+            KIND_CONFORMANCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["x"], ["y"]),
+            target=_multi(["x"], ["z"]),
+        )
+        assert TOOL_GROUND_TRUTH_MISS in record.metadata["failure_categories"]
+
+
+class TestPerRoundDivergence:
+    """Any diverged round pulls the mean below 1.0 — that is the budget rule."""
+
+    async def test_exact_is_the_mean_of_the_per_round_verdicts(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="exact"),
+            KIND_DIVERGENCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["a"], ["c"]),
+        )
+        assert record.source_score == 1.0
+        assert record.target_score == pytest.approx(0.5)
+        assert record.delta == pytest.approx(-0.5)
+
+    async def test_set_uses_jaccard_within_each_round(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="set"),
+            KIND_DIVERGENCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["a"], ["b", "c"]),
+        )
+        assert record.target_score == pytest.approx((1.0 + 0.5) / 2)
+
+    async def test_first_ignores_the_answer_round_both_sides_skipped(self) -> None:
+        """An empty round on both sides is not a first-call divergence."""
+        record = await _axis(
+            _evaluator(divergence="first"),
+            KIND_DIVERGENCE,
+            example=_rounds_example([["a"]]),
+            source=_multi(["a"], [], final_text="done"),
+            target=_multi(["a"], [], final_text="done"),
+        )
+        assert record.target_score == pytest.approx(1.0)
+
+    async def test_the_rounds_detail_is_what_the_report_renders(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="set"),
+            KIND_DIVERGENCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["a"], ["c"]),
+        )
+        assert record.metadata["source_set"] == ["a", "b"]
+        assert record.metadata["target_set"] == ["a", "c"]
+        assert [r["round"] for r in record.metadata["rounds"]] == [0, 1]
+        assert record.metadata["rounds"][1]["source_names"] == ["b"]
+        assert record.metadata["rounds"][1]["target_names"] == ["c"]
+
+    async def test_a_diverged_round_is_tagged_as_drift(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="exact"),
+            KIND_DIVERGENCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_multi(["a"], ["c"]),
+        )
+        assert record.metadata["failure_categories"] == [TOOL_SELECTION_DRIFT]
+
+    async def test_a_target_that_replayed_fewer_rounds_diverges(self) -> None:
+        record = await _axis(
+            _evaluator(divergence="exact"),
+            KIND_DIVERGENCE,
+            example=_rounds_example([["a"], ["b"]]),
+            source=_multi(["a"], ["b"]),
+            target=_trace("a"),
+        )
+        assert record.target_score == pytest.approx(0.5)

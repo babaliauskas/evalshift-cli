@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.runner.checkpoint`.
+"""Tests for :mod:`evalshift_cli.runner.checkpoint`.
 
 The two invariants we care about most:
 
@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.config.models import (
+from evalshift_cli.config.models import (
     EvalShiftConfig,
     PromptDefinition,
 )
-from evalshift.runner import checkpoint as cp
-from evalshift.runner.checkpoint import (
+from evalshift_cli.runner import checkpoint as cp
+from evalshift_cli.runner.checkpoint import (
     PUSH_STATE_FILENAME,
     CheckpointError,
     PushCheckpoint,
@@ -40,7 +40,7 @@ from evalshift.runner.checkpoint import (
     write_push_checkpoint,
     write_state,
 )
-from evalshift.runner.models import Call, RunModels, RunState
+from evalshift_cli.runner.models import Call, RunModels, RunState
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -231,9 +231,9 @@ class TestRawJsonl:
         append_call(run_dir, _call(role="source", example_id="b"))
         keys = completed_call_keys(run_dir)
         assert keys == {
-            ("p1", "a", "source"),
-            ("p1", "a", "target"),
-            ("p1", "b", "source"),
+            ("p1", "a", "source", 0),
+            ("p1", "a", "target", 0),
+            ("p1", "b", "source", 0),
         }
 
     def test_errored_calls_still_count_as_done(self, tmp_path: Path) -> None:
@@ -250,7 +250,7 @@ class TestRawJsonl:
         )
         append_call(run_dir, bad)
         keys = completed_call_keys(run_dir)
-        assert keys == {("p1", "ex1", "source")}
+        assert keys == {("p1", "ex1", "source", 0)}
 
 
 # ---------------------------------------------------------------------------
@@ -375,3 +375,20 @@ class TestPushCheckpoint:
 
     def test_clear_is_a_no_op_when_nothing_was_ever_written(self, tmp_path: Path) -> None:
         clear_push_checkpoint(run_dir_for("r_20260601_abc123", tmp_path / "runs"))
+
+
+class TestCompletedCallKeysSamples:
+    """Resume must key on the sample index too, or a repeated-sampling run would
+    treat one recorded sample as every sample done."""
+
+    def test_keys_carry_the_sample_index(self, tmp_path: Path) -> None:
+        run_dir = tmp_path / "r1"
+        append_call(run_dir, _call(role="source", example_id="a"))
+        append_call(
+            run_dir,
+            _call(role="source", example_id="a").model_copy(update={"sample_index": 1}),
+        )
+        assert completed_call_keys(run_dir) == {
+            ("p1", "a", "source", 0),
+            ("p1", "a", "source", 1),
+        }

@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.hosted.trace_events import (
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.hosted.trace_events import (
     MAX_RESULT_BYTES,
     MAX_STREAM_BYTES,
     from_agent_trace,
     from_tool_trace,
 )
-from evalshift.traces.models import AgentTrace
+from evalshift_cli.traces.models import AgentTrace
 
 
 def _ts(second: int) -> datetime:
@@ -252,3 +252,43 @@ def test_oversized_stream_keeps_leading_events_and_flags_itself() -> None:
     assert 0 < len(stream["events"]) < 200
     assert stream["events"][0]["name"] == "tool_0"
     assert len(json.dumps(stream["events"])) <= MAX_STREAM_BYTES
+
+
+def test_a_multi_round_trace_tags_each_call_with_its_round() -> None:
+    """Teacher-forced replay: the round is what makes the pane readable."""
+    trace = ToolTrace(
+        calls=[
+            ToolCall(tool_name="search", arguments={}, sequence_index=0, round_index=0),
+            ToolCall(tool_name="open", arguments={}, sequence_index=1, round_index=1),
+            ToolCall(tool_name="summarise", arguments={}, sequence_index=2, round_index=1),
+        ],
+        final_text="here you go",
+        round_count=3,
+    )
+
+    stream = from_tool_trace(trace, side="target")
+
+    assert stream is not None
+    assert [(e["type"], e["round"]) for e in stream["events"]] == [
+        ("tool_call", 0),
+        ("tool_call", 1),
+        ("tool_call", 1),
+        ("final_output", 2),
+    ]
+
+
+def test_a_refusal_belongs_to_the_last_round() -> None:
+    trace = ToolTrace(
+        calls=[ToolCall(tool_name="search", arguments={}, sequence_index=0, round_index=0)],
+        raised_refusal=True,
+        refusal_text="no",
+        round_count=2,
+    )
+
+    stream = from_tool_trace(trace, side="source")
+
+    assert stream is not None
+    assert [(e["type"], e["round"]) for e in stream["events"]] == [
+        ("tool_call", 0),
+        ("error", 1),
+    ]

@@ -48,9 +48,10 @@ Four pieces, released and documented independently:
 | **Hosted server** — `api.evalshift.dev`, web app at `evalshift.dev` | Optional. Stores pushed run bundles, diffs them across branches, drives PR comments and gating. | [docs/hosted.md](docs/hosted.md) |
 
 The SDK and the CLI never call each other — the interface is files under
-`.evalshift/captures/`, so either works without the other. Because both use the
-top-level import name `evalshift`, install them in **separate virtual
-environments**: the SDK in your agent's, the CLI wherever you run evaluations.
+`.evalshift/captures/`, so either works without the other. The CLI (import
+package `evalshift_cli`) depends on the SDK (import name `evalshift`), so one
+environment holds both: `pip install evalshift` brings the SDK with it, and a
+production agent that only records captures installs `evalshift-sdk` alone.
 
 ## For AI coding agents
 
@@ -82,8 +83,8 @@ Requires Python 3.11+.
 uv pip install evalshift     # or: pip install evalshift
 ```
 
-And, in your agent's virtualenv — a **separate** one, see above — the capture
-SDK that feeds the CLI its suites:
+That also installs the capture SDK that feeds the CLI its suites. A production
+agent that only records captures needs just the SDK (stdlib-only):
 
 ```bash
 uv pip install evalshift-sdk     # or: pip install evalshift-sdk
@@ -111,7 +112,7 @@ evalshift init                    # minimal capture-first evalshift.yaml
 ```
 
 Instrument the agent with [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk)
-— installed in the agent's own virtualenv, stdlib-only, Python 3.10+:
+— stdlib-only, Python 3.10+, installed with the CLI or on its own:
 
 ```python
 from evalshift import capture
@@ -134,6 +135,11 @@ verbatim, or pass your own `(value) -> value` callable. `@capture.tool` takes no
 they run inside. `tools=` is required at the same entry points: the toolset the
 agent was offered, or `[]` if it never calls tools.
 
+Calling OpenAI, Anthropic or Google GenAI directly? Wrap the client once —
+`wrap_openai(OpenAI())`, `wrap_anthropic(...)`, `wrap_genai(...)` (SDK 0.4.0+) —
+and every model call is recorded with no per-call code: the tools offered, the
+calls the model requested, usage and latency.
+
 Nothing is recorded unless `EVALSHIFT_CAPTURE=1` is set, so the decorators are
 safe to leave in production permanently:
 
@@ -143,8 +149,11 @@ evalshift capture sync                     # captures → golden suites + wired 
 evalshift all --suite-name support_agent --to <candidate-model>
 ```
 
-See [docs/sdk.md](docs/sdk.md) for the full capture contract. Can't instrument
-the agent? A hand-written `golden.jsonl` works just as well — see
+See [docs/sdk.md](docs/sdk.md) for the full capture contract, and
+[`examples/capture-first/`](examples/capture-first/) for those three commands
+checked in end to end — the instrumented agent, the captures it wrote, the
+promoted suite, and the `suites:` block `capture sync` filled in. Can't
+instrument the agent? A hand-written `golden.jsonl` works just as well — see
 [Getting started](docs/getting-started.md).
 
 ### Driving the pipeline
@@ -252,9 +261,13 @@ shape, `fail-on` modes, and baseline behavior.
 
 Migrating an agent (a prompt that uses tools)? EvalShift detects
 regressions in *which* tools the new model calls, *what* arguments it
-passes, and *how* it sequences them. The killer scenario: a routing
-agent that silently stops calling `notify_security_team` after the
-migration — text-only eval reports green, EvalShift marks it CRITICAL.
+passes, and in what order and parallelism within a response. By default
+each example is one model call scored against the first recorded round;
+promote with `--rounds all` to replay every recorded round teacher-forced,
+with the recorded tool results fed back and each round scored on its own.
+The killer scenario: a routing agent that silently stops calling
+`notify_security_team` after the migration — text-only eval reports green,
+EvalShift marks it CRITICAL.
 
 Each golden-suite example carries its own toolset — recorded automatically
 by `capture promote` / `capture sync` from your production captures, or
@@ -321,6 +334,15 @@ wires these links into your project automatically: it writes
 * [FAQ](docs/faq.md) — common questions
 * [llms-full.txt](llms-full.txt) — dense single-file reference for AI coding
   tools, hosted at <https://www.evalshift.dev/cli-llms-full.txt>
+
+Runnable projects under [`examples/`](examples/):
+
+| Example | Shows |
+| --- | --- |
+| [`capture-first/`](examples/capture-first/) | The recommended flow: an SDK-instrumented agent, its captures, and the golden suite + managed `suites:` block `evalshift capture sync` produced from them. |
+| [`simple/`](examples/simple/) | The smallest hand-authored project — one `python_string` prompt, one length evaluator. |
+| [`agent/`](examples/agent/) | A hand-authored agent suite: six tools, per-example `toolset_ref`, `tool_selection` scoring, slices. |
+| [`agent-traces/`](examples/agent-traces/) | Bring-your-own agent timelines scored with the `agent_trace` evaluator, for agents the SDK cannot instrument. |
 
 ## Non-goals
 

@@ -1,4 +1,4 @@
-"""Tests for ``evalshift doctor`` (:mod:`evalshift.cli.commands.doctor`).
+"""Tests for ``evalshift doctor`` (:mod:`evalshift_cli.cli.commands.doctor`).
 
 Two layers of testing:
 
@@ -12,24 +12,29 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.cli.commands.doctor import (
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.cli.commands.doctor import (
     CONFIG_FILENAME,
+    JUDGE_FAMILY_CHECK,
     PROVIDER_KEYS,
+    SDK_DISTRIBUTION,
     CheckResult,
+    _sdk_check,
     _tool_consistency_checks,
     run_checks,
     source_conformance_check,
 )
-from evalshift.cli.main import app
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import BROKEN_HARNESS_CAUSES
-from evalshift.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
+from evalshift_cli.cli.main import app
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import BROKEN_HARNESS_CAUSES
+from evalshift_cli.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
 
 runner = CliRunner()
 
@@ -276,7 +281,7 @@ _TOOL_B: dict[str, object] = {
 class TestToolsetConsistencyCheck:
     """One report row per suite, naming the toolset its examples share, or
     flagging that they don't. Both inline ``tools`` and a ``toolset_ref``
-    fingerprint the same way (:func:`~evalshift.captures.toolset.fingerprint_tools`),
+    fingerprint the same way (:func:`~evalshift_cli.captures.toolset.fingerprint_tools`),
     so the two spellings of an identical toolset are never flagged as differing.
     """
 
@@ -539,7 +544,7 @@ class TestCiPinCheck:
     def test_stale_pin_warns_without_failing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.doctor.__version__", "1.2.3")
         self._workflow(tmp_path, '          evalshift-version: "0.0.1"\n')
         row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), "ci pin")
         assert row.status == "warn"
@@ -547,7 +552,7 @@ class TestCiPinCheck:
         assert 'evalshift-version: "1.2.3"' in row.detail
 
     def test_matching_pin_is_ok(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.doctor.__version__", "1.2.3")
         self._workflow(tmp_path, '          evalshift-version: "1.2.3"\n')
         row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), "ci pin")
         assert row.status == "ok"
@@ -557,9 +562,184 @@ class TestCiPinCheck:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("evalshift.cli.commands.doctor.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.doctor.__version__", "1.2.3")
         self._workflow(tmp_path, "          token: x\n")
         result = runner.invoke(app, ["doctor"])
         assert result.exit_code == 0
         assert "ci pin" in result.stdout
         assert "default" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# evalshift-sdk row — which package the ``evalshift`` import name resolves to
+# ---------------------------------------------------------------------------
+
+
+def _no_dist(name: str) -> str:
+    raise PackageNotFoundError(name)
+
+
+def _sdk_module(**attrs: object) -> ModuleType:
+    """A stand-in for whatever ``import evalshift`` returns, with the given attributes."""
+    module = ModuleType("evalshift")
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    return module
+
+
+class TestSdkCheck:
+    def test_row_is_second_and_ok_in_this_environment(self, tmp_path: Path) -> None:
+        # Runs against the real interpreter: the SDK is a declared dependency, so
+        # the dev venv has it. This is the test that pins that declaration.
+        import evalshift
+
+        results = run_checks(cwd=tmp_path, env=_empty_env())
+        row = results[1]
+        assert row.name == SDK_DISTRIBUTION == "evalshift-sdk"
+        assert row.status == "ok"
+        assert evalshift.__version__ in row.detail
+        assert "import name `evalshift`" in row.detail
+
+    def test_missing_distribution_and_module_warns_with_the_install_hint(self) -> None:
+        def no_module(name: str) -> ModuleType:
+            raise ModuleNotFoundError(f"No module named {name!r}")
+
+        row = _sdk_check(import_module=no_module, dist_version=_no_dist)
+        assert row.status == "warn"
+        assert "not installed" in row.detail
+        assert "pip install evalshift-sdk" in row.detail
+
+    def test_metadata_less_install_is_ok_using_the_module_version(self) -> None:
+        # An editable checkout or a vendored copy: the package imports and is the
+        # SDK, but importlib.metadata knows no distribution.
+        module = _sdk_module(capture=object(), SCHEMA_VERSION="2.0.0", __version__="9.9.9")
+        row = _sdk_check(import_module=lambda _: module, dist_version=_no_dist)
+        assert row.status == "ok"
+        assert row.detail == "9.9.9 (import name `evalshift`)"
+
+    def test_distribution_version_wins_over_the_module_attribute(self) -> None:
+        module = _sdk_module(capture=object(), SCHEMA_VERSION="2.0.0", __version__="9.9.9")
+        row = _sdk_check(import_module=lambda _: module, dist_version=lambda _: "0.3.0")
+        assert row.status == "ok"
+        assert row.detail == "0.3.0 (import name `evalshift`)"
+
+    def test_older_cli_package_shadowing_the_sdk_warns_naming_its_location(self) -> None:
+        # A pre-rename evalshift CLI also imported as ``evalshift``: it carries a
+        # __version__ but neither ``capture`` nor ``SCHEMA_VERSION``.
+        module = _sdk_module(
+            __version__="0.13.1", __file__="/venv/site-packages/evalshift/__init__.py"
+        )
+        row = _sdk_check(import_module=lambda _: module, dist_version=lambda _: "0.3.0")
+        assert row.status == "warn"
+        assert "/venv/site-packages/evalshift" in row.detail
+        assert "not the SDK" in row.detail
+
+    def test_stray_directory_shadowing_the_sdk_reports_its_path(self) -> None:
+        # A bare ``evalshift/`` directory on sys.path imports as a namespace
+        # package: no __file__, and __path__ lists the directory.
+        module = _sdk_module(__path__=["/proj/evalshift"])
+        row = _sdk_check(import_module=lambda _: module, dist_version=_no_dist)
+        assert row.status == "warn"
+        assert "/proj/evalshift" in row.detail
+
+    def test_import_error_with_the_distribution_installed_warns_with_the_error(self) -> None:
+        def broken(name: str) -> ModuleType:
+            raise ImportError("boom")
+
+        row = _sdk_check(import_module=broken, dist_version=lambda _: "0.3.0")
+        assert row.status == "warn"
+        assert "0.3.0" in row.detail
+        assert "boom" in row.detail
+
+    def test_doctor_cli_renders_the_row(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0
+        assert "evalshift-sdk" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# judge family — the judge grades its own relatives
+# ---------------------------------------------------------------------------
+
+
+def _write_judge_config(
+    cwd: Path,
+    *,
+    source: str | None = "anthropic/claude-sonnet-4-5",
+    target: str | None = "gemini/gemini-2.5-pro",
+    judges: tuple[str, ...] = ("gemini/gemini-3.1-flash-lite-preview",),
+) -> None:
+    defaults = ""
+    if source is not None:
+        defaults += f"  source_model: {source}\n"
+    if target is not None:
+        defaults += f"  target_model: {target}\n"
+    judge_block = "".join(
+        f"    - criterion_name: c{i}\n      criterion_prompt: which is better?\n"
+        f"      judge_model: {judge}\n"
+        for i, judge in enumerate(judges)
+    )
+    (cwd / CONFIG_FILENAME).write_text(
+        "prompts:\n  - {id: a, detection: manual, content: hi}\n"
+        + (f"defaults:\n{defaults}" if defaults else "")
+        + (f"evaluators:\n  llm_judge:\n{judge_block}" if judges else ""),
+        encoding="utf-8",
+    )
+
+
+def _judge_rows(results: list[CheckResult]) -> list[CheckResult]:
+    return [r for r in results if r.name.startswith(JUDGE_FAMILY_CHECK)]
+
+
+class TestJudgeFamilyCheck:
+    def test_warns_when_the_judge_shares_the_target_family(self, tmp_path: Path) -> None:
+        _write_judge_config(tmp_path)
+        rows = _judge_rows(run_checks(cwd=tmp_path, env=_empty_env()))
+        assert len(rows) == 1
+        assert rows[0].status == "warn"
+        assert "gemini/gemini-3.1-flash-lite-preview" in rows[0].detail
+        assert "target" in rows[0].detail
+        assert "google" in rows[0].detail
+        assert "self-preference" in rows[0].detail
+
+    def test_warning_never_fails_the_command(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _write_judge_config(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0, result.stdout
+        assert "self-preference" in result.stdout
+
+    def test_ok_row_when_the_judge_is_a_third_family(self, tmp_path: Path) -> None:
+        _write_judge_config(tmp_path, judges=("openai/gpt-4.1-mini",))
+        rows = _judge_rows(run_checks(cwd=tmp_path, env=_empty_env()))
+        assert len(rows) == 1
+        assert rows[0].status == "ok"
+        assert "third" in rows[0].detail
+
+    def test_one_row_per_overlapping_judge(self, tmp_path: Path) -> None:
+        _write_judge_config(
+            tmp_path,
+            judges=("gemini/g-a", "gemini/g-a", "anthropic/claude-haiku-4-5"),
+        )
+        rows = _judge_rows(run_checks(cwd=tmp_path, env=_empty_env()))
+        assert [r.status for r in rows] == ["warn", "warn"]
+        assert "gemini/g-a" in rows[0].detail and "target" in rows[0].detail
+        assert "claude-haiku-4-5" in rows[1].detail and "source" in rows[1].detail
+
+    def test_silent_when_no_judge_is_configured(self, tmp_path: Path) -> None:
+        _write_judge_config(tmp_path, judges=())
+        assert _judge_rows(run_checks(cwd=tmp_path, env=_empty_env())) == []
+
+    def test_silent_when_the_arms_are_not_configured(self, tmp_path: Path) -> None:
+        # doctor takes no --from/--to; with no defaults there is nothing to
+        # compare the judge against, and guessing would be noise.
+        _write_judge_config(tmp_path, source=None, target=None)
+        assert _judge_rows(run_checks(cwd=tmp_path, env=_empty_env())) == []
+
+    def test_silent_when_no_config_exists(self, tmp_path: Path) -> None:
+        assert _judge_rows(run_checks(cwd=tmp_path, env=_empty_env())) == []

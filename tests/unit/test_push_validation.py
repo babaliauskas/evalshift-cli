@@ -20,9 +20,9 @@ import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
-from evalshift.cli.main import app
-from evalshift.hosted.bundle import build_bundle
-from evalshift.hosted.push import (
+from evalshift_cli.cli.main import app
+from evalshift_cli.hosted.bundle import build_bundle
+from evalshift_cli.hosted.push import (
     HARD_LIMIT_BYTES,
     SOFT_LIMIT_BYTES,
     PushError,
@@ -65,8 +65,8 @@ def _rewrite(bundle_path: Path, mutate: Callable[[dict[str, Any]], None]) -> Non
 def _install(monkeypatch: pytest.MonkeyPatch, fake: FakeHostedClient) -> None:
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
-    monkeypatch.setattr("evalshift.hosted.push._put_with_retries", lambda *a, **k: None)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push._put_with_retries", lambda *a, **k: None)
 
 
 def _fake() -> FakeHostedClient:
@@ -197,7 +197,7 @@ def test_push_prints_the_soft_limit_warning_and_still_uploads(
     bundle_path = _bundle_for_push(tmp_path, monkeypatch)
     fake = _fake()
     _install(monkeypatch, fake)
-    monkeypatch.setattr("evalshift.hosted.push.SOFT_LIMIT_BYTES", 1)
+    monkeypatch.setattr("evalshift_cli.hosted.push.SOFT_LIMIT_BYTES", 1)
     console = Console(file=io.StringIO(), width=200)
 
     result = _push(bundle_path, tmp_path, console=console)

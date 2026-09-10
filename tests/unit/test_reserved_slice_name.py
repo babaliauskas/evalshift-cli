@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from evalshift.config.models import MigrationPolicy, SliceConfig
-from evalshift.suite.tags import RESERVED_SLICE_NAME
+from evalshift_cli.config.models import MigrationPolicy, SliceConfig
+from evalshift_cli.suite.tags import RESERVED_SLICE_NAME
 from tests.unit.suite_examples import suite_example
 
 
@@ -57,7 +57,7 @@ def test_migration_policy_accepts_an_ordinary_override_key() -> None:
 
 def test_config_load_surfaces_the_reserved_name(tmp_path: Path) -> None:
     """The whole point: a bad slice name is a config error, not a push-time 422."""
-    from evalshift.config.loader import ConfigError, load_config
+    from evalshift_cli.config.loader import ConfigError, load_config
 
     (tmp_path / "evalshift.yaml").write_text(
         """
@@ -88,7 +88,7 @@ slices:
 
 def test_an_ordinary_slice_name_still_loads(tmp_path: Path) -> None:
     """Sanity: the guard rejects one literal, not the `slices:` block."""
-    from evalshift.config.loader import load_config
+    from evalshift_cli.config.loader import load_config
 
     (tmp_path / "evalshift.yaml").write_text(
         """

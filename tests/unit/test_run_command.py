@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.main import app
-from evalshift.models.client import CompletionResult, ModelClient
+from evalshift_cli.cli.main import app
+from evalshift_cli.models.client import CompletionResult, ModelClient
 
 runner = CliRunner()
 
@@ -214,7 +214,7 @@ class TestRunNoninteractive:
             raise RuntimeError("stop here — we only care about kwargs")
 
         monkeypatch.setattr(
-            "evalshift.cli.commands.run.run_orchestrator",
+            "evalshift_cli.cli.commands.run.run_orchestrator",
             fake_orchestrator,
         )
         runner.invoke(app, ["run"])
@@ -235,7 +235,7 @@ class TestRunNoninteractive:
             raise RuntimeError("stop here")
 
         monkeypatch.setattr(
-            "evalshift.cli.commands.run.run_orchestrator",
+            "evalshift_cli.cli.commands.run.run_orchestrator",
             fake_orchestrator,
         )
         runner.invoke(app, ["run"])

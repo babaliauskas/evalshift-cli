@@ -1,4 +1,4 @@
-"""Unit tests for the pydantic models in :mod:`evalshift.config.models`.
+"""Unit tests for the pydantic models in :mod:`evalshift_cli.config.models`.
 
 These tests are the primary contract test for ``evalshift.yaml``: any
 change to validation behaviour should land here first.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from evalshift.config.models import (
+from evalshift_cli.config.models import (
     DEFAULT_JUDGE_MODEL,
     AgentTraceEvaluatorConfig,
     Defaults,
@@ -277,6 +277,9 @@ class TestMigrationPolicy:
         assert policy.tool_argument_drift_floor == pytest.approx(0.9)
         assert policy.max_cost_increase == pytest.approx(0.30)
         assert policy.max_latency_increase == pytest.approx(0.30)
+        # Off by default: a dropped constraint is a caveat on the numbers,
+        # not by itself a reason to block a migration.
+        assert policy.fail_on_dropped_params is False
         assert policy.slices == {}
 
     @pytest.mark.parametrize(
@@ -599,3 +602,28 @@ class TestEvalShiftConfig:
                     },
                 },
             )
+
+
+class TestFailOnDroppedParams:
+    """The opt-in gate for constraints LiteLLM could not deliver."""
+
+    def test_accepts_an_explicit_true(self) -> None:
+        assert MigrationPolicy.model_validate({"fail_on_dropped_params": True})
+
+    def test_is_not_a_slice_level_knob(self) -> None:
+        """A dropped parameter is a property of the model, not of a slice."""
+        with pytest.raises(ValidationError):
+            SliceMigrationPolicy.model_validate({"fail_on_dropped_params": True})
+
+
+class TestSamplesPerExample:
+    def test_defaults_to_one(self) -> None:
+        assert Defaults().samples_per_example == 1
+
+    def test_accepts_repeated_sampling(self) -> None:
+        assert Defaults(samples_per_example=3).samples_per_example == 3
+
+    @pytest.mark.parametrize("bad", [0, -1, 21])
+    def test_bounds(self, bad: int) -> None:
+        with pytest.raises(ValidationError):
+            Defaults(samples_per_example=bad)

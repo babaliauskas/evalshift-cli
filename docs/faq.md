@@ -47,7 +47,7 @@ account for them rather than silently dropping examples.
 
 ## What models does EvalShift support?
 
-Anything LiteLLM supports. The `evalshift.models.registry` provides
+Anything LiteLLM supports. The `evalshift_cli.models.registry` provides
 friendly aliases and sane defaults for common models (Claude, GPT,
 Gemini), but **the registry is advisory, not gating**. A model id
 that isn't in the registry — for example a fresh preview from a
@@ -168,6 +168,36 @@ context, and only the current turn's output is compared. See
 [Multi-turn conversations](conversations.md). Full-conversation
 re-driving (feeding the candidate's own replies into later turns) is
 deliberately not supported — it breaks the paired-comparison contract.
+
+## Why does a hand-written config block on semantic when init does not?
+
+Because the two defaults differ on purpose. The **library default** for
+every evaluator's `blocking` is `true`, so a hand-written `evalshift.yaml`
+that lists `semantic:` (or an `llm_judge` entry) without the key gates the
+verdict on it. `evalshift init` writes `blocking: false` for both: the
+semantic score measures drift from the *source* output, not correctness,
+so a right answer in different words reads as a regression, and on the
+small suites a fresh capture starts with that noise (and judge noise)
+would dominate the verdict. Use a judge criterion for correctness.
+
+The library default is not flipped to match because that would silently
+turn a failing migration into a passing one for every existing config that
+relies on the omitted key — a gate loosened under a minor release. It
+stays `true` until a `version: 2` schema. To get init's behaviour in a
+hand-written file, say so:
+
+```yaml
+evaluators:
+  semantic:
+    embedding_model: text-embedding-3-small
+    blocking: false
+  llm_judge:
+    - criterion_name: helpfulness
+      criterion_prompt: Which answer helps the user more?
+      blocking: false
+```
+
+See [`blocking`](configuration.md#blocking-every-evaluator).
 
 ## Where is `evalshift validate` / `evalshift test-call` in `--help`?
 

@@ -18,12 +18,12 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.captures.toolset import fingerprint_tools
-from evalshift.cli.commands.evaluate import SCORES_FILENAME
-from evalshift.cli.main import app
-from evalshift.evaluators.tool_models import ToolCall, ToolTrace
-from evalshift.models.client import ModelClient, ToolCompletionResult
-from evalshift.runner import orchestrator as orch_module
+from evalshift_cli.captures.toolset import fingerprint_tools
+from evalshift_cli.cli.commands.evaluate import SCORES_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
+from evalshift_cli.models.client import ModelClient, ToolCompletionResult
+from evalshift_cli.runner import orchestrator as orch_module
 
 runner = CliRunner()
 

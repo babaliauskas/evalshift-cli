@@ -52,7 +52,7 @@ jobs:
       - name: Type-check (mypy --strict)
         run: |
           source .venv/bin/activate
-          mypy --strict src/evalshift
+          mypy --strict src/evalshift_cli
 
       - name: Tests (pytest)
         run: |

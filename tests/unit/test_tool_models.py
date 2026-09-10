@@ -1,11 +1,11 @@
-"""Unit tests for :mod:`evalshift.evaluators.tool_models`."""
+"""Unit tests for :mod:`evalshift_cli.evaluators.tool_models`."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from evalshift.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
 
 # ---------------------------------------------------------------------------
 # ToolSpec
@@ -93,6 +93,79 @@ class TestToolSpec:
             ToolSpec.model_validate(
                 {"name": "x", "description": "y", "input_schema": {}, "rogue": True},
             )
+
+
+class TestToolSpecStrict:
+    """``strict`` (structured tool arguments) survives both wire shapes.
+
+    The SDK records ``strict`` verbatim when production set it; dropping it on
+    replay would change what the target model is actually asked to do.
+    """
+
+    def test_defaults_to_false(self) -> None:
+        assert ToolSpec(name="x", description="y", input_schema={}).strict is False
+
+    def test_non_strict_serialisation_is_unchanged(self) -> None:
+        spec = ToolSpec(name="x", description="y", input_schema={"a": 1})
+        assert spec.to_anthropic() == {"name": "x", "description": "y", "input_schema": {"a": 1}}
+        assert spec.to_openai() == {
+            "type": "function",
+            "function": {"name": "x", "description": "y", "parameters": {"a": 1}},
+        }
+
+    def test_to_anthropic_emits_top_level_strict(self) -> None:
+        spec = ToolSpec(name="x", description="y", input_schema={"a": 1}, strict=True)
+        assert spec.to_anthropic() == {
+            "name": "x",
+            "description": "y",
+            "input_schema": {"a": 1},
+            "strict": True,
+        }
+
+    def test_to_openai_emits_function_strict(self) -> None:
+        spec = ToolSpec(name="x", description="y", input_schema={"a": 1}, strict=True)
+        assert spec.to_openai() == {
+            "type": "function",
+            "function": {
+                "name": "x",
+                "description": "y",
+                "parameters": {"a": 1},
+                "strict": True,
+            },
+        }
+
+    def test_from_dict_reads_top_level_strict(self) -> None:
+        spec = ToolSpec.from_dict(
+            {"name": "x", "description": "y", "input_schema": {}, "strict": True}
+        )
+        assert spec.strict is True
+
+    def test_from_dict_reads_openai_function_strict(self) -> None:
+        spec = ToolSpec.from_dict(
+            {
+                "type": "function",
+                "function": {"name": "x", "description": "y", "parameters": {}, "strict": True},
+            }
+        )
+        assert spec.strict is True
+
+    def test_from_dict_absent_strict_is_false(self) -> None:
+        assert ToolSpec.from_dict({"name": "x", "input_schema": {}}).strict is False
+        assert ToolSpec.from_dict({"type": "function", "function": {"name": "x"}}).strict is False
+
+    def test_from_dict_non_true_strict_is_false(self) -> None:
+        """Only a literal ``true`` counts — the SDK writes the key only when true."""
+        assert (
+            ToolSpec.from_dict({"name": "x", "input_schema": {}, "strict": False}).strict is False
+        )
+        assert (
+            ToolSpec.from_dict({"name": "x", "input_schema": {}, "strict": "yes"}).strict is False
+        )
+
+    def test_round_trips_through_both_shapes(self) -> None:
+        original = ToolSpec(name="x", description="y", input_schema={"a": 1}, strict=True)
+        assert ToolSpec.from_dict(original.to_anthropic()) == original
+        assert ToolSpec.from_dict(original.to_openai()) == original
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +328,77 @@ class TestToolTrace:
             ToolTrace.model_validate(
                 {"calls": [], "rogue": True},
             )
+
+
+# ---------------------------------------------------------------------------
+# Multi-round traces (teacher-forced replay)
+# ---------------------------------------------------------------------------
+
+
+def _tc(name: str, seq: int, round_index: int = 0) -> ToolCall:
+    return ToolCall(tool_name=name, sequence_index=seq, round_index=round_index)
+
+
+class TestToolTraceRounds:
+    def test_defaults_describe_a_single_round(self) -> None:
+        trace = ToolTrace(calls=[_tc("a", 0)])
+        assert trace.round_count == 1
+        assert trace.calls[0].round_index == 0
+        assert trace.rounds() == [trace]
+
+    def test_pre_round_json_still_loads_as_one_round(self) -> None:
+        legacy = {"calls": [{"tool_name": "a", "sequence_index": 0}], "final_text": "x"}
+        trace = ToolTrace.model_validate(legacy)
+        assert trace.round_count == 1
+        assert trace.calls[0].round_index == 0
+
+    def test_round_index_must_be_below_round_count(self) -> None:
+        with pytest.raises(ValidationError, match="round_index"):
+            ToolTrace(calls=[_tc("a", 0, round_index=1)])
+        with pytest.raises(ValidationError, match="round_index"):
+            ToolTrace(round_count=2, calls=[_tc("a", 0, round_index=2)])
+
+    def test_round_index_is_non_negative(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolCall(tool_name="a", sequence_index=0, round_index=-1)
+
+    def test_round_count_at_least_one(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolTrace(round_count=0)
+
+    def test_round_slices_and_renumbers(self) -> None:
+        trace = ToolTrace(
+            round_count=3,
+            calls=[_tc("a", 0, 0), _tc("b", 1, 0), _tc("c", 2, 1)],
+            final_text="done",
+        )
+        r0, r1, r2 = trace.rounds()
+        assert r0.tool_names == ["a", "b"]
+        assert [c.sequence_index for c in r0.calls] == [0, 1]
+        assert r0.round_count == 1
+        assert r0.final_text is None
+        assert r1.tool_names == ["c"]
+        assert r1.calls[0].sequence_index == 0
+        assert r1.calls[0].round_index == 0
+        assert r2.calls == []
+        # The final text belongs to the last round only.
+        assert r2.final_text == "done"
+        assert trace.round(1) == r1
+
+    def test_refusal_flags_travel_with_the_last_round(self) -> None:
+        trace = ToolTrace(round_count=2, raised_refusal=True, refusal_text="no")
+        first, last = trace.rounds()
+        assert not first.raised_refusal
+        assert last.raised_refusal and last.refusal_text == "no"
+
+    def test_round_out_of_range(self) -> None:
+        with pytest.raises(IndexError):
+            ToolTrace().round(1)
+
+    def test_has_parallel_calls_is_per_round(self) -> None:
+        """Two sequential rounds of one call each are not a parallel fan-out."""
+        trace = ToolTrace(round_count=2, calls=[_tc("a", 0, 0), _tc("b", 1, 1)])
+        assert not trace.has_parallel_calls()
+        assert not any(r.has_parallel_calls() for r in trace.rounds())
+        fanout = ToolTrace(round_count=2, calls=[_tc("a", 0, 0), _tc("b", 1, 0)])
+        assert fanout.has_parallel_calls()

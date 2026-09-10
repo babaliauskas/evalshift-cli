@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.models.client`.
+"""Tests for :mod:`evalshift_cli.models.client`.
 
 We test the client by monkeypatching ``litellm.acompletion`` and
 ``litellm.completion_cost``. There are no live API calls in this suite —
@@ -18,14 +18,15 @@ What we care about here:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 
-from evalshift.evaluators.tool_models import ToolSpec
-from evalshift.models import client as client_module
-from evalshift.models.client import (
+from evalshift_cli.evaluators.tool_models import ToolSpec
+from evalshift_cli.models import client as client_module
+from evalshift_cli.models.client import (
     AuthError,
     CompletionResult,
     ModelClient,
@@ -969,3 +970,208 @@ class TestTemperatureValueRejection:
             await client.complete(model="gpt-4o", prompt="hi")
         # The adaptation itself still fired once and recorded the model.
         assert client.temperature_rejected_models == frozenset({"openai/gpt-4o"})
+
+
+# ---------------------------------------------------------------------------
+# Replay-time tool constraints: tool_choice / parallel_tool_calls / strict
+# ---------------------------------------------------------------------------
+
+
+_STRICT_TOOL = ToolSpec(
+    name="search_db",
+    description="Search the customer DB",
+    input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+    strict=True,
+)
+
+
+class TestToolConstraintsReachLiteLLM:
+    """The CLI hands LiteLLM OpenAI-style constraints and lets it translate."""
+
+    async def test_tool_choice_and_parallel_flag_are_forwarded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[_DEMO_TOOL],
+            extra={"tool_choice": "required", "parallel_tool_calls": False},
+        )
+        assert captured["kwargs"]["tool_choice"] == "required"
+        assert captured["kwargs"]["parallel_tool_calls"] is False
+
+    async def test_named_tool_choice_is_forwarded_verbatim_for_anthropic(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        choice = {"type": "function", "function": {"name": "search_db"}}
+        await ModelClient().complete_messages_with_tools(
+            model="claude-4.5-sonnet",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[_DEMO_TOOL],
+            extra={"tool_choice": choice},
+        )
+        assert captured["kwargs"]["tool_choice"] == choice
+
+    async def test_strict_tool_reaches_the_wire_in_both_shapes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[_STRICT_TOOL],
+        )
+        assert captured["kwargs"]["tools"][0]["function"]["strict"] is True
+
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="claude-4.5-sonnet",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[_STRICT_TOOL],
+        )
+        assert captured["kwargs"]["tools"][0]["strict"] is True
+
+    async def test_gemini_gaps_dispatch_without_a_second_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The two constraints Gemini silently loses are a run-start record now.
+
+        ``detect_dropped_params`` names them per model in ``state.json``, warns
+        once, banners the report, and can fail the verdict; a per-dispatch line
+        here would only repeat that, worse. The call itself is unchanged —
+        LiteLLM accepts both, and Gemini's own body is where they vanish.
+        """
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        with caplog.at_level(logging.WARNING, logger="evalshift_cli.models.client"):
+            await ModelClient().complete_messages_with_tools(
+                model="gemini-2.5-flash",
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[_STRICT_TOOL],
+                extra={"tool_choice": "auto", "parallel_tool_calls": False},
+            )
+        assert caplog.text == ""
+        assert captured["kwargs"]["tool_choice"] == "auto"
+        assert captured["kwargs"]["parallel_tool_calls"] is False
+        assert captured["kwargs"]["tools"][0]["function"]["strict"] is True
+
+    async def test_no_warning_for_expressible_constraints(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        with caplog.at_level(logging.WARNING, logger="evalshift_cli.models.client"):
+            await ModelClient().complete_messages_with_tools(
+                model="claude-4.5-sonnet",
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[_STRICT_TOOL],
+                extra={"tool_choice": "auto", "parallel_tool_calls": False},
+            )
+        assert caplog.text == ""
+
+    async def test_toolless_path_drops_tool_choice_with_a_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        captured = _patch_acompletion(monkeypatch, lambda **_: _FakeResponse("ok"))
+        with caplog.at_level(logging.WARNING, logger="evalshift_cli.models.client"):
+            await ModelClient().complete_messages(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "hi"}],
+                extra={
+                    "tool_choice": "required",
+                    "parallel_tool_calls": False,
+                    "response_format": {"type": "json_object"},
+                },
+            )
+        assert "tool_choice" not in captured["kwargs"]
+        assert "parallel_tool_calls" not in captured["kwargs"]
+        assert captured["kwargs"]["response_format"] == {"type": "json_object"}
+        assert "no tools" in caplog.text
+
+    async def test_caller_extra_is_not_mutated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_acompletion(monkeypatch, lambda **_: _FakeResponse("ok"))
+        extra = {"tool_choice": "required"}
+        await ModelClient().complete_messages(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            extra=extra,
+        )
+        assert extra == {"tool_choice": "required"}
+
+
+class TestLiteLLMTranslatesToolChoice:
+    """Pin what LiteLLM itself does with the OpenAI-style values we send.
+
+    This is the justification for *not* hand-translating in the CLI: LiteLLM's
+    provider configs already map OpenAI-style ``tool_choice`` /
+    ``parallel_tool_calls`` onto Anthropic's ``tool_choice`` object and
+    Gemini's ``toolConfig``. If a LiteLLM upgrade changes that, this test
+    fails and the CLI's pass-through decision gets revisited.
+    """
+
+    @staticmethod
+    def _mapped(model: str, provider: str, tools: list[dict[str, Any]], **kwargs: Any) -> Any:
+        from litellm.utils import get_optional_params
+
+        return get_optional_params(
+            model=model,
+            custom_llm_provider=provider,
+            tools=tools,
+            drop_params=True,
+            **kwargs,
+        )
+
+    def test_anthropic_named_choice_becomes_a_tool_object(self) -> None:
+        mapped = self._mapped(
+            "claude-sonnet-4-5",
+            "anthropic",
+            [_STRICT_TOOL.to_anthropic()],
+            tool_choice={"type": "function", "function": {"name": "search_db"}},
+            parallel_tool_calls=False,
+        )
+        assert mapped["tool_choice"] == {
+            "type": "tool",
+            "name": "search_db",
+            "disable_parallel_tool_use": True,
+        }
+        # Anthropic-native tools (our wire shape for this provider) pass
+        # through untouched, `strict` included.
+        assert mapped["tools"][0]["strict"] is True
+
+    def test_anthropic_required_becomes_any(self) -> None:
+        mapped = self._mapped(
+            "claude-sonnet-4-5",
+            "anthropic",
+            [_DEMO_TOOL.to_anthropic()],
+            tool_choice="required",
+        )
+        assert mapped["tool_choice"] == {"type": "any"}
+
+    def test_gemini_choice_becomes_tool_config(self) -> None:
+        mapped = self._mapped(
+            "gemini-2.5-flash",
+            "gemini",
+            [_DEMO_TOOL.to_openai()],
+            tool_choice={"type": "function", "function": {"name": "search_db"}},
+        )
+        assert mapped["tool_choice"] == {
+            "functionCallingConfig": {"mode": "ANY", "allowed_function_names": ["search_db"]}
+        }
+
+    def test_gemini_drops_strict_from_function_declarations(self) -> None:
+        """Documents the un-expressible pair (gemini, strict)."""
+        mapped = self._mapped("gemini-2.5-flash", "gemini", [_STRICT_TOOL.to_openai()])
+        declaration = mapped["tools"][0]["function_declarations"][0]
+        assert "strict" not in declaration
+
+    def test_openai_passes_both_through_unchanged(self) -> None:
+        mapped = self._mapped(
+            "gpt-4o",
+            "openai",
+            [_STRICT_TOOL.to_openai()],
+            tool_choice="required",
+            parallel_tool_calls=False,
+        )
+        assert mapped["tool_choice"] == "required"
+        assert mapped["parallel_tool_calls"] is False
+        assert mapped["tools"][0]["function"]["strict"] is True

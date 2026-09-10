@@ -13,16 +13,16 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.cli.main import app
-from evalshift.hosted.bundle import BUNDLE_FILENAME, BundleError, build_bundle
-from evalshift.hosted.credentials import (
+from evalshift_cli.cli.main import app
+from evalshift_cli.hosted.bundle import BUNDLE_FILENAME, BundleError, build_bundle
+from evalshift_cli.hosted.credentials import (
     CredentialsError,
     load_credentials,
     resolve_credentials,
     resolve_host,
     save_credentials,
 )
-from evalshift.hosted.push import (
+from evalshift_cli.hosted.push import (
     _TRANSIENT_STATUSES,
     HostedHTTPError,
     PushError,
@@ -100,7 +100,7 @@ def test_login_writes_credentials_without_printing_token(
     def fake_me(self: Any) -> dict[str, Any]:
         return {"email": "dev@example.com"}
 
-    monkeypatch.setattr("evalshift.cli.commands.login.HostedClient.me", fake_me)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient.me", fake_me)
 
     result = runner.invoke(
         app,
@@ -157,8 +157,8 @@ def test_login_device_flow_opens_browser_polls_and_saves_credentials_without_pri
         opened.append(url)
         return True
 
-    monkeypatch.setattr("evalshift.cli.commands.login.HostedClient", FakeHostedClient)
-    monkeypatch.setattr("evalshift.cli.commands.login.webbrowser.open", fake_open)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", FakeHostedClient)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.webbrowser.open", fake_open)
 
     result = runner.invoke(app, ["login", "--host", "https://api.evalshift.test"])
 
@@ -194,7 +194,7 @@ def test_login_honors_env_host_when_no_flag(
         def me(self) -> dict[str, Any]:
             return {"email": "dev@example.com"}
 
-    monkeypatch.setattr("evalshift.cli.commands.login.HostedClient", FakeHostedClient)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", FakeHostedClient)
 
     result = runner.invoke(app, ["login", "--token", "es_plaintext"])
 
@@ -238,8 +238,8 @@ def test_login_device_flow_no_browser_does_not_open_browser(
     def fail_open(url: str) -> None:
         raise AssertionError(f"browser should not open {url}")
 
-    monkeypatch.setattr("evalshift.cli.commands.login.HostedClient", FakeHostedClient)
-    monkeypatch.setattr("evalshift.cli.commands.login.webbrowser.open", fail_open)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", FakeHostedClient)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.webbrowser.open", fail_open)
 
     result = runner.invoke(
         app,
@@ -279,8 +279,8 @@ def test_login_device_flow_denied_does_not_save_credentials(
         def poll_cli_device_login(self, *, device_code: str) -> dict[str, Any]:
             raise HostedHTTPError(400, "CLI login was denied")
 
-    monkeypatch.setattr("evalshift.cli.commands.login.HostedClient", FakeHostedClient)
-    monkeypatch.setattr("evalshift.cli.commands.login.webbrowser.open", lambda _url: None)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", FakeHostedClient)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.webbrowser.open", lambda _url: None)
 
     result = runner.invoke(app, ["login", "--host", "https://api.evalshift.test"])
 
@@ -315,8 +315,8 @@ def test_whoami_prints_user_and_visible_org_roles(monkeypatch: pytest.MonkeyPatc
     def fake_orgs(self: Any) -> list[dict[str, Any]]:
         return [{"slug": "acme", "name": "Acme", "role": "owner"}]
 
-    monkeypatch.setattr("evalshift.cli.commands.whoami.HostedClient.me", fake_me)
-    monkeypatch.setattr("evalshift.cli.commands.whoami.HostedClient.orgs", fake_orgs)
+    monkeypatch.setattr("evalshift_cli.cli.commands.whoami.HostedClient.me", fake_me)
+    monkeypatch.setattr("evalshift_cli.cli.commands.whoami.HostedClient.orgs", fake_orgs)
 
     result = runner.invoke(app, ["whoami"])
 
@@ -543,7 +543,7 @@ def test_push_treats_available_run_as_idempotent_without_upload(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     result = _push(bundle_path, tmp_path, create_project=False)
 
@@ -573,7 +573,7 @@ def test_push_sends_the_uploaded_files_size_on_create(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     _push(bundle_path, tmp_path, create_project=False)
 
@@ -616,7 +616,7 @@ def test_push_local_run_defaults_suite_path_from_state(
         captured["bundle_path"] = bundle_path
         return PushResult(run_id="r_20260516_abcdef", view_url="https://app.test/x", uploaded=True)
 
-    monkeypatch.setattr("evalshift.hosted.push.push_bundle", fake_push_bundle)
+    monkeypatch.setattr("evalshift_cli.hosted.push.push_bundle", fake_push_bundle)
 
     result = push_local_run(
         run_id="r_20260516_abcdef",
@@ -643,7 +643,7 @@ def test_push_command_omits_suite_defers_to_state(
         captured.update(kwargs)
         return PushResult(run_id="r_20260516_abcdef", view_url="https://app.test/x", uploaded=True)
 
-    monkeypatch.setattr("evalshift.cli.commands.push.push_local_run", fake_push_local_run)
+    monkeypatch.setattr("evalshift_cli.cli.commands.push.push_local_run", fake_push_local_run)
 
     result = runner.invoke(
         app,
@@ -698,7 +698,7 @@ def test_push_command_resolves_named_suite(
         captured.update(kwargs)
         return PushResult(run_id="r_20260516_abcdef", view_url="https://app.test/x", uploaded=True)
 
-    monkeypatch.setattr("evalshift.cli.commands.push.push_local_run", fake_push_local_run)
+    monkeypatch.setattr("evalshift_cli.cli.commands.push.push_local_run", fake_push_local_run)
 
     result = runner.invoke(
         app,
@@ -729,7 +729,7 @@ def test_push_command_unknown_suite_name_errors(
     def fail_push_local_run(**_: Any) -> PushResult:
         raise AssertionError("push_local_run should not be reached on a bad --suite-name")
 
-    monkeypatch.setattr("evalshift.cli.commands.push.push_local_run", fail_push_local_run)
+    monkeypatch.setattr("evalshift_cli.cli.commands.push.push_local_run", fail_push_local_run)
 
     result = runner.invoke(
         app,
@@ -788,7 +788,7 @@ def test_push_prints_the_run_url_on_one_unbroken_line_when_stdout_is_a_pipe(
     def fake_push_local_run(**_: Any) -> PushResult:
         return PushResult(run_id="r_20260516_abcdef", view_url=LONG_VIEW_URL, uploaded=True)
 
-    monkeypatch.setattr("evalshift.cli.commands.push.push_local_run", fake_push_local_run)
+    monkeypatch.setattr("evalshift_cli.cli.commands.push.push_local_run", fake_push_local_run)
 
     result = runner.invoke(
         app,
@@ -849,7 +849,7 @@ def test_push_auto_creates_missing_project_when_org_is_visible(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     result = _push(bundle_path, tmp_path, create_project=True)
 
@@ -870,7 +870,7 @@ def test_push_does_not_auto_create_when_disabled(
     fake = _fake_client(responses=[{"raise_404": True}], projects=[])
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     with pytest.raises(PushError, match="project was not found"):
         _push(bundle_path, tmp_path, create_project=False)
@@ -895,7 +895,7 @@ def test_auto_create_failure_names_the_host_and_the_servers_answer(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "http://localhost:8080")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     with pytest.raises(PushError) as excinfo:
         _push(bundle_path, tmp_path, create_project=True)
@@ -921,7 +921,7 @@ def test_create_project_failure_names_the_host_and_the_servers_answer(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "http://localhost:8080")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     with pytest.raises(PushError) as excinfo:
         _push(bundle_path, tmp_path, create_project=True)
@@ -963,7 +963,7 @@ def test_push_renders_the_upgrade_prompt_on_402(
     fake = _fake_client(responses=[{"raise_error": _payment_required()}], projects=[])
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     with pytest.raises(PushError) as excinfo:
         _push(bundle_path, tmp_path, create_project=True)
@@ -988,7 +988,7 @@ def test_push_upgrade_prompt_omits_the_link_when_the_server_sends_none(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     with pytest.raises(PushError) as excinfo:
         _push(bundle_path, tmp_path, create_project=False)
@@ -1020,8 +1020,8 @@ def test_push_renders_the_upgrade_prompt_when_finalize_returns_402(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
-    monkeypatch.setattr("evalshift.hosted.push._put_with_retries", lambda *a, **k: None)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push._put_with_retries", lambda *a, **k: None)
 
     with pytest.raises(PushError) as excinfo:
         _push(bundle_path, tmp_path, create_project=False)
@@ -1041,7 +1041,7 @@ def test_push_command_exits_non_zero_and_prints_the_upgrade_prompt_on_402(
     fake = _fake_client(responses=[{"raise_error": _payment_required()}])
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     result = runner.invoke(
         app,
@@ -1108,7 +1108,7 @@ def test_push_warns_when_canonical_thresholds_differ_from_local(
     )
     monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
     monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift.hosted.push.HostedClient", lambda **_: fake)
+    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
 
     buffer = io.StringIO()
     _push(
@@ -1170,7 +1170,7 @@ def test_login_warns_on_plain_http_to_non_local_host(
     def fake_me(self: Any) -> dict[str, Any]:
         return {"email": "dev@example.com"}
 
-    monkeypatch.setattr("evalshift.cli.commands.login.HostedClient.me", fake_me)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient.me", fake_me)
 
     result = runner.invoke(
         app,

@@ -9,24 +9,27 @@ runnable via the existing ``suite/loader.load_jsonl``.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
+import litellm
 import pytest
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.captures.promote import (
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.captures.promote import (
     BuiltExample,
     PromoteOptions,
     _tool_rounds,
     build_conversation_examples,
     build_example_from_capture,
     duplicate_turn_warnings,
+    example_content_key,
     rebuild_golden_jsonl,
     write_promoted_case,
 )
-from evalshift.captures.reader import CaptureRecord
-from evalshift.suite.loader import load_jsonl
+from evalshift_cli.captures.reader import CaptureRecord
+from evalshift_cli.suite.loader import load_jsonl
 
 FIXTURES = Path(__file__).parent / "fixtures" / "captures"
 MULTI_ROUND_CAPTURE = FIXTURES / "multi_round_tools.json"
@@ -78,30 +81,82 @@ def _model_call(
     model_input: Any,
     toolset_ref: str | None = _TOOLSET_REF,
     tools_offered: list[str] | None = None,
+    requested_tool_calls: list[dict[str, Any]] | None = None,
+    model_id: str = "m",
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
 ) -> dict[str, Any]:
-    return {
+    event: dict[str, Any] = {
         "type": "model_call",
         "sequence_index": index,
         "timestamp": "2026-06-16T12:00:00+00:00",
         "metadata": {},
-        "model_id": "m",
+        "model_id": model_id,
         "input": model_input,
         "output": "out",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": cost_usd,
         "toolset_ref": toolset_ref,
         "tools_offered": tools_offered if tools_offered is not None else ["search_orders"],
     }
+    # Omitted, never written as null: "absent" is what every pre-2.1.0 capture
+    # looks like, and it is the case the executed-call path must keep serving.
+    if requested_tool_calls is not None:
+        event["requested_tool_calls"] = requested_tool_calls
+    return event
 
 
-def _tool_call(name: str, index: int, *, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
+# Sentinel for _tool_call's call_id: the default derives one from name+index,
+# while an explicit None omits the field entirely -- what a capture from an SDK
+# (or provider) that reported no call ids looks like, and the case the
+# pair-by-name fallback exists for.
+_AUTO_CALL_ID = "<auto>"
+
+
+def _tool_call(
+    name: str,
+    index: int,
+    *,
+    args: dict[str, Any] | None = None,
+    call_id: str | None = _AUTO_CALL_ID,
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
         "type": "tool_call",
         "sequence_index": index,
         "timestamp": "2026-06-16T12:00:02+00:00",
         "metadata": {},
         "name": name,
         "arguments": args if args is not None else {"q": "x"},
-        "call_id": f"call_{name}_{index}",
     }
+    if call_id == _AUTO_CALL_ID:
+        event["call_id"] = f"call_{name}_{index}"
+    elif call_id is not None:
+        event["call_id"] = call_id
+    return event
+
+
+def _tool_result(
+    name: str,
+    index: int,
+    *,
+    result: Any = None,
+    error: str | None = None,
+    call_id: str | None = None,
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "type": "tool_result",
+        "sequence_index": index,
+        "timestamp": "2026-06-16T12:00:02+00:00",
+        "metadata": {},
+        "name": name,
+        "result": result,
+        "error": error,
+    }
+    if call_id is not None:
+        event["call_id"] = call_id
+    return event
 
 
 def _error(message: str, index: int) -> dict[str, Any]:
@@ -1270,14 +1325,19 @@ def test_promote_records_every_round_regardless_of_scoping() -> None:
     ]
 
 
-def test_promote_rounds_all_restores_the_flattened_list() -> None:
+def test_promote_rounds_all_still_scopes_expected_tools_to_round_one() -> None:
+    """--rounds all no longer flattens: expected_tools is always round 1.
+
+    The flattened list was a yardstick no replay could meet; the later rounds
+    now travel as expected_tool_rounds + tool_result_fixtures instead, scored
+    round by round.
+    """
     env = load_capture_fixture("multi_round_tools.json")
     built = build_example_from_capture(env, PromoteOptions(rounds="all"))
     assert built.example.expected_tools is not None
     assert [t.tool_name for t in built.example.expected_tools] == [
         "archive_project",
         "archive_project",
-        "get_projects",
     ]
 
 
@@ -1324,6 +1384,299 @@ def test_a_capture_with_no_tools_records_no_rounds() -> None:
     assert built.example.expected_tool_rounds is None
     assert built.example.expected_tools is None
     assert built.example.expected_no_tools is True
+
+
+# ---------------------------------------------------------------------------
+# Teacher-forced replay — tool_result_fixtures
+#
+# --rounds all now carries the recorded tool results alongside
+# expected_tool_rounds, so the runner can replay round k with rounds 0..k-1
+# fed back verbatim. Alignment is positional and load-time validated (see
+# suite/models.py), so everything below is really one assertion: the fixture
+# at [k][i] is the result of the call at expected_tool_rounds[k][i].
+# ---------------------------------------------------------------------------
+
+
+def test_rounds_first_writes_no_fixtures() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions())
+    assert built.example.tool_result_fixtures is None
+    assert built.example.rounds_to_replay() == 1
+
+
+def test_rounds_all_carries_every_recorded_result_as_a_fixture() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [[f.tool_name for f in r] for r in fixtures] == [
+        ["archive_project", "archive_project"],
+        ["get_projects"],
+    ]
+    assert [f.result for f in fixtures[0]] == [
+        {"success": True, "title": "Series A Fundraise", "status": "archived"},
+        {"success": True, "title": "Q2 Product Launch", "status": "archived"},
+    ]
+    assert fixtures[1][0].result == {
+        "success": True,
+        "projects": [{"id": 57, "title": "evalshift updates"}],
+    }
+    # Two covered rounds plus the answer round after them.
+    assert built.example.rounds_to_replay() == 3
+
+
+def test_fixtures_pair_by_call_id_not_by_position() -> None:
+    """Results recorded out of order still land on the call they answer."""
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1, call_id="c1"),
+            _tool_call("search_orders", 2, call_id="c2"),
+            _tool_result("search_orders", 3, result="second", call_id="c2"),
+            _tool_result("search_orders", 4, result="first", call_id="c1"),
+            _model_call(5, model_input="hi"),
+            _final("done", 6),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [f.result for f in fixtures[0]] == ["first", "second"]
+
+
+def test_fixtures_fall_back_to_name_within_the_round_when_ids_are_absent() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1, call_id=None),
+            _tool_call("send_email", 2, call_id=None),
+            _tool_result("send_email", 3, result="sent"),
+            _tool_result("search_orders", 4, result="found"),
+            _final("done", 5),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [(f.tool_name, f.result) for f in fixtures[0]] == [
+        ("search_orders", "found"),
+        ("send_email", "sent"),
+    ]
+
+
+def test_a_name_match_never_reaches_across_a_round_boundary() -> None:
+    """Round 2's result must not be conscripted to answer round 1's call."""
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1, call_id=None),
+            _model_call(2, model_input="hi"),
+            _tool_call("search_orders", 3, call_id=None),
+            _tool_result("search_orders", 4, result="round 2 only"),
+            _final("done", 5),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.example.tool_result_fixtures is None
+    assert any(
+        "round 1 has 1 tool call(s) with no recorded result; replay stays single-shot" in w
+        for w in built.warnings
+    )
+
+
+def test_an_unpaired_call_stops_fixture_coverage_at_that_round() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+            _model_call(3, model_input="hi"),
+            _tool_call("send_email", 4),
+            _tool_call("send_email", 5),
+            _tool_result("send_email", 6, result="sent", call_id="call_send_email_4"),
+            _model_call(7, model_input="hi"),
+            _final("done", 8),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [[f.tool_name for f in r] for r in fixtures] == [["search_orders"]]
+    assert built.example.rounds_to_replay() == 2
+    assert any(
+        "round 2 has 1 tool call(s) with no recorded result; replay will cover rounds 1..1" in w
+        for w in built.warnings
+    )
+
+
+def test_fixtures_carry_a_recorded_error_verbatim() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, error="404 not found", call_id="call_search_orders_1"),
+            _final("done", 3),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert fixtures[0][0].error == "404 not found"
+    assert fixtures[0][0].result is None
+
+
+def test_requested_calls_pair_their_results_by_call_id() -> None:
+    env = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[
+                    _requested("search_orders", call_id="r1"),
+                    _requested("search_orders", call_id="r2"),
+                ],
+            ),
+            _tool_call("search_orders", 1, call_id="r1"),
+            _tool_call("search_orders", 2, call_id="r2"),
+            _tool_result("search_orders", 3, result="second", call_id="r2"),
+            _tool_result("search_orders", 4, result="first", call_id="r1"),
+            _model_call(5, model_input="hi", requested_tool_calls=[]),
+            _final("done", 6),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.promotion_source == "requested"
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [f.result for f in fixtures[0]] == ["first", "second"]
+
+
+def test_requested_calls_without_ids_pair_by_name_within_the_round() -> None:
+    env = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders"), _requested("send_email")],
+            ),
+            _tool_call("search_orders", 1, call_id=None),
+            _tool_call("send_email", 2, call_id=None),
+            _tool_result("send_email", 3, result="sent"),
+            _tool_result("search_orders", 4, result="found"),
+            _model_call(5, model_input="hi", requested_tool_calls=[]),
+            _final("done", 6),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.promotion_source == "requested"
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [(f.tool_name, f.result) for f in fixtures[0]] == [
+        ("search_orders", "found"),
+        ("send_email", "sent"),
+    ]
+
+
+def test_tool_count_under_rounds_all_totals_the_replayed_rounds() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions(rounds="all", tool_count=True))
+    assert built.example.expected_tool_count == 3
+
+
+def test_tool_count_under_rounds_all_includes_the_round_that_stopped_coverage() -> None:
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi"),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+            _model_call(3, model_input="hi"),
+            _tool_call("send_email", 4, call_id=None),
+            _model_call(5, model_input="hi"),
+            _tool_call("archive_project", 6, call_id=None),
+            _final("done", 7),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all", tool_count=True))
+
+    # Round 1 is covered and round 2 is the answer round the replay reaches;
+    # round 3 is never replayed, so its call is not in the denominator.
+    assert built.example.rounds_to_replay() == 2
+    assert built.example.expected_tool_count == 2
+
+
+def test_tool_count_under_rounds_first_still_counts_round_one_only() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions(tool_count=True))
+    assert built.example.expected_tool_count == 2
+
+
+def test_a_capture_with_no_toolset_carries_no_fixtures() -> None:
+    """The inert placeholder example must stay inert (see the I2 comment)."""
+    env = _envelope(
+        events=[
+            _model_call(0, model_input="hi", toolset_ref=None),
+            _tool_call("search_orders", 1),
+            _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+            _final("done", 3),
+        ],
+    )
+    built = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert built.blocked is not None
+    assert built.example.tool_result_fixtures is None
+
+
+def test_conversation_examples_pass_fixtures_through() -> None:
+    record = _record(
+        _envelope(
+            capture_id="cap_conv",
+            conversation_id="c1",
+            turn_index=0,
+            events=[
+                _model_call(0, model_input="hi"),
+                _tool_call("search_orders", 1),
+                _tool_result("search_orders", 2, result="found", call_id="call_search_orders_1"),
+                _model_call(3, model_input="hi"),
+                _final("done", 4),
+            ],
+        ),
+    )
+
+    [(_, built)] = build_conversation_examples([record], PromoteOptions(rounds="all"))
+
+    fixtures = built.example.tool_result_fixtures
+    assert fixtures is not None
+    assert [f.result for f in fixtures[0]] == ["found"]
+
+
+def test_example_content_key_ignores_fixtures() -> None:
+    """Two captures with the same replayed content are one case, whatever
+    their tools returned."""
+    env = load_capture_fixture("multi_round_tools.json")
+    first = build_example_from_capture(env, PromoteOptions())
+    every = build_example_from_capture(env, PromoteOptions(rounds="all"))
+
+    assert first.example.tool_result_fixtures is None
+    assert every.example.tool_result_fixtures is not None
+    assert example_content_key(first.example) == example_content_key(every.example)
+
+
+def test_the_rounds_first_warning_points_at_teacher_forced_replay() -> None:
+    env = load_capture_fixture("multi_round_tools.json")
+    built = build_example_from_capture(env, PromoteOptions())
+
+    [warning] = [w for w in built.warnings if "agent round(s)" in w]
+    assert "--rounds all" in warning
+    assert "teacher-forced" in warning
+    assert "flatten" not in warning
 
 
 # ---------------------------------------------------------------------------
@@ -1716,3 +2069,489 @@ def test_build_marks_expected_arguments_as_captured_ground_truth() -> None:
     assert all(
         t.provenance == "captured" for r in built.example.expected_tool_rounds or [] for t in r
     )
+
+
+# ---------------------------------------------------------------------------
+# Requested vs executed tool calls
+# ---------------------------------------------------------------------------
+#
+# A capture records three distinguishable things: the tools OFFERED to the
+# model, the calls the model REQUESTED in its response, and the calls the app
+# actually EXECUTED. Only the requested list is a yardstick a candidate model
+# can be held to -- the executed calls have passed through the app's own
+# filtering, re-ordering, and (see the unwrapping section above) its function
+# signatures. So when the capture carries requested calls, they are the ground
+# truth; a capture that predates the field keeps the executed-call behaviour
+# unchanged.
+
+
+def _requested(
+    name: str, args: dict[str, Any] | None = None, *, call_id: str | None = None
+) -> dict[str, Any]:
+    call: dict[str, Any] = {"name": name, "arguments": args if args is not None else {"q": "x"}}
+    if call_id is not None:
+        call["call_id"] = call_id
+    return call
+
+
+def test_requested_calls_become_expected_tools_verbatim() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _final("done", 1),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert built.example.expected_tools is not None
+    [call] = built.example.expected_tools
+    assert call.tool_name == "search_orders"
+    assert call.arguments == {"customer_id": "c42"}
+    assert call.provenance == "captured"
+
+
+def test_requested_calls_skip_wrapper_unwrapping() -> None:
+    """The model's own arguments need no unwrapping — no wrapper signature saw them.
+
+    The executed-call path unwraps ``{"tool_args": {...}}`` because a decorated
+    Python function's parameters stood between the model and the recording.
+    Nothing stands between the model and its own requested call, so the same
+    shape here is what the model really produced and must be kept verbatim.
+    """
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="yes",
+                requested_tool_calls=[
+                    _requested("archive_project", {"tool_args": {"project_name": "X"}}),
+                ],
+            ),
+            _final("Archived.", 1),
+        ],
+    )
+
+    built = build_example_from_capture(
+        envelope,
+        PromoteOptions(tool_properties=_ARCHIVE_SCHEMA),
+    )
+
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].arguments == {"tool_args": {"project_name": "X"}}
+    assert not any("tool_args" in w for w in built.warnings)
+
+
+def test_each_model_call_is_a_round_and_empty_rounds_are_dropped() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
+            _model_call(1, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
+            # The final, text-producing round requested nothing -- dropped
+            # exactly as a tool-less executed round is.
+            _model_call(2, model_input="hi", requested_tool_calls=[]),
+            _final("done", 3),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    rounds = built.example.expected_tool_rounds
+    assert rounds is not None
+    assert [[c.tool_name for c in r] for r in rounds] == [["search_orders"], ["issue_refund"]]
+    # --rounds first still scopes expected_tools to round 1.
+    assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
+
+
+def test_requested_rounds_under_rounds_all_keep_expected_tools_at_round_one() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
+            _model_call(1, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions(rounds="all"))
+
+    assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
+    assert [[c.tool_name for c in r] for r in built.example.expected_tool_rounds or []] == [
+        ["search_orders"],
+        ["issue_refund"],
+    ]
+
+
+def test_a_model_that_requested_nothing_still_asserts_expected_no_tools() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[], tools_offered=["search"]),
+            _final("No tool needed.", 1),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert built.example.expected_tools is None
+    assert built.example.expected_no_tools is True
+
+
+def test_requested_calls_count_as_scoreable_ground_truth() -> None:
+    """A turn whose model asked for tools is scoreable even if the app ran none."""
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders")],
+            ),
+        ],
+    )
+    envelope.trace.events[0].output = ""
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert not any("no scoreable ground truth" in w for w in built.warnings)
+
+
+def test_absent_requested_calls_keep_the_executed_behaviour() -> None:
+    """The default fixture predates the field: nothing about promotion changes."""
+    built = build_example_from_capture(_envelope(), PromoteOptions())
+
+    assert built.promotion_source == "executed"
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].tool_name == "search_orders"
+    assert built.example.expected_tools[0].arguments == {"customer_id": "c42"}
+
+
+def test_a_mixed_capture_falls_back_to_executed_calls_and_warns() -> None:
+    """The usual cause is an app that omits the argument on its final, text-only call.
+
+    The SDK records ``None`` for an omitted argument, so a capture goes mixed
+    the moment one ``record_model_call`` in the run leaves it off — most often
+    the last, answer-producing call. The warning has to name *that* fix
+    (``[]``, not omission) rather than send the reader looking for two SDK
+    versions installed side by side.
+    """
+    envelope = _envelope(
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("issue_refund")]),
+            _tool_call("search_orders", 1, args={"customer_id": "c42"}),
+            _model_call(2, model_input="hi"),
+            _tool_call("search_orders", 3, args={"customer_id": "c99"}),
+            _final("done", 4),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "executed"
+    assert [c.tool_name for c in built.example.expected_tools or []] == ["search_orders"]
+    [warning] = [w for w in built.warnings if "requested_tool_calls" in w]
+    assert "1 of 2" in warning
+    # Names the real fix: record the field on every call, [] for a round that
+    # requested nothing. None means "not recorded", never "nothing requested".
+    assert "every model call" in warning
+    assert "[]" in warning
+    assert "not recorded" in warning
+    assert "fell back to the executed tool calls for the whole capture" in warning
+    # And no longer sends the reader hunting for a second SDK install.
+    assert "evalshift-sdk" not in warning
+
+
+def test_requested_calls_win_over_disagreeing_executed_calls_and_warn() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[
+                    _requested("search_orders", {"customer_id": "c42"}),
+                    _requested("issue_refund", {"ticket_id": "T-1"}),
+                ],
+            ),
+            # The app ran only one of the two the model asked for.
+            _tool_call("search_orders", 1, args={"customer_id": "c42"}),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert [c.tool_name for c in built.example.expected_tools or []] == [
+        "search_orders",
+        "issue_refund",
+    ]
+    [disagreement] = [w for w in built.warnings if "issue_refund" in w and "search_orders" in w]
+    assert "requested" in disagreement and "executed" in disagreement
+
+
+def test_matching_requested_and_executed_calls_emit_no_disagreement_warning() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _tool_call("search_orders", 1, args={"customer_id": "c42"}),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.promotion_source == "requested"
+    assert not any("disagree" in w for w in built.warnings)
+
+
+def test_differing_arguments_alone_still_warn() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _tool_call("search_orders", 1, args={"customer_id": "REDACTED"}),
+            _final("done", 2),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions())
+
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].arguments == {"customer_id": "c42"}
+    assert any("search_orders" in w and "argument" in w for w in built.warnings)
+
+
+def test_names_only_drops_requested_arguments_too() -> None:
+    envelope = _envelope(
+        events=[
+            _model_call(
+                0,
+                model_input="hi",
+                requested_tool_calls=[_requested("search_orders", {"customer_id": "c42"})],
+            ),
+            _final("done", 1),
+        ],
+    )
+
+    built = build_example_from_capture(envelope, PromoteOptions(names_only=True))
+
+    assert built.example.expected_tools is not None
+    assert built.example.expected_tools[0].arguments is None
+
+
+def test_conversation_grouping_carries_the_promotion_source() -> None:
+    envelope = _envelope(
+        capture_id="cap_t1",
+        conversation_id="conv_1",
+        turn_index=0,
+        events=[
+            _model_call(0, model_input="hi", requested_tool_calls=[_requested("search_orders")]),
+            _final("done", 1),
+        ],
+    )
+
+    [(_, built)] = build_conversation_examples([_record(envelope)], PromoteOptions())
+
+    assert built.promotion_source == "requested"
+
+
+# ---------------------------------------------------------------------------
+# Cost at promotion
+# ---------------------------------------------------------------------------
+# The SDK never prices anything: ``model_call.cost_usd`` is 0.0 unless the
+# app's own instrumentation set it, and the provider client wrappers record
+# tokens but leave cost at 0 by design. Pricing is the CLI's job, at promote
+# time, from litellm's price table. A model litellm cannot price (local /
+# self-hosted) is the normal case for open-source models, not a failure: it
+# stays at 0 with no tag and no warning.
+
+
+def _litellm_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """The number litellm itself puts on these tokens -- never a hardcoded dollar figure."""
+    in_cost, out_cost = litellm.cost_per_token(
+        model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens
+    )
+    return float(in_cost) + float(out_cost)
+
+
+class TestCostAtPromotion:
+    def test_tokens_without_cost_are_priced_from_litellm(self) -> None:
+        events = [
+            _model_call(
+                0, model_input="q", model_id="gpt-4o-mini", input_tokens=1200, output_tokens=300
+            ),
+            _final("done", 1),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        expected = _litellm_cost("gpt-4o-mini", 1200, 300)
+        assert expected > 0
+        assert built.cost_usd == pytest.approx(expected)
+        assert built.cost_source == "estimated"
+
+    def test_unpriced_model_stays_at_zero_with_no_tag_and_no_noise(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # litellm's pricer opens a socket to a local Ollama daemon for
+        # ``ollama/...`` ids and prints a provider banner for bare unknown
+        # ones -- an unpriced model must never reach it at all.
+        def _never(*_args: Any, **_kwargs: Any) -> tuple[float, float]:
+            raise AssertionError("litellm.cost_per_token must not be called for an unpriced model")
+
+        monkeypatch.setattr(litellm, "cost_per_token", _never)
+        events = [
+            _model_call(
+                0, model_input="q", model_id="llama3.1:8b", input_tokens=900, output_tokens=200
+            ),
+            _final("done", 1),
+        ]
+
+        with caplog.at_level(logging.DEBUG):
+            built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.0
+        assert built.cost_source is None
+        assert built.blocked is None
+        assert not [w for w in built.warnings if "cost" in w.lower()]
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_recorded_cost_is_left_untouched(self) -> None:
+        events = [
+            _model_call(
+                0,
+                model_input="q",
+                model_id="gpt-4o-mini",
+                input_tokens=1200,
+                output_tokens=300,
+                cost_usd=0.0123,
+            ),
+            _final("done", 1),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.0123
+        assert built.cost_source == "recorded"
+
+    def test_zero_tokens_and_zero_cost_estimate_nothing(self) -> None:
+        events = [_model_call(0, model_input="q", model_id="gpt-4o-mini"), _final("done", 1)]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.0
+        assert built.cost_source is None
+
+    def test_several_model_calls_are_summed_per_event(self) -> None:
+        # Each event is priced by its own model_id; a recorded cost is kept
+        # as-is; an unpriced event contributes 0; one estimated event makes
+        # the whole figure "estimated".
+        events = [
+            _model_call(
+                0, model_input="q", model_id="gpt-4o-mini", input_tokens=1000, output_tokens=100
+            ),
+            _tool_call("search_orders", 1),
+            _model_call(
+                2, model_input="q", model_id="m", input_tokens=500, output_tokens=50, cost_usd=0.01
+            ),
+            _model_call(
+                3, model_input="q", model_id="llama3.1:8b", input_tokens=400, output_tokens=40
+            ),
+            _final("done", 4),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == pytest.approx(_litellm_cost("gpt-4o-mini", 1000, 100) + 0.01)
+        assert built.cost_source == "estimated"
+
+    def test_recorded_plus_unpriced_is_tagged_recorded(self) -> None:
+        events = [
+            _model_call(
+                0, model_input="q", model_id="m", input_tokens=500, output_tokens=50, cost_usd=0.02
+            ),
+            _tool_call("search_orders", 1),
+            _model_call(
+                2, model_input="q", model_id="llama3.1:8b", input_tokens=400, output_tokens=40
+            ),
+            _final("done", 3),
+        ]
+
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+
+        assert built.cost_usd == 0.02
+        assert built.cost_source == "recorded"
+
+    def test_cost_round_trips_through_the_promoted_case_file(self, tmp_path: Path) -> None:
+        events = [
+            _model_call(
+                0, model_input="q", model_id="gpt-4o-mini", input_tokens=1200, output_tokens=300
+            ),
+            _final("done", 1),
+        ]
+        built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+        case = PromotedCase(
+            name=built.example.id,
+            suite="support_agent",
+            from_capture="cap_abc",
+            cost_usd=built.cost_usd,
+            cost_source=built.cost_source,
+            example=built.example,
+        )
+
+        path = write_promoted_case(case, base=tmp_path)
+        reloaded = PromotedCase.model_validate_json(path.read_text(encoding="utf-8"))
+
+        assert reloaded.cost_usd == pytest.approx(built.cost_usd)
+        assert reloaded.cost_source == "estimated"
+        # The run-facing example never carries the capture's cost: it is
+        # provenance of the recorded run, not something a replay reproduces.
+        assert "cost_usd" not in built.example.model_dump()
+
+    def test_promoted_case_written_before_cost_fields_still_parses(self) -> None:
+        legacy = json.loads(_case("legacy", "ex_1").model_dump_json())
+        legacy.pop("cost_usd")
+        legacy.pop("cost_source")
+
+        case = PromotedCase.model_validate(legacy)
+
+        assert case.cost_usd == 0.0
+        assert case.cost_source is None
+
+    def test_conversation_grouping_carries_the_cost(self) -> None:
+        envelope = _envelope(
+            capture_id="cap_t1",
+            conversation_id="conv_1",
+            turn_index=0,
+            events=[
+                _model_call(
+                    0,
+                    model_input="hi",
+                    model_id="gpt-4o-mini",
+                    input_tokens=1200,
+                    output_tokens=300,
+                ),
+                _final("done", 1),
+            ],
+        )
+
+        [(_, built)] = build_conversation_examples([_record(envelope)], PromoteOptions())
+
+        assert built.cost_usd == pytest.approx(_litellm_cost("gpt-4o-mini", 1200, 300))
+        assert built.cost_source == "estimated"

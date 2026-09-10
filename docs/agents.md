@@ -1,8 +1,15 @@
 # Agent migrations
 
 EvalShift compares **agent behaviour** — which tools the model called,
-what arguments it passed, and how it sequenced them — across two model
-versions.
+what arguments it passed, and, within a response, in what order and
+whether in parallel — across two model versions.
+
+By default `evalshift run` makes **one model call per example** and scores
+that response against the first tool-emitting round of the recording. A
+suite promoted with `--rounds all` opts into **teacher-forced multi-round
+replay**: every recorded round is replayed with the recorded tool results
+fed back, and each round is scored against its own ground truth. See
+[Agent rounds](#agent-rounds-and-what-a-replay-can-reproduce).
 
 The killer scenario it catches:
 
@@ -159,19 +166,114 @@ production behaviour; `--strict-args`, `--names-only`, and
 ### Agent rounds and what a replay can reproduce
 
 A captured agent turn is usually a **loop**: the model calls tools, reads the
-results, calls more tools, then answers. `evalshift capture promote` groups
-those calls into rounds and, by default, keeps only **round 1** as
-`expected_tools`. Every round is preserved on the case as
+results, calls more tools, then answers. `evalshift capture promote` / `sync`
+group those calls into rounds — one per recorded `model_call` — and keep
+**round 1** as `expected_tools`. Every round is preserved on the case as
 `expected_tool_rounds`.
 
-This is not a simplification — it is the only honest yardstick. `evalshift run`
-issues **one** model call per example and does not feed tool results back, so a
-candidate model cannot reach round 2. Scoring it against round-2 calls records a
-regression that no model could avoid.
+**Default (`--rounds first`): single-shot replay.** `evalshift run` issues one
+model call per example and does not feed tool results back, so a candidate
+model can only ever produce round 1, and round 1 is the only round it is
+scored against. Scoring it against round-2 calls would record a regression no
+model could avoid. A multi-round capture promoted this way prints a warning
+naming the later calls it will not replay.
 
-Promote with `--rounds all` to flatten every round into `expected_tools`. Do
-that only when you have a reason to score the whole trace — for example when
-comparing against an externally-produced multi-round trace.
+**`--rounds all`: teacher-forced multi-round replay.** Promotion also carries
+the recorded tool results on the case as `tool_result_fixtures`, aligned by
+position with `expected_tool_rounds`. Each round's calls are paired with that
+round's `tool_result` events by `call_id` first (this works for both executed
+`tool_call` events and model-`requested_tool_calls`), then by tool name among
+the results recorded in the same round; a name match never reaches across a
+`model_call` boundary. `run` then replays the example round by round:
+
+* Round *k* sees the conversation prefix (`history`, if any), the rendered
+  prompt, and then the **recorded** rounds `1..k-1` — the recorded assistant
+  tool calls and the recorded results, as ordinary `assistant` / `tool`
+  messages. The candidate's own calls are never fed back: source, target and
+  the recording all saw byte-identical context in every round, which is what
+  makes a per-round comparison fair. It is the same contract the multi-turn
+  `history` prefix already uses.
+* A result is sent verbatim when it was a string, as JSON otherwise; a recorded
+  tool error is sent as `{"error": "..."}` — the recorded agent saw the failure
+  too, and its next round is the ground truth for what to do about it.
+* The replay covers every round the fixtures cover **plus the round after it**.
+  When every tool round is covered, that last round is the *answer* round: the
+  recorded agent called nothing and produced its final text, so the candidate's
+  text is what the text evaluators compare, and a candidate that keeps calling
+  tools when it should have answered is caught.
+* Fixtures cover rounds `1..m` where round `m+1` is the first with a call that
+  has no recorded result (an app that records `@capture.tool` calls but no
+  results). Promotion warns — `round m+1 has N tool call(s) with no recorded
+  result; replay will cover rounds 1..m` — and the rounds after it stay on the
+  case as `expected_tool_rounds` but are never replayed. When round 1 itself is
+  uncovered, replay stays single-shot and the warning says so.
+* One `raw.jsonl` row per example per model, as before: tokens, cost and
+  latency are summed over rounds, `text` is the last round's answer, and the
+  trace carries every round's calls tagged with their `round_index`. A model
+  error in round *k* fails the example with `round k/n: <error>`; the rounds
+  that did complete are discarded, so a partially replayed example is an
+  unmeasured one, not a half-scored one.
+* Scoring is **per round**: `tool_selection` conformance grades round *k*
+  against `expected_tool_rounds[k]` (and "called nothing" for the answer
+  round); divergence compares round *k* of the target to round *k* of the
+  source; `tool_arguments` pairs calls within a round, so a right call in the
+  wrong round is a miss. Each record's scores are the mean over the replayed
+  rounds, with the per-round detail under `metadata.rounds`. Because the mean
+  drops below 1.0 as soon as one round differs, `max_tool_divergence` counts an
+  example as diverged if **any** replayed round diverged.
+* The cost estimate counts one call per replayed round; the progress bar still
+  counts examples.
+
+`expected_tools` is `expected_tool_rounds[0]` under both settings. `--rounds
+all` no longer flattens every round into `expected_tools` — that yardstick was
+only ever right for comparing against an externally produced multi-round
+trace, which is the `agent_trace` evaluator's job and reads imported traces.
+`--tool-count` under `--rounds all` pins the total over the rounds the replay
+actually reaches.
+
+### Tool-choice constraints are replayed too
+
+Production rarely offers tools and leaves it at that. If the app forced a tool
+(`tool_choice`), banned parallel calls (`parallel_tool_calls: false`), or
+demanded schema-exact arguments (`strict: true` on a tool), replaying without
+those constraints measures a different call than the one that ran.
+
+The SDK records all three, and `evalshift run` sends them:
+
+| Recorded as | Where | Replayed as |
+| --- | --- | --- |
+| `tool_choice` — OpenAI string (`"auto"` / `"none"` / `"required"`) or `{"type": "function", "function": {"name": ...}}` | `generation_config` | forwarded as-is |
+| `tool_choice` — Anthropic object (`{"type": "auto"\|"any"\|"tool"\|"none", "name"?, "disable_parallel_tool_use"?}`) | `generation_config` | `any` → `required`, `tool` → the named-function object, `disable_parallel_tool_use` inverted into `parallel_tool_calls` |
+| `tool_config` — Gemini (`{"function_calling_config": {"mode": "AUTO"\|"ANY"\|"NONE", "allowed_function_names"?: [...]}}`) | `generation_config` | the matching OpenAI string; exactly one allowed name becomes a named-function choice, several degrade to `required` |
+| `parallel_tool_calls` | `generation_config` | forwarded as-is (wins over the value inferred from an Anthropic `tool_choice`) |
+| `strict: true` on a tool | the toolset sidecar or inline `tools` | `function.strict` for OpenAI targets, top-level `strict` for Anthropic targets |
+
+Everything goes out in OpenAI-style form and LiteLLM maps it per provider —
+into Anthropic's `tool_choice` object (carrying `disable_parallel_tool_use`)
+and into Gemini's `toolConfig`. Because the constraint is normalised, a
+capture from one provider replays meaningfully against a target on another,
+which is the whole point of a migration run.
+
+Two constraints have no equivalent on a Gemini target: **`parallel_tool_calls`**
+(`generateContent` has no such switch) and a tool's **`strict`** flag (Gemini
+function declarations have no strict mode). LiteLLM accepts both and reports
+them as supported, then discards them while building the Gemini request body,
+so no capability probe can see the loss — EvalShift keeps a short hard-coded
+table of these gaps instead. Neither is dropped quietly: an affected arm is
+recorded at run start in `state.json` under `dropped_params`, alongside the
+parameters a model genuinely does not accept, and gets the report's
+**Constraints not honoured** banner. The tool flag is recorded under the
+pseudo-parameter name **`tools.strict`**, because it is a field on the `tools`
+array rather than a generation parameter. See
+[Configuration → `fail_on_dropped_params`](configuration.md).
+
+A recorded `tool_choice` on an example with no toolset is dropped with a
+warning: there is nothing to constrain. That one stays out of `dropped_params`
+— it says something about the *suite* (an example whose capture pinned tool use
+but whose toolset is empty), not about either target's capabilities, and it
+would otherwise be recorded identically against both arms. Recorded keys the
+runner does not translate at all (`top_p`, `max_tokens`, …) get one warning
+listing them.
 
 ### Where `expected` text comes from
 
@@ -187,7 +289,83 @@ manually instrumented project promoted `expected: null` while the reply sat in
 the last `model_call` the whole time. A non-string `output` is left alone
 rather than stringified into ground truth nothing produced.
 
-### Wrapper arguments are unwrapped
+### Requested calls are the ground truth when they were captured
+
+A capture records three things that are easy to conflate:
+
+| | Where it lives | What it is |
+| --- | --- | --- |
+| **offered** | `model_call.toolset_ref` / `.tools_offered` | the tools passed *to* the model |
+| **requested** | `model_call.requested_tool_calls` | the calls the model asked for *in its response* |
+| **executed** | the `tool_call` / `tool_result` events | the calls the app actually *ran* |
+
+Promotion prefers **requested**. The executed calls have already passed through
+the application — its filtering, retries, re-ordering, and its own function
+signatures — so they are evidence of what the *app* did; a golden case has to
+state what a *model* should produce. Each `model_call` carries its own
+response's requested calls, so each `model_call` simply *is* a round (rounds
+that requested nothing are dropped, exactly as tool-less executed rounds are),
+and `--rounds` / `--tool-count` / `--names-only` behave identically either way.
+
+The promoted case records which yardstick was used as
+`promotion_source: "requested" | "executed"`, so a report can say what a row
+measures. Two cases fall back to the executed calls:
+
+- **A capture with no requested calls at all** — written before the SDK
+  recorded them. This is the legacy path below, and it is silent.
+- **A capture where only *some* `model_call` events carry them.** The whole
+  capture falls back and `capture sync` says so, rather than score half the
+  trace against one yardstick and half against another.
+
+The second case is the one to watch, because it is a recording gap rather than
+anything about SDK versions. The SDK records the field only when your code
+passes it, and an omitted argument becomes `null`:
+
+> **Every `model_call` in the run must carry `requested_tool_calls` for the
+> capture to be scored against requested calls.** Pass `[]` for a round in
+> which the model requested no tools — `null` means *not recorded*, not
+> *nothing requested*, and the two cannot be told apart after the fact.
+
+The usual way a capture goes mixed is an agent that passes the field on its
+tool-picking calls and omits it on the final, text-only one, where there are no
+tool calls to hand over. Pass `[]` there.
+
+When requested calls are present *and* the executed ones disagree — a different
+tool, a different argument value, a different round grouping — the requested
+calls win and promotion warns, naming the tools on both sides. A difference is
+often legitimate (the app filtered or rewrote a call); the warning is there so
+you can tell that from a gap in what was captured.
+
+### What the recorded run cost
+
+The SDK never prices anything: a `model_call`'s `cost_usd` is `0.0` unless your
+own instrumentation set it, and the provider client wrappers record
+`input_tokens` / `output_tokens` but leave cost at 0 by design. Promotion fills
+the gap. Each promoted case file carries `cost_usd` — the run's `model_call`
+events summed — and `cost_source`, saying where the figure came from:
+
+- `"recorded"` — every non-zero part of the sum is what your instrumentation
+  set. A recorded cost is kept exactly as recorded, never re-estimated.
+- `"estimated"` — at least one `model_call` recorded tokens but no cost, and the
+  CLI priced it from litellm's price table for that call's own `model_id` (an
+  alias or provider-prefixed id resolves through the model registry first). A
+  run mixing recorded and estimated calls is tagged `estimated`: the figure is
+  only as certain as its least certain part.
+- absent (`null`) with `cost_usd: 0.0` — nothing was priced: the run recorded
+  no tokens, or its model has no entry in litellm's table. A local or
+  self-hosted model (`llama3.1:8b`, anything behind an OpenAI-compatible
+  endpoint) is the normal case here, not a failure — it stays at 0 silently,
+  with no warning.
+
+The figure is provenance of the capture and lives on the case file only; the
+run-facing example in `golden.jsonl` never carries it, because a replay against
+a candidate model does not reproduce it.
+
+### Wrapper arguments are unwrapped (legacy captures)
+
+This applies only to captures promoted from **executed** calls — that is, ones
+recorded before `requested_tool_calls` existed. A model's own requested
+arguments are never rewritten: nothing stands between the model and them.
 
 A capture SDK that decorates a Python function records that *function's*
 parameters. An agent whose tools are `def archive_project(tool_args: dict)`

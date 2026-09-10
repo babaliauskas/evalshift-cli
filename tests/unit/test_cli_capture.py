@@ -9,13 +9,13 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.captures.toolset import EMPTY_TOOLSET_FINGERPRINT, fingerprint_tools
-from evalshift.cli.commands.capture import _declared_tool_properties
-from evalshift.cli.commands.init import render_minimal_config
-from evalshift.cli.main import app
-from evalshift.config.loader import load_config
-from evalshift.suite.loader import load_jsonl
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.captures.toolset import EMPTY_TOOLSET_FINGERPRINT, fingerprint_tools
+from evalshift_cli.cli.commands.capture import _declared_tool_properties
+from evalshift_cli.cli.commands.init import render_minimal_config
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.loader import load_config
+from evalshift_cli.suite.loader import load_jsonl
 
 runner = CliRunner()
 
@@ -1640,7 +1640,40 @@ def test_sync_defaults_to_first_round(tmp_path: Path) -> None:
     assert names == ["archive_project", "archive_project"]
 
 
-def test_sync_rounds_all_flattens(tmp_path: Path) -> None:
+def _tool_result_event(name: str, index: int, call_id: str, result: Any) -> dict[str, Any]:
+    return {
+        "type": "tool_result",
+        "sequence_index": index,
+        "timestamp": "2026-06-16T12:00:01+00:00",
+        "metadata": {},
+        "name": name,
+        "call_id": call_id,
+        "result": result,
+    }
+
+
+def _multi_round_events_with_results() -> list[dict[str, Any]]:
+    """``_multi_round_events`` with every call's recorded result — what a
+    teacher-forced ``--rounds all`` promotion needs."""
+    results = {
+        "call_a": {"ok": True},
+        "call_b": {"ok": True},
+        "call_c": {"projects": []},
+    }
+    out: list[dict[str, Any]] = []
+    for event in _multi_round_events():
+        out.append({**event, "sequence_index": len(out)})
+        if event["type"] == "tool_call":
+            call_id = str(event["call_id"])
+            out.append(
+                _tool_result_event(str(event["name"]), len(out), call_id, results[call_id]),
+            )
+    return out
+
+
+def test_sync_rounds_all_scopes_expected_tools_to_round_one(tmp_path: Path) -> None:
+    """--rounds all no longer flattens; without recorded results it also
+    cannot cover a single round, so it says so."""
     _write_capture(
         tmp_path,
         capture_id="cap_multi",
@@ -1653,25 +1686,35 @@ def test_sync_rounds_all_flattens(tmp_path: Path) -> None:
     result = _invoke(["sync", "--rounds", "all", "--config", str(config)], tmp_path)
 
     assert result.exit_code == 0, result.stdout
+    assert "replay stays single-shot" in _flat(result.stdout)
     suite = load_jsonl(tmp_path / "suites" / "main_chat" / "golden.jsonl")
     names = [t.tool_name for t in suite.examples[0].expected_tools or []]
-    assert names == ["archive_project", "archive_project", "get_projects"]
+    assert names == ["archive_project", "archive_project"]
+    assert suite.examples[0].tool_result_fixtures is None
 
 
-def test_promote_rounds_all_flattens(tmp_path: Path) -> None:
+def test_promote_rounds_all_carries_tool_result_fixtures(tmp_path: Path) -> None:
     _write_capture(
         tmp_path,
         capture_id="cap_multi",
         suite="main_chat",
-        events=_multi_round_events(),
+        events=_multi_round_events_with_results(),
     )
 
     result = _invoke(["promote", "cap_multi", "--as", "case1", "--rounds", "all"], tmp_path)
 
     assert result.exit_code == 0, result.stdout
     suite = load_jsonl(tmp_path / "suites" / "main_chat" / "golden.jsonl")
-    names = [t.tool_name for t in suite.examples[0].expected_tools or []]
-    assert names == ["archive_project", "archive_project", "get_projects"]
+    example = suite.examples[0]
+    assert [t.tool_name for t in example.expected_tools or []] == [
+        "archive_project",
+        "archive_project",
+    ]
+    assert [[f.tool_name for f in r] for r in example.tool_result_fixtures or []] == [
+        ["archive_project", "archive_project"],
+        ["get_projects"],
+    ]
+    assert example.rounds_to_replay() == 3
 
 
 def test_promote_records_every_round_on_the_case(tmp_path: Path) -> None:
@@ -1692,6 +1735,41 @@ def test_promote_records_every_round_on_the_case(tmp_path: Path) -> None:
         ["archive_project", "archive_project"],
         ["get_projects"],
     ]
+
+
+def _requested_events(names: list[str]) -> list[dict[str, Any]]:
+    """A capture whose model_call records the calls the model asked for."""
+    events = _events(tools=names)
+    events[0]["requested_tool_calls"] = [
+        {"name": name, "arguments": {"customer_id": "c42"}} for name in names
+    ]
+    return events
+
+
+def test_promote_records_the_promotion_source_on_the_case(tmp_path: Path) -> None:
+    """Reports need to know which yardstick a case was promoted against."""
+    _write_capture(tmp_path, capture_id="cap_req", events=_requested_events(["search_orders"]))
+    _write_capture(tmp_path, capture_id="cap_exec", tools=["search_orders"])
+
+    assert _invoke(["promote", "cap_req", "--as", "req"], tmp_path).exit_code == 0
+    assert _invoke(["promote", "cap_exec", "--as", "exe"], tmp_path).exit_code == 0
+
+    suite_dir = tmp_path / "suites" / "support_agent"
+    requested = PromotedCase.model_validate_json((suite_dir / "req.json").read_text("utf-8"))
+    executed = PromotedCase.model_validate_json((suite_dir / "exe.json").read_text("utf-8"))
+    assert requested.promotion_source == "requested"
+    assert executed.promotion_source == "executed"
+
+
+def test_sync_records_the_promotion_source_on_every_case(tmp_path: Path) -> None:
+    _write_capture(tmp_path, capture_id="cap_req", events=_requested_events(["search_orders"]))
+
+    result = _invoke(["sync", "--print"], tmp_path)
+
+    assert result.exit_code == 0, result.stdout
+    case_path = tmp_path / "suites" / "support_agent" / "cap_req.json"
+    case = PromotedCase.model_validate_json(case_path.read_text(encoding="utf-8"))
+    assert case.promotion_source == "requested"
 
 
 def test_rounds_rejects_an_unknown_value(tmp_path: Path) -> None:
@@ -1890,7 +1968,7 @@ def _write_stale_workflow(root: Path, version: str = "0.0.1") -> Path:
 def test_sync_warns_when_ci_pins_an_older_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("evalshift.cli.commands.capture.__version__", "1.2.3")
+    monkeypatch.setattr("evalshift_cli.cli.commands.capture.__version__", "1.2.3")
     _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
     config = tmp_path / "evalshift.yaml"
     _write_min_config(config)
@@ -1911,7 +1989,7 @@ def test_sync_warns_when_ci_pins_an_older_cli(
 def test_sync_print_still_warns_about_a_stale_ci_pin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("evalshift.cli.commands.capture.__version__", "1.2.3")
+    monkeypatch.setattr("evalshift_cli.cli.commands.capture.__version__", "1.2.3")
     _write_capture(tmp_path, capture_id="cap_1", suite="alpha")
     config = tmp_path / "evalshift.yaml"
     _write_min_config(config)

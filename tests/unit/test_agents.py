@@ -1,4 +1,4 @@
-"""Tests for agent-instruction wiring (:mod:`evalshift.cli.commands._agents`).
+"""Tests for agent-instruction wiring (:mod:`evalshift_cli.cli.commands._agents`).
 
 ``init`` writes a standalone ``EVALSHIFT.md`` guide and appends an idempotent,
 marker-delimited pointer to it into whatever agent-context files a project
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from evalshift.cli.commands._agents import (
+from evalshift_cli.cli.commands._agents import (
     AGENT_CONTEXT_FILES,
     AGENT_INSTRUCTIONS,
     AGENT_INSTRUCTIONS_FILENAME,

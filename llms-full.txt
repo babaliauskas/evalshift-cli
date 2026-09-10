@@ -31,8 +31,9 @@ Companion package: evalshift-sdk (separate PyPI package, in-process capture SDK)
 production agent runs as JSON captures under .evalshift/captures/<suite>/cap_<hex>.json;
 this CLI promotes them into golden suites (`evalshift capture sync`). Disk is the only
 interface between SDK and CLI — they never import or call each other.
-CAUTION: both packages use top-level import name `evalshift` —
-install them in separate virtual environments.
+The CLI imports as `evalshift_cli` and depends on evalshift-sdk, so one environment holds
+both and `import evalshift` is always the SDK. `python -m evalshift_cli` is the module form
+of the `evalshift` binary.
 `evalshift init` (default --wire-agents) writes EVALSHIFT.md into the user's project and points
 existing agent files (AGENTS.md, CLAUDE.md, GEMINI.md, .cursorrules,
 .github/copilot-instructions.md) at all three URLs above, creating AGENTS.md when none of them
@@ -41,7 +42,9 @@ exist; --no-wire-agents disables it.
 Quickstart (recommended, capture-first):
 1. pip install evalshift
 2. evalshift init                       -> minimal capture-first evalshift.yaml
-3. pip install evalshift-sdk            -> IN THE AGENT'S OWN VENV (shared import name `evalshift`)
+3. pip install evalshift-sdk            -> already pulled in by `pip install evalshift` (the CLI depends on
+                                           it; `import evalshift` is the SDK, the CLI imports as evalshift_cli).
+                                           Install it alone in a production agent that only records.
 4. decorate the agent (@capture.agent(suite=..., redact=True, tools=[]), @capture.tool(name=...)), run it
    with EVALSHIFT_CAPTURE=1 -> writes .evalshift/captures/<suite>/cap_<hex>.json
    redact= is REQUIRED on every sdk capture point (@capture.agent, capture.agent_session,
@@ -50,6 +53,14 @@ Quickstart (recommended, capture-first):
    (value) -> value callable. Any other value, None included, raises TypeError. There is no
    configure(redact=...) — it was removed in 0.3.0. tools= is REQUIRED on the same entry
    points: the toolset the agent was offered, or [] if it never calls tools.
+   Alternative to hand-written record_model_call (evalshift-sdk 0.4.0+): wrap the provider client
+   once — wrap_openai / wrap_anthropic / wrap_genai from evalshift.adapters.<provider>, extras
+   [openai] / [anthropic] / [google-genai]; wrap_openai(OpenAI(base_url=...)) covers Ollama, vLLM,
+   Groq, OpenRouter. Every call (sync/async/stream) records model_id, offered tools,
+   requested_tool_calls, input/output, usage, latency and tool_choice / parallel_tool_calls /
+   strict. With record_model_call, pass requested_tool_calls=extract_requested_tool_calls(response)
+   on EVERY model call ([] when none) so capture sync scores against the model's requested calls
+   (promotion_source: requested) instead of the executed ones.
 5. evalshift capture sync               -> captures become .evalshift/suites/<suite>/golden.jsonl
                                            and the managed `suites:` block in evalshift.yaml
 6. evalshift all --suite-name <suite> --to <candidate-model>   (real API calls; costs money —
@@ -67,8 +78,8 @@ as one section under the pipeline block (also on stage failure); errors are neve
 
 | File | Stage | Contents |
 |---|---|---|
-| state.json | run | status (in_progress/completed/failed), models, config_hash, counters, non_deterministic_models, evaluator_coverage (written by evaluate: attempted vs recorded per axis, the pairs that produced no row, + the axis's blocking flag; absent flag reads as true) |
-| raw.jsonl | run | one model call per line: prompt, output, tokens, cost, latency, tool trace, error |
+| state.json | run | status (in_progress/completed/failed), models, config_hash, counters, non_deterministic_models, dropped_params, evaluator_coverage (written by evaluate: attempted vs recorded per axis, the pairs that produced no row, + the axis's blocking flag; absent flag reads as true) |
+| raw.jsonl | run | one (prompt, example, role) per line: prompt, output, tokens, cost, latency, tool trace, error. A teacher-forced multi-round example is ONE row: tokens/cost/latency summed, text = last round's answer, trace.round_count = rounds, each call tagged round_index |
 | scores.jsonl | evaluate | one EvalRecord per (pair x evaluator): source/target scores in [0,1], delta |
 | analysis.json | analyze | per-(prompt,evaluator,slice) statistics + severity |
 | migration_decision.json | analyze | policy verdict (only when migration_policy configured) |
@@ -81,8 +92,15 @@ Cache: SQLite ~/.evalshift/cache.db, key = SHA-256 of canonical JSON
 {model, prompt, inputs, temperature, max_tokens[, history]}, TTL 7 days. defaults.cache: false
 disables; `evalshift cache clear` wipes.
 Resume: `run --resume` continues newest in_progress run; requires config_hash match (config +
-suite byte-identical), skips (prompt_id, example_id, role) keys already in raw.jsonl; errored
-calls count as done and are NOT retried.
+suite byte-identical), skips (prompt_id, example_id, role, sample_index) keys already in
+raw.jsonl; errored calls count as done and are NOT retried.
+Repeated sampling: defaults.samples_per_example (default 1, max 20) sends every (prompt, example)
+to each model N times (raw.jsonl rows carry sample_index; the cache keys on it, so each sample is
+a live call). evaluate scores source sample i against target sample i, then folds the samples
+of one example into ONE scores.jsonl row: mean source/target/delta over the samples that scored,
+per-sample lists + population delta_variance under metadata.samples, explanation prefixed
+"mean of k samples". Paired tests run over examples, so n is unchanged. Report shows a
+"N samples per example" pill; example rows show sample 0. Cost estimate x N.
 Retention: after each completed run, per-suite pruning keeps newest retention.max_runs_per_suite
 (default 20; 0 disables) and evicts runs older than run_ttl_days (default off). Never prunes
 in-progress or just-finished runs. EVALSHIFT_MAX_RUNS overrides; `evalshift runs clean` on demand.
@@ -116,6 +134,9 @@ evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire
 evalshift doctor
   Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation; missing API
   keys are soft warnings (exit 0).
+  Row 2 `evalshift-sdk`: ok ("<v> (import name `evalshift`)"); warn (exit 0) when the SDK is
+  not installed, fails to import, or the name resolves to something else (an older CLI's
+  leftover files, a local evalshift/ directory).
   Reports the toolset each configured suite carries (name, or the flat golden.jsonl); warns
   (warn-level, exit 0) when a suite's examples carry more than one distinct toolset -- legal
   (each example dispatches its own), but also the shape a wiring mistake takes.
@@ -124,6 +145,13 @@ evalshift doctor
   when nothing drifts; warn (exit 0) on pin drift --
   stale (pin < local), unpinned (input absent -> action default may lag), ahead (all pins >
   local). Fix line names the exact `evalshift-version: "<local>"` to set. See CI pin drift.
+  Adds a `judge family` row when the config wires llm_judge AND names both
+  defaults.source_model and target_model: warn (exit 0), one row per distinct judge_model whose
+  resolved provider equals an arm's ("judge `<m>` shares a model family (<provider>) with the
+  target model -- ... self-preference bias ..."); ok ("N judge models from a third family")
+  when none overlaps; no row when either arm is unset or no llm_judge is configured. Provider
+  "other" (id the registry cannot place) never matches. Same wording from `validate`; the report
+  repeats it (see Judge family below).
 evalshift run [-f/--from MODEL] [-t/--to MODEL] [-c CONFIG] [-s/--suite FILE]
     [--suite-name NAME] [--resume] [-y/--yes]
   Paired run over (prompt x example x {source,target}). --from/--to override
@@ -256,16 +284,56 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   str output (the reply the user saw, after the tool round-trips). Only the SDK's LangChain
   adapter emits final_output, so without the fallback every manually instrumented project
   promotes expected: null. Non-str output ignored (never stringified); neither -> warn + null.
+  Ground truth prefers the model's REQUESTED calls (model_call.requested_tool_calls) over the
+  EXECUTED tool_call events, and records which was used as PromotedCase.promotion_source
+  ("requested" | "executed", default "executed"). Executed calls passed through the app's
+  filtering/retries/re-ordering and its own function signatures -- they show what the APP did;
+  a golden case must state what a MODEL should produce. With requested calls present each
+  model_call IS a round (empty ones dropped, as tool-less executed rounds are) and arguments
+  are carried VERBATIM -- wrapper unwrapping (below) never runs on them. EVERY model_call in
+  the run must carry the field for the capture to be scored against requested calls: pass []
+  for a round where the model requested no tools -- null means NOT RECORDED, not "nothing
+  requested", and the two are indistinguishable afterwards. Fallback to executed: SILENT when
+  no model_call carries the field (pre-2.1.0 capture); WARNS and falls back for the WHOLE
+  capture when only some do (never mix yardsticks within one trace). That mixed case is a
+  RECORDING GAP, not version skew -- the SDK stores null for an omitted
+  record_model_call(requested_tool_calls=...) argument, and the usual cause is an app that
+  passes it on tool-picking calls but omits it on the final text-only call. Requested vs
+  executed disagreement (different tool, argument, or round grouping) -> requested wins +
+  warning naming the tools on both sides.
+  Cost: the case file records PromotedCase.cost_usd (model_call events summed) + cost_source.
+  The SDK never prices anything (model_call.cost_usd is 0.0 unless the app set it; provider
+  wrappers record tokens, not cost), so an event with tokens and no cost is priced at
+  promotion from litellm's price table by its OWN model_id (registry resolves aliases /
+  provider prefixes first). cost_source: "recorded" = every non-zero part came from the
+  capture (recorded costs are never re-estimated); "estimated" = any part was priced here
+  (mixed runs are "estimated"); absent + cost_usd 0.0 = nothing priced (no tokens, or a model
+  litellm does not price -- local/self-hosted is the NORMAL case: stays 0, no warning). The
+  golden.jsonl example never carries it -- provenance of the capture, not reproduced by replay.
   Rounds: tool calls are grouped into agent rounds (split at each recorded model_call). Every
-  round -> expected_tool_rounds; expected_tools (and --tool-count) are scoped to ROUND 1, the
-  only round a single-shot replay can produce. Multi-round captures warn; --rounds all flattens
-  every round into expected_tools instead.
+  round -> expected_tool_rounds; expected_tools is ALWAYS round 1. --rounds first (default):
+  single-shot replay, scored against round 1; multi-round captures warn. --rounds all: also
+  writes tool_result_fixtures (each round's calls paired with that round's tool_result events
+  by call_id, then by name within the round; coverage stops at the first round with an unpaired
+  call -> warning "round m+1 has N tool call(s) with no recorded result; replay will cover
+  rounds 1..m"; round 1 uncovered -> stays single-shot). run then replays TEACHER-FORCED: round k
+  sees prompt + the RECORDED rounds 1..k-1 as assistant tool_calls (ids call_r{j}_{i}) + tool
+  results (str verbatim, else JSON, error -> {"error": ...}); the candidate's own calls are
+  never fed back; rounds replayed = covered rounds + 1 (the answer round). Tool evaluators score
+  per round (conformance vs expected_tool_rounds[k], "called nothing" past the recording;
+  divergence target-vs-source within round k; arguments paired within a round) and record the
+  MEAN over rounds with per-round detail under metadata.rounds -> max_tool_divergence counts an
+  example as diverged if ANY round diverged. Error in round k -> Call.error "round k/n: ...",
+  no trace. Cost estimate counts one call per round; progress bar counts examples. --tool-count
+  under --rounds all pins the total over the replayed rounds. NO flattening any more.
   Captures whose trace carries an error event are SKIPPED (--allow-errored promotes them).
   Warns on duplicate (conversation_id, turn_index) and on failed tool results.
-  Wrapper args: a capture recording a decorated function's parameters yields
-  {"tool_args": {...}} where the model only saw the flat declared properties. Promotion
-  unwraps it ONLY when the capture's own recorded toolset schema confirms (wrapper key
-  undeclared + inner keys all declared); no resolvable sidecar -> recording left untouched.
+  Wrapper args (EXECUTED path only -- legacy captures): a capture recording a decorated
+  function's parameters yields {"tool_args": {...}} where the model only saw the flat declared
+  properties. Promotion unwraps it ONLY when the capture's own recorded toolset schema confirms
+  (wrapper key undeclared + inner keys all declared); no resolvable sidecar -> recording left
+  untouched. Requested arguments are never unwrapped -- nothing stands between the model and
+  them, so the recorded shape IS what the model produced.
 evalshift capture clean [SUITE] [--promoted (default) | --all] [-y]
   Deletes capture files, never touches promoted suites. Then sweeps <base>/toolsets/: any
   sidecar referenced by neither a surviving capture (any suite, promoted or not) nor a
@@ -281,6 +349,13 @@ evalshift traces import RUN_ID --source FILE --target FILE [--strict]
   ...+02:00): offsets are converted to UTC on import, a naive timestamp is rejected with its
   file:line (assuming UTC would silently relabel a trace recorded in another zone, and the
   bundle contract requires UTC).
+  A model_call event keeps OFFERED / REQUESTED / EXECUTED apart: toolset_ref + tools_offered
+  are what was passed TO the model; requested_tool_calls ([{name, arguments, call_id}],
+  arguments defaults {}, call_id defaults null) is what the model asked for IN ITS RESPONSE;
+  the tool_call/tool_result events are what the app actually ran. They can legitimately
+  differ. requested_tool_calls: null means the trace predates the field (SDK capture schema
+  2.1.0 added it), NOT that the model requested nothing -- that is []. The capture reader
+  gates on the schema MAJOR only, so a 2.1.0 capture loads on a 2.0.0-era CLI.
 evalshift inspect RUN_ID [--failed] | evalshift inspect case RUN_ID EXAMPLE_ID
 evalshift diff case RUN_ID EXAMPLE_ID          (trace diff when traces exist, else text diff)
 evalshift replay case RUN_ID EXAMPLE_ID [--model source|target (default target)] [--trace]
@@ -291,7 +366,9 @@ evalshift cache clear
 Hidden debug commands:
 evalshift validate [-s SUITE=golden.jsonl] [-c CONFIG]   (config+suite+prompt cross-check;
     after the success line prints the CI pin drift warning if any -- advisory, exit unchanged,
-    no-op in CI where the running CLI is the pin)
+    no-op in CI where the running CLI is the pin -- and one `⚠` line per llm_judge judge_model
+    sharing a provider with defaults.source_model/target_model, same wording as doctor's
+    `judge family` row; advisory, exit unchanged)
 evalshift test-call -m/--model MODEL [-p/--prompt TEXT] [-t/--temperature 0..2=0]
     [--max-tokens 1..8192=256] [--tools FILE]   (single live call; --tools prints a ToolTrace)
 
@@ -319,6 +396,8 @@ Strict Pydantic, extra="forbid" everywhere — unknown keys fail at load.
 version: 1                          # required literal
 project: str|null                   # hosted slug, regex ^[a-z0-9-]+/[a-z0-9-]+$
 prompts:                            # required, >=1, unique ids
+  # Template axis (suites = dataset axis); every prompt x every example. Init's
+  # `replay` prompt is a passthrough: content "{{input}}" echoes the promoted capture.
   - id: str
     detection: manual | python_string
     content: str                    # manual only (required for manual)
@@ -335,6 +414,7 @@ defaults:
   cache: bool = true              # covers completions, embeddings, judge verdicts
   max_cost_usd: float = 50.0        # soft ceiling, reserved for future enforcement
   max_tokens: int = 4096            # truncated calls are EXCLUDED from stats
+  samples_per_example: int = 1 (1..20)  # repeats per (prompt, example) per model; scores averaged per example
 evaluators:                         # every evaluator config also takes blocking: bool = true
   structural:                       # list; free, no API calls
     - type: json_schema | regex | length
@@ -346,6 +426,9 @@ evaluators:                         # every evaluator config also takes blocking
   semantic:                         # single block, not a list
     embedding_model: str = text-embedding-3-small
     min_similarity: float = 0.9     # below -> SEMANTIC_REGRESSION flag
+    # Yardstick is the SOURCE output, never the suite's `expected` field: this
+    # measures drift, not correctness (reworded-but-right reads as drift). Init
+    # writes blocking: false for it; library default is true. Judge = correctness.
     # source score pinned 1.0; target = cosine(source, target) clamped [0,1]
     # both outputs empty (tool-only turn) -> NO record at all (score returns None),
     #   no provider call. ONE empty side still scores: 0.0 similarity by definition,
@@ -463,9 +546,13 @@ migration_policy:                   # optional; fractions not percents
   min_equivalence_rate: float = 0.75 (0..1)   # floor on non-regression rate (equivalent OR improved)
   max_tool_argument_drift: float = 0.20 (0..1)
   max_tool_divergence: float = 0.20 (0..1)   # share of tool_selection.divergence rows that regressed
+                                              # (multi-round replay: any diverged round counts)
   tool_argument_drift_floor: float = 0.9 (0..1)  # target arg score below which a call counts as drifted
   max_cost_increase: float = 0.30 (0..10)
   max_latency_increase: float = 0.30 (0..10)
+  fail_on_dropped_params: bool = false  # fail when state.json dropped_params is non-empty,
+  #   i.e. an arm could not honour a generation constraint the capture recorded. Top level only
+  #   (a model either accepts a param or does not; not a per-slice property).
   # ^ defaults = what `init` writes: a first-migration starting point, loose enough that a
   #   fresh suite REPORTS regressions instead of failing on a few reworded tool arguments.
   #   Tighten as the suite grows: `init --profile cost-reduction|quantization|provider-switch|
@@ -497,8 +584,14 @@ inferred by prefix: gemini-* -> google, claude-* -> anthropic, gpt-*/o1-*/o3-* -
                                          # way; only gates the disclosure recommendation.
  "expected_tool_rounds": [[{...}]]|null, # full recorded agent loop, one list per model turn that
                                          # emitted tool calls; expected_tools is normally
-                                         # expected_tool_rounds[0] (a single-shot replay cannot
-                                         # reach round 2). null for pre-v0.3 suites / no tools.
+                                         # expected_tool_rounds[0]. null for pre-v0.3 suites /
+                                         # no tools.
+ "tool_result_fixtures": [[{"tool_name":str,"result":any,"error":str|null}]]|null,
+                                         # recorded results, one inner list per covered round,
+                                         # positionally aligned with expected_tool_rounds
+                                         # (validated at load). Written by --rounds all; when
+                                         # present run replays teacher-forced: covered rounds
+                                         # + the answer round. null = single-shot replay.
  "expected_tool_count": int>=0|null,
  "expected_no_tools": bool = false,      # incompatible with expected_tools /
                                          # expected_tool_rounds / nonzero count. Only meaningful
@@ -576,6 +669,36 @@ note. Those runs measure model change PLUS sampling noise - non-significant resu
 evidence; fix with more examples, not a looser threshold. EvalShift does NOT inject sampling
 guidance into the system prompt: that would change the prompt under test, and for one arm only,
 confounding the comparison it was meant to protect.
+
+Dropped constraints (state.json dropped_params, model id -> sorted param names): a promoted
+capture can pin response_format, tool_choice, parallel_tool_calls, top_p or a completion cap,
+and drop_params=True lets a model that never accepted one answer anyway, minus the constraint.
+At run start EvalShift collects the OpenAI-param names the suite's generation_configs actually
+recorded (Gemini spellings mapped first: response_mime_type/response_schema -> response_format,
+tool_config -> tool_choice, max_output_tokens -> max_tokens; temperature belongs to
+non_deterministic_models above) and checks both arms two ways:
+  1. PROBE - litellm.get_supported_openai_params. Uncertainty (raise/None/empty) records
+     nothing, same asymmetry as the sampling probe.
+  2. KNOWN LITELLM GAPS - a hard-coded provider->params table in models/capabilities.py for
+     params LiteLLM CLAIMS to support and then discards while building the provider body, which
+     no probe can see. Verified against litellm 1.100.0: gemini drops parallel_tool_calls
+     (vertex_ai/gemini/transformation.py filters optional params against
+     GenerationConfig.__annotations__) and a tool's strict flag (_map_function; Gemini function
+     declarations have no strict field). The tool flag is recorded as the PSEUDO-PARAM
+     "tools.strict" -- it is a field on the tools array, not a generation param, so it is never
+     sent to the probe. Delete a table entry when litellm fixes it.
+Both sources merge into one sorted list per model, warn once per (model, param), flow to
+report.json as dropped_params, and render a "Constraints not honoured" banner beside the
+sampling one. migration_policy.fail_on_dropped_params: true turns the caveat into a failing
+verdict. A tool_choice on a TOOL-LESS example is not recorded here: it is stripped at dispatch
+with a warning, and it says something about the suite, not about either target's capabilities.
+Judge family (report.json judge_family_overlap: list of {judge_model, provider, roles}): computed
+at REPORT time from state.json models + the config's llm_judge entries for the run's suite
+(evaluators_for(suite_name); name rule "llm_judge.<criterion_name>"), restricted to judges that
+actually wrote scores.jsonl rows (kind == "llm_judge", or the legacy name prefix). A judge whose
+resolved provider equals an arm's renders a third "The judge graded its own relatives" banner
+after the two above (self-preference bias; advisory, no policy knob). Empty when no config is
+loadable, no judge contributed, or no judge overlaps. Provider "other" never matches.
 
 ## Migration policy verdict algorithm
 
@@ -813,12 +936,39 @@ content leaves the machine.
   tool_call_id) and LiteLLM translates per provider. A promoted tool result with no recorded
   id gets a positional id (_posN) with a warning.
 - Promotion copies the first model_call's metadata["generation_config"] (recorded by the SDK:
-  temperature, response_mime_type, response_schema, ...) onto SuiteExample.generation_config
-  VERBATIM. At dispatch the runner translates it: temperature overrides the registry default;
-  response_mime_type "application/json" (+ optional dict response_schema) -> LiteLLM
-  response_format (json_schema when a schema is present, else json_object); a litellm-shaped
-  response_format dict passes through. Applied to BOTH source and target calls and folded into
-  the cache key (absent config keeps pre-existing keys byte-stable). Unknown keys ignored.
+  temperature, response_mime_type, response_schema, tool_choice, parallel_tool_calls,
+  tool_config, ...) onto SuiteExample.generation_config VERBATIM. At dispatch the runner
+  translates it: temperature overrides the registry default; response_mime_type
+  "application/json" (+ optional dict response_schema) -> LiteLLM response_format (json_schema
+  when a schema is present, else json_object); a litellm-shaped response_format dict passes
+  through. Applied to BOTH source and target calls and folded into the cache key (absent config
+  keeps pre-existing keys byte-stable). Untranslatable keys are ignored WITH A WARNING (once
+  per distinct key set), never silently.
+- Tool-choice constraints replay too. Three recorded spellings normalise to ONE OpenAI-style
+  intent, emitted as tool_choice (+ parallel_tool_calls) and mapped per provider by LiteLLM
+  itself (Anthropic tool_choice object incl. disable_parallel_tool_use; Gemini toolConfig):
+  * OpenAI tool_choice: "auto"|"none"|"required" or {"type":"function","function":{"name":..}}
+    -> forwarded as-is.
+  * Anthropic tool_choice: {"type":"auto"|"any"|"tool", "name"?, "disable_parallel_tool_use"?}
+    -> any->required, tool->named-function object, disable_parallel_tool_use INVERTED into
+    parallel_tool_calls.
+  * Gemini tool_config: {"function_calling_config":{"mode":"AUTO"|"ANY"|"NONE",
+    "allowed_function_names"?:[..]}} -> matching string; exactly one allowed name -> named
+    function, several -> "required" (OpenAI-style has no allow-list). camelCase REST spelling
+    accepted.
+  A top-level parallel_tool_calls bool wins over the Anthropic-inferred one. Unrecognised
+  shapes are WARNED and skipped, never raised.
+- ToolSpec gained `strict: bool = False`. from_dict reads function.strict (OpenAI shape) or
+  top-level strict (canonical/Anthropic); to_openai emits function.strict, to_anthropic emits
+  top-level strict -- both ONLY when true, so non-strict tools serialise byte-identically and
+  toolset fingerprints (fingerprint_tools over to_anthropic() output) stay stable.
+- Constraints a target cannot honour are never dropped in silence: (gemini,
+  parallel_tool_calls) -- generateContent has no such switch, and LiteLLM filters the param out
+  of the request body; (gemini, strict) -- Gemini function declarations have no strict mode.
+  Both are recorded per model at RUN START in state.json dropped_params (the strict flag as the
+  pseudo-param "tools.strict"), not warned per dispatch -- see "Dropped constraints" above. A
+  tool_choice reaching a TOOL-LESS example IS dropped at dispatch with a warning (nothing to
+  constrain) and is deliberately not in dropped_params.
 - capture sync recovers history VERBATIM when the capture recorded a full messages list, else
   RECONSTRUCTS from sibling turns (approximation; earliest turn's system prompt wins, warns on
   disagreement). capture promote (single) never cross-reconstructs.
@@ -837,7 +987,7 @@ content leaves the machine.
   non-empty AND no tool was called AND the turn did not error -- never when nothing was
   offered, so `tool_selection`'s no-tools scoring (1.0/1.0 whenever both sides call zero
   tools) cannot fire on a row that measured nothing.
-- `evalshift.captures.reader.load_toolset(ref, *, base=None, cache=None) -> list[ToolSpec]`
+- `evalshift_cli.captures.reader.load_toolset(ref, *, base=None, cache=None) -> list[ToolSpec]`
   resolves a toolset sidecar (<base>/toolsets/<hex>.json) via ToolSpec.from_dict -- NEVER via
   evaluators.tool_loader.load_tools, which rejects an empty list (wrong here: the empty
   toolset is a first-class value). Pass a shared dict as `cache` to resolve a ref shared by
@@ -906,9 +1056,12 @@ evaluators:
         equivalent in substance and differ only in wording.
       judge_model: gemini-3.1-pro-preview
       blocking: false
-migration_policy: {max_overall_regression_rate: 0.03, max_critical_regressions: 0,
-  min_equivalence_rate: 0.95, max_tool_argument_drift: 0.01, max_tool_divergence: 0.03,
-  tool_argument_drift_floor: 0.9, max_cost_increase: 0.20, max_latency_increase: 0.30}
+migration_policy: {max_overall_regression_rate: 0.30, max_critical_regressions: 1,
+  min_equivalence_rate: 0.75, max_tool_argument_drift: 0.20, max_tool_divergence: 0.20,
+  max_cost_increase: 0.30, max_latency_increase: 0.30}
+  # ^ the model-upgrade profile = the MigrationPolicy field defaults. init does NOT
+  #   scaffold tool_argument_drift_floor; it is inherited at 0.9. Tighter presets:
+  #   --profile cost-reduction|quantization|provider-switch|local-model.
 # project: your-org/your-project   # hosted only; init scaffolds it commented out
 suites: {}                         # init writes the managed region LAST, after
                                    # migration_policy: it is the only part a command
@@ -949,7 +1102,7 @@ suites:
 
 # Capture-first flow (real project)
 evalshift init --provider gemini            # minimal config only
-pip install evalshift-sdk                   # in the AGENT's venv (separate from CLI's!)
+pip install evalshift-sdk                   # already a dependency of the CLI; alone in a capture-only agent
 EVALSHIFT_CAPTURE=1 python my_agent.py      # record captures via SDK instrumentation
 evalshift capture list
 evalshift capture sync                      # promote all -> .evalshift/suites/<suite>/golden.jsonl

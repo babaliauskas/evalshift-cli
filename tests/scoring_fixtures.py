@@ -30,9 +30,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.tool_models import ToolTrace
-from evalshift.suite.models import SuiteExample
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.tool_models import ToolTrace
+from evalshift_cli.suite.models import SuiteExample
 
 #: The frozen run's identifiers, reused so a fixture-built run directory is
 #: indistinguishable from the real one to every stage that reads it.

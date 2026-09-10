@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from evalshift.analysis.policy import (
+from evalshift_cli.analysis.policy import (
     BudgetResult,
     MigrationDecision,
     _metrics,
@@ -15,17 +15,17 @@ from evalshift.analysis.policy import (
     inconclusive_decision,
     unmeasured_gating_evaluators,
 )
-from evalshift.analysis.statistics import (
+from evalshift_cli.analysis.statistics import (
     ADVISORY_NOTE_PREFIX,
     UNMEASURED_NOTE_PREFIX,
     ComparisonResult,
 )
-from evalshift.config.models import MigrationPolicy, SliceMigrationPolicy
-from evalshift.evaluators.base import EvalRecord
-from evalshift.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
-from evalshift.evaluators.tool_arguments import KIND as KIND_ARGUMENTS
-from evalshift.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
-from evalshift.runner.models import Call
+from evalshift_cli.config.models import MigrationPolicy, SliceMigrationPolicy
+from evalshift_cli.evaluators.base import EvalRecord
+from evalshift_cli.evaluators.failures import TOOL_GROUND_TRUTH_MISS, TOOL_SELECTION_DRIFT
+from evalshift_cli.evaluators.tool_arguments import KIND as KIND_ARGUMENTS
+from evalshift_cli.evaluators.tool_selection import KIND_CONFORMANCE, KIND_DIVERGENCE
+from evalshift_cli.runner.models import Call
 
 
 def _comparison(
@@ -755,14 +755,14 @@ class TestToolArgumentDriftFloor:
 
     def test_a_slice_inherits_the_floor_from_the_top_level_policy(self) -> None:
         """A slice override must not silently reset the floor to its default."""
-        from evalshift.analysis.policy import _slice_policy
+        from evalshift_cli.analysis.policy import _slice_policy
 
         base = MigrationPolicy(tool_argument_drift_floor=0.4)
         resolved = _slice_policy(base, SliceMigrationPolicy(max_tool_argument_drift=0.5))
         assert resolved.tool_argument_drift_floor == pytest.approx(0.4)
 
     def test_a_slice_can_override_the_floor(self) -> None:
-        from evalshift.analysis.policy import _slice_policy
+        from evalshift_cli.analysis.policy import _slice_policy
 
         base = MigrationPolicy(tool_argument_drift_floor=0.4)
         resolved = _slice_policy(base, SliceMigrationPolicy(tool_argument_drift_floor=0.95))
@@ -1021,12 +1021,12 @@ class TestWilsonConstant:
     """
 
     def test_the_z_is_the_exact_two_sided_95_percent_quantile(self) -> None:
-        from evalshift.analysis.policy import _WILSON_Z
+        from evalshift_cli.analysis.policy import _WILSON_Z
 
         assert _WILSON_Z == 1.959963984540054
 
     def test_the_bounds_match_the_servers_to_full_precision(self) -> None:
-        from evalshift.analysis.policy import _wilson_interval
+        from evalshift_cli.analysis.policy import _wilson_interval
 
         # Recomputed from the server's ``_wilson_interval`` at z=1.959963984540054.
         # The tolerance is tighter than the 9.03e-6 gap the rounded z produces,
@@ -1860,7 +1860,7 @@ class TestToolSelectionKindRegistration:
     """
 
     def test_the_policy_layer_registers_the_evaluators_own_slugs(self) -> None:
-        from evalshift.analysis.policy import _TOOL_CONFORMANCE_KIND, _TOOL_DIVERGENCE_KIND
+        from evalshift_cli.analysis.policy import _TOOL_CONFORMANCE_KIND, _TOOL_DIVERGENCE_KIND
 
         assert _TOOL_CONFORMANCE_KIND == KIND_CONFORMANCE
         assert _TOOL_DIVERGENCE_KIND == KIND_DIVERGENCE
@@ -1981,7 +1981,7 @@ class TestToolDivergenceBudget:
         assert budget.conclusive
 
     def test_a_slice_can_override_the_budget(self) -> None:
-        from evalshift.analysis.policy import _slice_policy
+        from evalshift_cli.analysis.policy import _slice_policy
 
         resolved = _slice_policy(
             MigrationPolicy(max_tool_divergence=0.2),
@@ -2556,3 +2556,109 @@ class TestSourceDerivedGroundTruthDisclosure:
             calls=[],
         )
         assert _has_provenance_note(decision), decision.recommendations
+
+
+class TestFailOnDroppedParams:
+    """``fail_on_dropped_params`` turns a report caveat into a gate.
+
+    A team replaying captures that pinned ``response_format`` may consider a
+    target that cannot honour it unmigratable regardless of how the scores
+    came out — the arm did not run the experiment they wrote.
+    """
+
+    def _decide(
+        self, *, policy: MigrationPolicy, dropped: dict[str, list[str]] | None
+    ) -> MigrationDecision:
+        return evaluate_migration_policy(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            policy=policy,
+            comparisons=[_comparison(severity="none")],
+            records=[_record(example_id="ex1", delta=0.0)],
+            calls=[],
+            dropped_params=dropped,
+        )
+
+    def test_passes_when_the_knob_is_off(self) -> None:
+        decision = self._decide(
+            policy=MigrationPolicy(),
+            dropped={"tgt": ["tool_choice"]},
+        )
+        assert decision.verdict == "pass"
+
+    def test_fails_and_names_the_model_and_params(self) -> None:
+        decision = self._decide(
+            policy=MigrationPolicy(fail_on_dropped_params=True),
+            dropped={"tgt": ["response_format", "tool_choice"]},
+        )
+        assert decision.verdict == "fail"
+        assert decision.reason is not None
+        assert "tgt" in decision.reason
+        assert "response_format" in decision.reason
+        assert "tool_choice" in decision.reason
+
+    def test_no_effect_when_nothing_was_dropped(self) -> None:
+        decision = self._decide(policy=MigrationPolicy(fail_on_dropped_params=True), dropped={})
+        assert decision.verdict == "pass"
+        assert decision.reason is None
+
+    def test_defaults_to_no_record_for_callers_that_do_not_pass_one(self) -> None:
+        """Old artefacts have no ``dropped_params``; the gate must stay silent."""
+        decision = self._decide(policy=MigrationPolicy(fail_on_dropped_params=True), dropped=None)
+        assert decision.verdict == "pass"
+
+    def test_keeps_an_existing_reason_alongside_its_own(self) -> None:
+        decision = evaluate_migration_policy(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            policy=MigrationPolicy(fail_on_dropped_params=True),
+            comparisons=[],
+            records=[],
+            calls=[],
+            dropped_params={"tgt": ["tool_choice"]},
+        )
+        assert decision.verdict == "fail"
+        assert decision.reason is not None
+        # The "no blocking evaluator records" explanation survives.
+        assert "no blocking evaluator records" in decision.reason
+        assert "tool_choice" in decision.reason
+
+
+class TestAMultiRoundDivergenceCountsAsDiverged:
+    """``max_tool_divergence`` counts ``delta < 0``, and that is the whole rule.
+
+    A teacher-forced replay scores the mean over its rounds, so an example
+    that matched the source in round 1 and diverged in round 2 lands at
+    ``0.5`` rather than ``0.0``. The budget must still count it: "the target
+    called different tools somewhere in the loop" is the finding, and a
+    threshold on the *mean* would let a four-round example hide three
+    divergences behind one match. No policy code implements this — the
+    evaluator's mean does — so this test is what locks the semantics in.
+    """
+
+    def test_a_partially_diverged_row_is_counted(self) -> None:
+        diverged_in_one_round = EvalRecord(
+            run_id="r",
+            prompt_id="p",
+            example_id="e1",
+            evaluator_name="routing",
+            kind=KIND_DIVERGENCE,
+            source_score=1.0,
+            target_score=0.5,
+            delta=-0.5,
+            metadata={
+                "mode": "exact",
+                "failure_categories": [TOOL_SELECTION_DRIFT],
+                "rounds": [
+                    {"round": 0, "source_names": ["a"], "target_names": ["a"]},
+                    {"round": 1, "source_names": ["b"], "target_names": ["c"]},
+                ],
+            },
+        )
+        budget = _budgets(_decide([diverged_in_one_round, _divergence_record("e2", 1.0)]))[
+            "max_tool_divergence"
+        ]
+        assert budget.denominator == 2
+        assert budget.observed == pytest.approx(0.5)

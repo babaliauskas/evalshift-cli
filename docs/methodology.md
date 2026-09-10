@@ -466,10 +466,20 @@ backing it up.
   false positives are expected when many tests run. Use the effect
   sizes and CIs to triage.
 
-* **Per-call sampling variance.** EvalShift doesn't run repeated trials
-  per (prompt, example) pair. If your models are stochastic,
-  consider setting `temperature=0` (the registry default) or running
-  multiple seeds and averaging the scores upstream.
+* **Per-call sampling variance.** By default EvalShift makes one call
+  per (prompt, example) per model, at `temperature=0` (the registry
+  default). If a model samples freely anyway (the report says so in a
+  banner), set `defaults.samples_per_example` above 1. Every example is
+  then sent to each model N times; sample *i* of the source is scored
+  against sample *i* of the target; and the example's row in
+  `scores.jsonl` is the **mean** of its samples' `source_score`,
+  `target_score` and `delta`, with the per-sample values and the
+  population `delta_variance` recorded under `metadata.samples`. The
+  paired tests above run over those per-example rows, so `n` stays the
+  number of examples: repeated sampling reduces the noise in each
+  delta, it does not manufacture power. Read a large `delta_variance`
+  next to a small mean delta as "this example is noisy", not "this
+  example regressed".
 
 * **Some models no longer honour `temperature`.** Every paired test
   here assumes the only difference between the two arms is the model. That
@@ -503,6 +513,28 @@ backing it up.
   system prompt. Doing so would change the prompt under test, and change it
   for one arm only — confounding the very comparison it was meant to
   protect.
+
+* **A replay can lose constraints other than sampling.** A promoted capture
+  may pin `response_format`, `tool_choice`, `parallel_tool_calls`, `top_p` or
+  a completion cap, and `drop_params=True` lets a model that never accepted
+  one of them answer anyway — minus the constraint. EvalShift probes both arms
+  at run start for exactly the parameters the suite recorded (provider
+  spellings mapped to their OpenAI names first; `temperature` belongs to the
+  bullet above) and writes the shortfall to `state.json` under
+  `dropped_params`, with one `WARNING` per (model, parameter) and a
+  **Constraints not honoured** banner beside the sampling one. Uncertainty
+  from LiteLLM records nothing, on the same reasoning as the sampling probe.
+  The probe has one blind spot, covered by a hard-coded table: a parameter
+  LiteLLM reports as supported and then drops while building the provider's
+  request body. Two Gemini cases are known — `parallel_tool_calls`, and a
+  tool's `strict` flag, recorded as **`tools.strict`** because it is a field
+  on the `tools` array rather than a generation parameter — and they land in
+  the same `dropped_params` record.
+  Read such an arm as *model change plus a missing constraint*: a difference
+  there is not attributable to the model alone, so either accept the caveat,
+  pick a target that supports the constraint, or set
+  `migration_policy.fail_on_dropped_params: true` to make the run fail rather
+  than explain itself.
 
 * **Truncated outputs are excluded; empty outputs are not.** A call cut
   off at the `max_tokens` cap (`finish_reason == "length"`) is dropped

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from evalshift import __version__
-from evalshift.cli.main import app
+from evalshift_cli import __version__
+from evalshift_cli.cli.main import app
 
 runner = CliRunner()
 

@@ -9,13 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from evalshift.reports.economics import (
+from evalshift_cli.reports.economics import (
     build_economics,
     is_empty_output,
     methodology_notes,
     role_economics_to_dict,
 )
-from evalshift.runner.models import Call, RunModels, RunState
+from evalshift_cli.runner.models import Call, RunModels, RunState
 
 
 def _state(**overrides: Any) -> RunState:

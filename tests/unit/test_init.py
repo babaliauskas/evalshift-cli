@@ -1,4 +1,4 @@
-"""Tests for ``evalshift init`` (:mod:`evalshift.cli.commands.init`).
+"""Tests for ``evalshift init`` (:mod:`evalshift_cli.cli.commands.init`).
 
 ``init`` writes a single, minimal, capture-ready ``evalshift.yaml`` — no demo
 data. The invariant we care about: the file parses cleanly via
@@ -9,23 +9,28 @@ rewrites.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 from typer.testing import CliRunner
 
-import evalshift
-from evalshift.cli.commands._agents import (
+import evalshift_cli
+from evalshift_cli.cli.commands._agents import (
     AGENT_INSTRUCTIONS_FILENAME,
     DEFAULT_AGENT_CONTEXT_FILE,
     POINTER_MARKER_BEGIN,
 )
-from evalshift.cli.commands._scaffold import CI_WORKFLOW_PATH
-from evalshift.cli.commands._suites import SUITE_FILENAME, SUITES_MARKER_BEGIN, SUITES_MARKER_END
-from evalshift.cli.commands.doctor import CONFIG_FILENAME
-from evalshift.cli.main import app
-from evalshift.config.loader import load_config
+from evalshift_cli.cli.commands._scaffold import CI_WORKFLOW_PATH, INIT_PROFILE_POLICIES
+from evalshift_cli.cli.commands._suites import (
+    SUITE_FILENAME,
+    SUITES_MARKER_BEGIN,
+    SUITES_MARKER_END,
+)
+from evalshift_cli.cli.commands.doctor import CONFIG_FILENAME
+from evalshift_cli.cli.main import app
+from evalshift_cli.config.loader import load_config
 
 runner = CliRunner()
 
@@ -37,6 +42,14 @@ runner = CliRunner()
 FIXTURES_FILENAME = "fixtures.jsonl"
 PROMPTS_FILENAME = "prompts.py"
 TOOLS_FILENAME = "tools.yaml"
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Every doc that reprints the `migration_policy` block `init` writes. Each shows
+# the same budgets in a different shape (block YAML in the two references, flow
+# YAML in the LLM digest), so the check below is a substring match rather than a
+# YAML parse.
+POLICY_DOC_FILENAMES = ("docs/configuration.md", "llms-full.txt", "DOCS.md")
 
 
 @pytest.fixture
@@ -165,6 +178,46 @@ class TestInitHappy:
     def test_prints_capture_first_next_steps(self, in_tmp: Path) -> None:
         result = runner.invoke(app, ["init"])
         assert "evalshift capture sync" in result.stdout
+
+
+class TestInitPolicyDocsMatchTheScaffold:
+    """Every doc that publishes the init budgets must publish the *current* ones.
+
+    The test above pins ``init``'s output to :data:`INIT_PROFILE_POLICIES`; this
+    one pins the docs to the same constant. Without it the reference pages drift
+    (they carried a 0.50/2.0 cost/latency budget the CLI stopped writing), and a
+    reader copies numbers no scaffold ever produced.
+    """
+
+    @staticmethod
+    def _policy_pairs() -> list[str]:
+        """The ``key: value`` pairs of the default profile, in scaffold order."""
+        return [
+            line.strip()
+            for line in INIT_PROFILE_POLICIES["model-upgrade"].splitlines()
+            if line.startswith(" ") and line.strip()
+        ]
+
+    def test_every_budget_is_parsed(self) -> None:
+        """Guard the parser itself: an empty list would pass every doc check."""
+        pairs = self._policy_pairs()
+        assert len(pairs) == 7, pairs
+        assert all(pair.count(": ") == 1 for pair in pairs), pairs
+
+    @pytest.mark.parametrize("doc_name", POLICY_DOC_FILENAMES)
+    def test_doc_publishes_the_scaffolded_budgets(self, doc_name: str) -> None:
+        text = (REPO_ROOT / doc_name).read_text(encoding="utf-8")
+        # A trailing-digit guard so `max_critical_regressions: 1` is not
+        # satisfied by a published `: 10`, nor `0.30` by `0.300`.
+        missing = [
+            pair
+            for pair in self._policy_pairs()
+            if not re.search(f"{re.escape(pair)}(?![0-9])", text)
+        ]
+        assert not missing, (
+            f"{doc_name} does not publish INIT_PROFILE_POLICIES['model-upgrade'] "
+            f"verbatim; missing: {missing}"
+        )
 
 
 class TestInitStrongDefaults:
@@ -338,7 +391,7 @@ class TestInitCI:
 
     def test_pins_the_scaffolding_cli_version(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp)
-        assert f'evalshift-version: "{evalshift.__version__}"' in body
+        assert f'evalshift-version: "{evalshift_cli.__version__}"' in body
 
     def test_provider_key_matches_provider(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp, "--provider", "anthropic")
@@ -403,7 +456,7 @@ class TestInitCiPin:
     def test_ci_flag_does_not_warn_about_the_workflow_it_wrote(
         self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.init.__version__", "1.2.3")
         result = runner.invoke(app, ["init", "--ci"])
         assert result.exit_code == 0, result.stdout
         assert "CI installs" not in result.stdout
@@ -411,7 +464,7 @@ class TestInitCiPin:
     def test_ci_flag_does_not_warn_when_overwriting_a_stale_workflow(
         self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.init.__version__", "1.2.3")
         self._stale_workflow(in_tmp)
         result = runner.invoke(app, ["init", "--ci", "--force"])
         assert result.exit_code == 0, result.stdout
@@ -420,7 +473,7 @@ class TestInitCiPin:
     def test_plain_init_warns_next_to_a_stale_workflow(
         self, in_tmp: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("evalshift.cli.commands.init.__version__", "1.2.3")
+        monkeypatch.setattr("evalshift_cli.cli.commands.init.__version__", "1.2.3")
         self._stale_workflow(in_tmp)
         result = runner.invoke(app, ["init"])
         assert result.exit_code == 0, result.stdout

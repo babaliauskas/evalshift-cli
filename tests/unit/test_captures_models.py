@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`evalshift.captures.models`."""
+"""Unit tests for :mod:`evalshift_cli.captures.models`."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from evalshift.captures.models import CaptureEnvelope, PromotedCase
-from evalshift.suite.models import SuiteExample
+from evalshift_cli.captures.models import CaptureEnvelope, PromotedCase
+from evalshift_cli.suite.models import SuiteExample
 
 
 def _trace_payload() -> dict[str, Any]:
@@ -99,3 +99,16 @@ class TestPromotedCase:
     def test_unknown_key_rejected(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             PromotedCase.model_validate(self._case_payload(rogue_key=True))
+
+    def test_promotion_source_defaults_to_executed(self) -> None:
+        """Every promoted-case file written before the field is executed-sourced."""
+        case = PromotedCase.model_validate(self._case_payload())
+        assert case.promotion_source == "executed"
+
+    def test_promotion_source_round_trips(self) -> None:
+        case = PromotedCase.model_validate(self._case_payload(promotion_source="requested"))
+        assert case.promotion_source == "requested"
+
+    def test_promotion_source_rejects_an_unknown_yardstick(self) -> None:
+        with pytest.raises(ValidationError, match="promotion_source"):
+            PromotedCase.model_validate(self._case_payload(promotion_source="guessed"))

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from evalshift.models.client import _DedupeWarningsFilter
+from evalshift_cli.models.client import _DedupeWarningsFilter
 
 
 def _record(message: str, *, level: int = logging.WARNING) -> logging.LogRecord:
@@ -85,13 +85,13 @@ class TestLevelScope:
 class TestInstallation:
     def test_filter_is_attached_to_the_litellm_logger(self) -> None:
         """Importing the client is what installs it — no opt-in step."""
-        import evalshift.models.client  # noqa: F401  (import for its side effect)
+        import evalshift_cli.models.client  # noqa: F401  (import for its side effect)
 
         attached = logging.getLogger("LiteLLM").filters
         assert any(isinstance(f, _DedupeWarningsFilter) for f in attached)
 
     def test_installing_twice_does_not_stack_filters(self) -> None:
-        from evalshift.models.client import _configure_litellm
+        from evalshift_cli.models.client import _configure_litellm
 
         _configure_litellm()
         _configure_litellm()

@@ -1,0 +1,80 @@
+{
+  "name": "cap_e8d69324b0724073a72f4424cbe95473",
+  "suite": "oncall_triage",
+  "from_capture": "cap_e8d69324b0724073a72f4424cbe95473",
+  "promoted_at": "2026-09-09T15:38:57.231268+00:00",
+  "source_input_hash": "cd20f30169092fa1cd79968a47baab2520294c29913aa40b545167922c2ac4d8",
+  "code_version": "",
+  "promotion_source": "executed",
+  "cost_usd": 0.0,
+  "cost_source": null,
+  "conversation_id": null,
+  "turn_index": null,
+  "example": {
+    "id": "cap_e8d69324b0724073a72f4424cbe95473",
+    "inputs": {
+      "input": "You are the on-call triage assistant for a payments platform.\n\nGiven an alert, decide what to do and act:\n  - Always check service health before drawing a conclusion.\n  - Open an incident for anything customer-visible.\n  - Page the owning team only for sev1 and sev2.\n  - Answer ownership and policy questions directly, without calling tools.\n\nBe concise. Reply with what you did and why, in at most three sentences.\n\nAlert: The nightly batch-reporting job is running slow - 12 minutes past its usual finish."
+    },
+    "tags": [
+      "captured",
+      "oncall_triage"
+    ],
+    "expected": {
+      "final_output": "batch-reporting is degraded but not customer-visible: the nightly job is overrunning on worker timeouts. I left it unpaged and noted it for the morning handover."
+    },
+    "expected_tools": [
+      {
+        "tool_name": "get_service_health",
+        "arguments": {
+          "service": "batch-reporting"
+        },
+        "match_strategy": "subset",
+        "provenance": "captured"
+      },
+      {
+        "tool_name": "search_logs",
+        "arguments": {
+          "service": "batch-reporting",
+          "query": "timeout",
+          "window_minutes": 60
+        },
+        "match_strategy": "subset",
+        "provenance": "captured"
+      }
+    ],
+    "expected_tool_rounds": [
+      [
+        {
+          "tool_name": "get_service_health",
+          "arguments": {
+            "service": "batch-reporting"
+          },
+          "match_strategy": "subset",
+          "provenance": "captured"
+        },
+        {
+          "tool_name": "search_logs",
+          "arguments": {
+            "service": "batch-reporting",
+            "query": "timeout",
+            "window_minutes": 60
+          },
+          "match_strategy": "subset",
+          "provenance": "captured"
+        }
+      ]
+    ],
+    "tool_result_fixtures": null,
+    "expected_tool_count": null,
+    "expected_no_tools": false,
+    "expected_parallel": null,
+    "history": null,
+    "conversation_id": null,
+    "turn_index": null,
+    "generation_config": {
+      "temperature": 0.0
+    },
+    "toolset_ref": "sha256:56503f6dc1f33019cdd841f6213646bae2ab8ea9dd858d54713effa881b5ff94",
+    "tools": null
+  }
+}

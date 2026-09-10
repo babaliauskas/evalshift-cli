@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.utils.ci_pin` — the CI pin-drift check.
+"""Tests for :mod:`evalshift_cli.utils.ci_pin` — the CI pin-drift check.
 
 The check is advisory and reads ``.github/workflows/*.yml`` next to the
 project's ``evalshift.yaml``; it must never raise on odd input.
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.utils.ci_pin import (
+from evalshift_cli.utils.ci_pin import (
     ActionPin,
     CiPinFinding,
     check_ci_pin,

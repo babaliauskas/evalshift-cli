@@ -1,0 +1,40 @@
+{
+  "name": "cap_17098c7050c54dbc8116c2db015d5707",
+  "suite": "oncall_triage",
+  "from_capture": "cap_17098c7050c54dbc8116c2db015d5707",
+  "promoted_at": "2026-09-09T15:38:57.231003+00:00",
+  "source_input_hash": "9c846a5018d2bc893f6ff29f542c3e4ae08a2acf0ede9f56a442f31fe8782d78",
+  "code_version": "",
+  "promotion_source": "executed",
+  "cost_usd": 0.0,
+  "cost_source": null,
+  "conversation_id": null,
+  "turn_index": null,
+  "example": {
+    "id": "cap_17098c7050c54dbc8116c2db015d5707",
+    "inputs": {
+      "input": "You are the on-call triage assistant for a payments platform.\n\nGiven an alert, decide what to do and act:\n  - Always check service health before drawing a conclusion.\n  - Open an incident for anything customer-visible.\n  - Page the owning team only for sev1 and sev2.\n  - Answer ownership and policy questions directly, without calling tools.\n\nBe concise. Reply with what you did and why, in at most three sentences.\n\nAlert: Which team owns the notifications service, and do I need to open an incident for a single failed webhook retry?"
+    },
+    "tags": [
+      "captured",
+      "oncall_triage"
+    ],
+    "expected": {
+      "final_output": "The notifications service is owned by the messaging team. No action was needed, so I did not open an incident or page anyone."
+    },
+    "expected_tools": null,
+    "expected_tool_rounds": null,
+    "tool_result_fixtures": null,
+    "expected_tool_count": null,
+    "expected_no_tools": true,
+    "expected_parallel": null,
+    "history": null,
+    "conversation_id": null,
+    "turn_index": null,
+    "generation_config": {
+      "temperature": 0.0
+    },
+    "toolset_ref": "sha256:56503f6dc1f33019cdd841f6213646bae2ab8ea9dd858d54713effa881b5ff94",
+    "tools": null
+  }
+}

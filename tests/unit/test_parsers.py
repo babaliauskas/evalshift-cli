@@ -1,4 +1,4 @@
-"""Tests for :mod:`evalshift.parsers`.
+"""Tests for :mod:`evalshift_cli.parsers`.
 
 The most important invariant: :class:`PythonStringParser` *never* runs
 user code. Every value form that isn't ``ast.Constant(str)`` must be
@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from evalshift.config.models import PromptDefinition
-from evalshift.parsers.base import (
+from evalshift_cli.config.models import PromptDefinition
+from evalshift_cli.parsers.base import (
     PromptParseError,
     PromptParser,
     PromptTemplate,
 )
-from evalshift.parsers.manual import ManualParser
-from evalshift.parsers.python_string import PythonStringParser
+from evalshift_cli.parsers.manual import ManualParser
+from evalshift_cli.parsers.python_string import PythonStringParser
 
 
 def _write_py(tmp_path: Path, body: str, name: str = "prompts.py") -> Path:

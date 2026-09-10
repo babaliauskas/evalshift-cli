@@ -1,4 +1,4 @@
-"""Tests for :class:`evalshift.evaluators.tool_arguments.ToolArgumentsEvaluator`."""
+"""Tests for :class:`evalshift_cli.evaluators.tool_arguments.ToolArgumentsEvaluator`."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from typing import Any
 
 import pytest
 
-from evalshift.config.models import ToolArgumentsEvaluatorConfig
-from evalshift.evaluators.failures import ARGUMENT_VALUE_DRIFT
-from evalshift.evaluators.tool_arguments import (
+from evalshift_cli.config.models import ToolArgumentsEvaluatorConfig
+from evalshift_cli.evaluators.failures import ARGUMENT_VALUE_DRIFT
+from evalshift_cli.evaluators.tool_arguments import (
     ToolArgumentsEvaluator,
     _is_subset,
     _match_calls,
     _schema_strategy,
 )
-from evalshift.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
-from evalshift.suite.models import ExpectedToolCall, SuiteExample
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
+from evalshift_cli.suite.models import ExpectedToolCall, SuiteExample
 from tests.unit.suite_examples import suite_example
 
 
@@ -1120,3 +1120,171 @@ class TestGroundTruthProvenanceStamp:
         )
         assert record is not None
         assert "gt_provenance" not in record.metadata
+
+
+# ---------------------------------------------------------------------------
+# Teacher-forced multi-round replay
+# ---------------------------------------------------------------------------
+
+
+def _multi(*rounds: list[tuple[str, dict[str, Any]]]) -> ToolTrace:
+    """A trace spanning several teacher-forced rounds."""
+    calls: list[ToolCall] = []
+    for round_index, round_calls in enumerate(rounds):
+        for name, args in round_calls:
+            calls.append(
+                ToolCall(
+                    tool_name=name,
+                    arguments=args,
+                    sequence_index=len(calls),
+                    round_index=round_index,
+                ),
+            )
+    return ToolTrace(calls=calls, round_count=len(rounds))
+
+
+def _rounds_example(rounds: list[list[tuple[str, dict[str, Any]]]]) -> SuiteExample:
+    expected = [
+        [ExpectedToolCall(tool_name=name, arguments=args) for name, args in round_calls]
+        for round_calls in rounds
+    ]
+    return suite_example(
+        id="ex1",
+        inputs={},
+        expected_tools=expected[0],
+        expected_tool_rounds=expected,
+    )
+
+
+def _rounds_expected_ev() -> ToolArgumentsEvaluator:
+    return ToolArgumentsEvaluator(
+        ToolArgumentsEvaluatorConfig(name="tool_arguments", against="expected"),
+    )
+
+
+class TestPerRoundArgumentsAgainstExpected:
+    """Round *k*'s calls answer round *k*'s expectations, never another round's."""
+
+    async def test_the_score_is_the_mean_of_the_rounds_that_scored_something(self) -> None:
+        record = await _rounds_expected_ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_rounds_example([[("search", {"q": "a"})], [("open", {"id": "x"})]]),
+            source_trace=_multi([("search", {"q": "a"})], [("open", {"id": "x"})]),
+            target_trace=_multi([("search", {"q": "a"})], [("open", {"id": "y"})]),
+        )
+        assert record is not None
+        assert record.source_score == pytest.approx(1.0)
+        assert record.target_score == pytest.approx(0.5)
+
+    async def test_a_call_made_in_the_wrong_round_is_a_miss(self) -> None:
+        """Pairing is inside a round: the flattened match forgave this."""
+        record = await _rounds_expected_ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_rounds_example([[("search", {"q": "a"})], [("open", {"id": "x"})]]),
+            source_trace=_multi([("search", {"q": "a"})], [("open", {"id": "x"})]),
+            target_trace=_multi([("open", {"id": "x"})], [("search", {"q": "a"})]),
+        )
+        assert record is not None
+        assert record.target_score == pytest.approx(0.0)
+
+    async def test_per_round_detail_and_concatenated_top_level_lists(self) -> None:
+        record = await _rounds_expected_ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_rounds_example([[("search", {"q": "a"})], [("open", {"id": "x"})]]),
+            source_trace=_multi([("search", {"q": "a"})], [("open", {"id": "x"})]),
+            target_trace=_multi([("search", {"q": "a"})], [("open", {"id": "y"})]),
+        )
+        assert record is not None
+        assert [c["tool_name"] for c in record.metadata["per_call"]] == ["search", "open"]
+        assert [c["tool_name"] for c in record.metadata["per_call_source"]] == ["search", "open"]
+        assert record.metadata["expected_calls"] == 2
+        rounds = record.metadata["rounds"]
+        assert [r["round"] for r in rounds] == [0, 1]
+        assert rounds[1]["target_score"] == pytest.approx(0.0)
+        assert [c["tool_name"] for c in rounds[1]["per_call"]] == ["open"]
+
+    async def test_a_round_with_no_recorded_arguments_does_not_enter_the_mean(self) -> None:
+        record = await _rounds_expected_ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_rounds_example([[("search", {"q": "a"})], [("open", {})]]),
+            source_trace=_multi([("search", {"q": "a"})], [("open", {})]),
+            target_trace=_multi([("search", {"q": "b"})], [("open", {})]),
+        )
+        assert record is not None
+        assert record.target_score == pytest.approx(0.0)
+        assert [r["round"] for r in record.metadata["rounds"]] == [0]
+
+    async def test_no_recorded_arguments_at_all_writes_no_row(self) -> None:
+        record = await _rounds_expected_ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_rounds_example([[("search", {})], [("open", {})]]),
+            source_trace=_multi([("search", {})], [("open", {})]),
+            target_trace=_multi([("search", {})], [("open", {})]),
+        )
+        assert record is None
+
+    async def test_a_single_round_trace_carries_no_rounds_key(self) -> None:
+        record = await _rounds_expected_ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_rounds_example([[("search", {"q": "a"})]]),
+            source_trace=_trace(("search", {"q": "a"})),
+            target_trace=_trace(("search", {"q": "b"})),
+        )
+        assert record is not None
+        assert "rounds" not in record.metadata
+
+
+class TestPerRoundArgumentsAgainstSource:
+    """The default axis: same-name matching happens inside one round."""
+
+    async def test_the_score_is_the_mean_over_rounds(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_example(),
+            source_trace=_multi([("search", {"q": "a"})], [("open", {"id": "x"})]),
+            target_trace=_multi([("search", {"q": "a"})], [("open", {"id": "y"})]),
+        )
+        assert record is not None
+        assert record.target_score == pytest.approx(0.5)
+        assert [r["round"] for r in record.metadata["rounds"]] == [0, 1]
+
+    async def test_calls_are_not_matched_across_rounds(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_example(),
+            source_trace=_multi([("search", {"q": "a"})], []),
+            target_trace=_multi([], [("search", {"q": "a"})]),
+        )
+        assert record is not None
+        assert record.target_score == pytest.approx(0.5)
+
+    async def test_per_call_details_are_concatenated_across_rounds(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_example(),
+            source_trace=_multi([("search", {"q": "a"})], [("open", {"id": "x"})]),
+            target_trace=_multi([("search", {"q": "a"})], [("open", {"id": "y"})]),
+        )
+        assert record is not None
+        assert [c["tool_name"] for c in record.metadata["per_call"]] == ["search", "open"]
+        assert record.metadata["failure_categories"] == [ARGUMENT_VALUE_DRIFT]
+
+    async def test_a_pair_that_called_nothing_in_any_round_is_still_a_match(self) -> None:
+        record = await _ev().score_pair(
+            run_id="r",
+            prompt_id="p",
+            example=_example(),
+            source_trace=_multi([], []),
+            target_trace=_multi([], []),
+        )
+        assert record is not None
+        assert record.target_score == pytest.approx(1.0)
