@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-10
+
 ### Added
 
 - `defaults.samples_per_example` (default `1`, max `20`): send every
