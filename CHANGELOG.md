@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `capture sync` now pairs a history tool result that was recorded without a
+  `tool_call_id` with the preceding assistant turn's next unanswered tool
+  call, in order, instead of assigning it a positional `_pos<N>` id. Gemini
+  puts no ids on function responses, so every promoted Gemini conversation
+  with a tool round carried an id nothing could match and LiteLLM rejected
+  the replay of every later turn on both models (`Missing corresponding tool
+  call for tool response message`) before it reached the provider. Re-run
+  `evalshift capture sync` to regenerate affected suites. A result with no
+  preceding call to answer still gets `_pos<N>` with a warning.
+- LiteLLM's "Give Feedback / Get Help" banner, which the library prints on
+  every failed call outside any logger, no longer floods the pipeline output.
+
 ## [0.14.0] - 2026-09-10
 
 ### Added

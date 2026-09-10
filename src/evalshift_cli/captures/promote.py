@@ -983,6 +983,34 @@ def _history_message(
     )
 
 
+def _assistant_with_call_ids(
+    msg: dict[str, Any],
+    position: int,
+) -> tuple[dict[str, Any], list[str]]:
+    """The assistant message with every tool call carrying an id, plus those ids.
+
+    A call recorded without an id gets ``call_p<position>_<index>`` so the
+    ``tool`` result that answers it can be keyed to *that* id in the golden
+    file — the pairing has to be visible in the artefact, not re-derived at
+    dispatch. An assistant turn without tool calls returns no ids: a plain
+    reply closes the agent loop, so a later id-less result answers nothing.
+    """
+    raw_calls = msg.get("tool_calls")
+    if not isinstance(raw_calls, list) or not raw_calls:
+        return msg, []
+    calls: list[Any] = []
+    ids: list[str] = []
+    for index, call in enumerate(raw_calls):
+        if not isinstance(call, dict):
+            calls.append(call)
+            continue
+        if call.get("id") is None:
+            call = {**call, "id": f"call_p{position}_{index}"}
+        calls.append(call)
+        ids.append(str(call["id"]))
+    return {**msg, "tool_calls": calls}, ids
+
+
 def _recover_inputs_from_messages(
     messages: list[dict[str, Any]],
     *,
@@ -1007,19 +1035,37 @@ def _recover_inputs_from_messages(
     history: list[ChatMessage] = []
     dropped_roles: set[str] = set()
     dropped_count = 0
+    paired_by_order = 0
     unpaired_tool_results = 0
+    # Call ids of the latest assistant turn that no tool result has answered
+    # yet, in emission order. Providers that carry no ids on the wire (Gemini)
+    # pair results with calls by that order, so an id-less result answers the
+    # first still-open call rather than getting an id nothing can match.
+    open_call_ids: list[str] = []
     for position, msg in enumerate(prefix):
         role = _coerce_history_role(msg.get("role"))
         if role is None:
             dropped_count += 1
             dropped_roles.add(str(msg.get("role")))
             continue
-        if role == "tool" and not msg.get("tool_call_id"):
-            # Synthesise an id so the strict model validates; a recording that
-            # lost the provider call id is a gap worth naming, not a reason to
-            # delete the tool result from the replayed context.
-            msg = {**msg, "tool_call_id": f"_pos{position}"}
-            unpaired_tool_results += 1
+        if role == "assistant":
+            msg, open_call_ids = _assistant_with_call_ids(msg, position)
+        elif role == "user":
+            open_call_ids = []
+        elif role == "tool":
+            recorded_id = msg.get("tool_call_id")
+            if recorded_id:
+                if str(recorded_id) in open_call_ids:
+                    open_call_ids.remove(str(recorded_id))
+            elif open_call_ids:
+                msg = {**msg, "tool_call_id": open_call_ids.pop(0)}
+                paired_by_order += 1
+            else:
+                # Nothing in the prefix this result can answer. Synthesise an
+                # id so the strict model validates; the gap is worth naming,
+                # not a reason to delete the result from the replayed context.
+                msg = {**msg, "tool_call_id": f"_pos{position}"}
+                unpaired_tool_results += 1
         history.append(_history_message(msg, role))
 
     if dropped_count:
@@ -1027,10 +1073,16 @@ def _recover_inputs_from_messages(
         warnings.append(
             f"dropped {dropped_count} history message(s) with unrecognised role(s) {{{roles}}}",
         )
+    if paired_by_order:
+        warnings.append(
+            f"{paired_by_order} tool result(s) in history had no tool_call_id; "
+            "each was paired, in order, with the preceding assistant turn's open tool call.",
+        )
     if unpaired_tool_results:
         warnings.append(
-            f"{unpaired_tool_results} tool result(s) in history had no tool_call_id; "
-            "synthetic ids were assigned. Record the provider call id for exact pairing.",
+            f"{unpaired_tool_results} tool result(s) in history had no tool_call_id and no "
+            "preceding tool call to answer; synthetic ids were assigned. "
+            "Record the provider call id for exact pairing.",
         )
 
     return RecoveredInput(

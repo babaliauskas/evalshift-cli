@@ -97,3 +97,17 @@ class TestInstallation:
         _configure_litellm()
         attached = logging.getLogger("LiteLLM").filters
         assert sum(isinstance(f, _DedupeWarningsFilter) for f in attached) == 1
+
+    def test_suppresses_litellm_debug_banner(self) -> None:
+        """LiteLLM ``print()``s a 'Give Feedback / Get Help' banner on every failed call.
+
+        It bypasses the logging machinery entirely, so the only way to keep
+        it out of the pipeline output is the library's own switch.
+        """
+        import litellm
+
+        from evalshift_cli.models.client import _configure_litellm
+
+        litellm.suppress_debug_info = False
+        _configure_litellm()
+        assert litellm.suppress_debug_info is True

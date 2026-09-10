@@ -693,6 +693,123 @@ def test_promote_synthesises_an_id_for_an_unpaired_tool_result() -> None:
     assert "1 tool result(s)" in unpaired[0]
 
 
+def test_promote_pairs_an_idless_tool_result_with_the_preceding_assistant_call() -> None:
+    """Gemini records no function-response ids; the result answers the call just before it."""
+    messages = [
+        {"role": "user", "content": "How far is 3.5 miles in km?"},
+        {
+            "role": "model",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_1389050", "name": "convert_units", "arguments": {"value": 3.5}}
+            ],
+        },
+        {
+            "role": "tool",
+            "content": '{"result": 5.633}',
+            "tool_call_id": None,
+            "name": "convert_units",
+        },
+        {"role": "model", "content": "3.5 miles is approximately 5.63 kilometers."},
+        {"role": "user", "content": "What's 120 euros in yen?"},
+    ]
+    events = [_messages_call(0, messages=messages), _final("done", 1)]
+    built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+    assert built.example.history is not None
+    assert built.example.history[2].tool_call_id == "call_1389050"
+    assert not any("_pos" in (m.tool_call_id or "") for m in built.example.history)
+    assert not any("synthetic ids were assigned" in w for w in built.warnings)
+    paired = [w for w in built.warnings if "paired" in w]
+    assert len(paired) == 1
+    assert "1 tool result(s)" in paired[0]
+
+
+def test_promote_pairs_idless_tool_results_with_parallel_calls_in_order() -> None:
+    messages = [
+        {"role": "user", "content": "convert both"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "name": "convert_units", "arguments": {"value": 1}},
+                {"id": "c2", "name": "convert_units", "arguments": {"value": 2}},
+            ],
+        },
+        {"role": "tool", "content": "one"},
+        {"role": "tool", "content": "two"},
+        {"role": "assistant", "content": "done"},
+        {"role": "user", "content": "thanks"},
+    ]
+    events = [_messages_call(0, messages=messages), _final("done", 1)]
+    built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+    assert built.example.history is not None
+    assert built.example.history[2].tool_call_id == "c1"
+    assert built.example.history[3].tool_call_id == "c2"
+
+
+def test_promote_pairing_skips_call_ids_already_answered_by_a_keyed_result() -> None:
+    messages = [
+        {"role": "user", "content": "convert both"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "name": "convert_units", "arguments": {"value": 1}},
+                {"id": "c2", "name": "convert_units", "arguments": {"value": 2}},
+            ],
+        },
+        {"role": "tool", "content": "one", "tool_call_id": "c1"},
+        {"role": "tool", "content": "two"},
+        {"role": "user", "content": "thanks"},
+    ]
+    events = [_messages_call(0, messages=messages), _final("done", 1)]
+    built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+    assert built.example.history is not None
+    assert built.example.history[3].tool_call_id == "c2"
+
+
+def test_promote_synthesises_one_shared_id_when_neither_call_nor_result_has_one() -> None:
+    messages = [
+        {"role": "user", "content": "convert"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"name": "convert_units", "arguments": {"value": 1}}],
+        },
+        {"role": "tool", "content": "one"},
+        {"role": "user", "content": "thanks"},
+    ]
+    events = [_messages_call(0, messages=messages), _final("done", 1)]
+    built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+    history = built.example.history
+    assert history is not None
+    assert history[1].tool_calls is not None
+    call_id = history[1].tool_calls[0].id
+    assert call_id is not None
+    assert history[2].tool_call_id == call_id
+
+
+def test_promote_does_not_pair_an_idless_result_across_a_later_user_turn() -> None:
+    """A result after the next user turn answers nothing in the prefix; fall back to a positional id."""
+    messages = [
+        {"role": "user", "content": "convert"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "c1", "name": "convert_units", "arguments": {}}],
+        },
+        {"role": "tool", "content": "one", "tool_call_id": "c1"},
+        {"role": "user", "content": "again"},
+        {"role": "tool", "content": "stray"},
+        {"role": "user", "content": "thanks"},
+    ]
+    events = [_messages_call(0, messages=messages), _final("done", 1)]
+    built = build_example_from_capture(_envelope(events=events), PromoteOptions())
+    assert built.example.history is not None
+    assert built.example.history[4].tool_call_id == "_pos4"
+    assert any("synthetic ids were assigned" in w for w in built.warnings)
+
+
 def test_build_messages_list_unrecognised_role_dropped_with_aggregated_warning() -> None:
     messages = [
         {"role": "user", "content": "hi"},

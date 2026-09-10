@@ -213,7 +213,14 @@ def _configure_litellm() -> None:
     be imported from several entry points: stacked filters would each keep
     their own ``_seen`` set, letting a warning through once per copy, and
     nested proxies would each add a layer of indirection for nothing.
+
+    Also flips ``litellm.suppress_debug_info``: on every failed call the
+    library ``print()``s a two-line "Give Feedback / Get Help" banner
+    straight to the console, outside any logger, so neither the dedupe
+    filter nor :func:`deferred_console_warnings` can catch it. The failure
+    itself still surfaces through the exception we raise.
     """
+    litellm.suppress_debug_info = True
     litellm_log = logging.getLogger("LiteLLM")
     _late_bind_stderr_handlers(litellm_log)
     if any(isinstance(f, _DedupeWarningsFilter) for f in litellm_log.filters):

@@ -150,11 +150,16 @@ all) parse and run exactly as before — these fields are purely additive.
 
 ## Limitations
 
-* **A tool result with no recorded id gets a synthetic one.** `tool` messages
+* **A tool result with no recorded id is paired by order.** `tool` messages
   are replayed, but only if they can be paired with the call they answer.
-  When the recording carried no `tool_call_id`, promotion assigns a
-  positional one (`_pos<N>`) and warns — the result stays in the prefix, but
-  record the provider's call id for exact pairing.
+  Some providers put no ids on the wire (Gemini's function responses, for
+  one), so when the recording carried no `tool_call_id`, promotion keys the
+  result to the next still-unanswered `tool_calls[].id` of the preceding
+  assistant turn — the same by-order pairing the provider itself uses — and
+  warns. A call that also had no id gets `call_p<N>_<i>` on both sides. Only
+  a result with no preceding call to answer (after a later user turn, say)
+  gets a positional `_pos<N>` id, which no provider can match; record the
+  provider's call id if you hit that.
 * **Reconstructed history is an approximation.** When a turn's capture only
   recorded a bare string, its prefix is stitched from sibling captures:
   assistant replies are the recorded final outputs (any intermediate tool

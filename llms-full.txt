@@ -934,7 +934,9 @@ content leaves the machine.
   History replays the AGENT LOOP: assistant.tool_calls + tool-role results are sent in the
   OpenAI wire shape (function.arguments as a JSON string; tool messages keyed by
   tool_call_id) and LiteLLM translates per provider. A promoted tool result with no recorded
-  id gets a positional id (_posN) with a warning.
+  id is keyed, in order, to the preceding assistant turn's still-open tool_calls[].id (Gemini
+  records no response ids; this is its own by-order pairing), with a warning; a call with no id
+  gets call_p<N>_<i> on both sides. Only a result with no call to answer gets _posN.
 - Promotion copies the first model_call's metadata["generation_config"] (recorded by the SDK:
   temperature, response_mime_type, response_schema, tool_choice, parallel_tool_calls,
   tool_config, ...) onto SuiteExample.generation_config VERBATIM. At dispatch the runner
