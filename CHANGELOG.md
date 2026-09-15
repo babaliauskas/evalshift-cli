@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-15
+
 ### Changed
 
 - **License: AGPL-3.0-or-later → Apache-2.0.** The CLI is a client for a
