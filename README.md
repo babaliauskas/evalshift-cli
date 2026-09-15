@@ -3,7 +3,7 @@
 Open-source LLM migration and regression testing for AI agents.
 
 [![CI](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/evalshift.svg)](https://pypi.org/project/evalshift/)
 
@@ -354,12 +354,10 @@ Runnable projects under [`examples/`](examples/):
 
 ## License
 
-[AGPL-3.0-or-later](LICENSE). Free for any use, including commercial, provided
-that derivative works — including network-hosted services — are released under
-the same license.
+[Apache-2.0](LICENSE). Free for any use, commercial included — no share-back
+requirement, and an explicit patent grant. The capture SDK
+([`evalshift-sdk`](https://github.com/babaliauskas/evalshift-sdk)), the piece
+you import into your own application, is MIT.
 
-Versions `0.3.0` and earlier (published on PyPI before this change) remain
-available under the MIT License terms they were released with.
-
-Commercial licenses without the AGPL share-back requirement are available;
-contact <l.babaliauskas@gmail.com>.
+Earlier releases stay under the license they shipped with: `0.3.0` and earlier
+under the MIT License, `0.13.0` through `0.14.1` under AGPL-3.0-or-later.
