@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while tripping the blanket AGPL bans and dependency/SBOM scanners many
   companies run over their CI environments. Apache-2.0 drops that friction and
   adds an explicit patent grant. Nothing about how you use the tool changes,
-  and the capture SDK (`evalshift-sdk`) was already MIT. Releases `0.13.0`
+  and the capture SDK (`evalshift-sdk`) was already MIT. Releases `0.4.0`
   through `0.14.1` remain available under AGPL-3.0-or-later.
 
 ## [0.14.1] - 2026-09-10

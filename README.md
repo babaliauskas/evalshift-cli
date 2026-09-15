@@ -360,4 +360,4 @@ requirement, and an explicit patent grant. The capture SDK
 you import into your own application, is MIT.
 
 Earlier releases stay under the license they shipped with: `0.3.0` and earlier
-under the MIT License, `0.13.0` through `0.14.1` under AGPL-3.0-or-later.
+under the MIT License, `0.4.0` through `0.14.1` under AGPL-3.0-or-later.
