@@ -10,10 +10,11 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from evalshift_cli.hosted.client import HostedClient, HostedError
+from evalshift_cli.hosted.client import HostedClient, HostedError, HostedHTTPError
 from evalshift_cli.hosted.credentials import (
     CredentialsError,
     is_insecure_host,
+    load_credentials,
     resolve_host,
     save_credentials,
 )
@@ -45,7 +46,9 @@ def login(
 
     The browser flow issues a personal token: it belongs to you, carries whatever your
     membership allows, and stops working when that membership does. That is the right
-    credential for a workstation.
+    credential for a workstation. Running login again while that token still works
+    keeps it rather than minting another; run ``evalshift logout`` first to switch
+    accounts.
 
     It is the wrong credential for CI. A pipeline outlives the person who set it up, so
     mint a service account key instead - hosted web app, Settings then API tokens, under
@@ -63,6 +66,8 @@ def login(
             "your bearer token will transit in cleartext. Prefer https://."
         )
     if token is None:
+        if _reuse_stored_credentials(host=host, console=console):
+            return
         _login_with_browser_flow(
             host=host,
             no_browser=no_browser,
@@ -83,6 +88,38 @@ def _login_with_token(*, host: str, token: str, console: Console) -> None:
         raise typer.Exit(code=1) from exc
     email = me.get("email", "(unknown user)")
     console.print(f"[green]✓[/green] logged in as {email}")
+
+
+def _reuse_stored_credentials(*, host: str, console: Console) -> bool:
+    """Return True when a stored token for ``host`` still works, so no new token is minted.
+
+    Every browser approval mints a fresh personal token on the server, and the CLI can
+    only hold one at a time, so re-running ``login`` with a working credential would
+    strand the previous token. A rejected token (revoked, or for another account) falls
+    through to the browser flow; any other failure is reported as-is because the browser
+    flow would hit the same wall.
+    """
+    try:
+        stored = load_credentials()
+    except CredentialsError:
+        return False
+    if stored is None or stored.host != host:
+        return False
+    try:
+        me = HostedClient(host=host, token=stored.token).me()
+    except HostedHTTPError as exc:
+        if exc.status_code in (401, 403):
+            console.print("[yellow]![/yellow] stored token is no longer valid; signing in again")
+            return False
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    except HostedError as exc:
+        console.print(f"[red]✗[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    email = me.get("email", "(unknown user)")
+    console.print(f"[green]✓[/green] already logged in as {email}")
+    console.print("To switch accounts, run `evalshift logout` first, then `evalshift login`.")
+    return True
 
 
 def _login_with_browser_flow(

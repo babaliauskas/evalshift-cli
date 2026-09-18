@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from evalshift_cli.cli.main import app
 from evalshift_cli.hosted.bundle import BUNDLE_FILENAME, BundleError, build_bundle
+from evalshift_cli.hosted.client import HostedNetworkError
 from evalshift_cli.hosted.credentials import (
     CredentialsError,
     load_credentials,
@@ -287,6 +288,150 @@ def test_login_device_flow_denied_does_not_save_credentials(
     assert result.exit_code == 1
     assert "denied" in result.output
     assert load_credentials(path=credentials_path) is None
+
+
+def _device_flow_client(
+    *,
+    me_for_stored: Any = None,
+    minted_token: str = "es_device_plaintext",
+) -> tuple[type, list[str]]:
+    """Return a fake HostedClient plus a log of device-flow calls it received.
+
+    ``me_for_stored`` is what ``me()`` does for the pre-existing token: a dict is
+    returned, an exception instance is raised.
+    """
+    calls: list[str] = []
+
+    class FakeHostedClient:
+        def __init__(self, *, host: str, token: str | None = None, timeout: float = 20.0) -> None:
+            self.host = host.rstrip("/")
+            self.token = token
+
+        def start_cli_device_login(self, *, client_name: str) -> dict[str, Any]:
+            calls.append("start")
+            return {
+                "device_code": "device-secret",
+                "user_code": "ABCD-EFGH",
+                "verification_uri": "https://api.evalshift.test/auth/cli/approve",
+                "verification_uri_complete": (
+                    "https://api.evalshift.test/auth/cli/approve?user_code=ABCD-EFGH"
+                ),
+                "expires_in": 900,
+                "interval": 0,
+            }
+
+        def poll_cli_device_login(self, *, device_code: str) -> dict[str, Any]:
+            calls.append("poll")
+            return {"status": "approved", "access_token": minted_token}
+
+        def me(self) -> dict[str, Any]:
+            if self.token == minted_token:
+                return {"email": "dev@example.com"}
+            if isinstance(me_for_stored, Exception):
+                raise me_for_stored
+            assert isinstance(me_for_stored, dict)
+            return me_for_stored
+
+    return FakeHostedClient, calls
+
+
+def test_login_reuses_valid_stored_credentials_instead_of_minting_a_new_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials_path = tmp_path / "credentials"
+    monkeypatch.setenv("EVALSHIFT_CREDENTIALS_PATH", str(credentials_path))
+    save_credentials("https://api.evalshift.test", "es_existing", path=credentials_path)
+    fake_client, calls = _device_flow_client(me_for_stored={"email": "dev@example.com"})
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", fake_client)
+    monkeypatch.setattr(
+        "evalshift_cli.cli.commands.login.webbrowser.open",
+        lambda _url: pytest.fail("browser flow must not start when already logged in"),
+    )
+
+    result = runner.invoke(app, ["login", "--host", "https://api.evalshift.test"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert "already logged in as dev@example.com" in result.output
+    assert "evalshift logout" in result.output
+    assert "es_existing" not in result.output
+    stored = load_credentials(path=credentials_path)
+    assert stored is not None
+    assert stored.token == "es_existing"
+
+
+def test_login_reauthenticates_when_stored_token_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials_path = tmp_path / "credentials"
+    monkeypatch.setenv("EVALSHIFT_CREDENTIALS_PATH", str(credentials_path))
+    save_credentials("https://api.evalshift.test", "es_revoked", path=credentials_path)
+    fake_client, calls = _device_flow_client(
+        me_for_stored=HostedHTTPError(401, "invalid or revoked token"),
+    )
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", fake_client)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.webbrowser.open", lambda _url: True)
+
+    result = runner.invoke(app, ["login", "--host", "https://api.evalshift.test"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["start", "poll"]
+    assert "no longer valid" in result.output
+    assert "logged in as dev@example.com" in result.output
+    stored = load_credentials(path=credentials_path)
+    assert stored is not None
+    assert stored.token == "es_device_plaintext"
+
+
+def test_login_ignores_stored_credentials_for_a_different_host(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials_path = tmp_path / "credentials"
+    monkeypatch.setenv("EVALSHIFT_CREDENTIALS_PATH", str(credentials_path))
+    save_credentials("https://other.evalshift.test", "es_other_host", path=credentials_path)
+    fake_client, calls = _device_flow_client(
+        me_for_stored=AssertionError("stored token for another host must not be probed"),
+    )
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", fake_client)
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.webbrowser.open", lambda _url: True)
+
+    result = runner.invoke(app, ["login", "--host", "https://api.evalshift.test"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["start", "poll"]
+    stored = load_credentials(path=credentials_path)
+    assert stored is not None
+    assert stored.host == "https://api.evalshift.test"
+    assert stored.token == "es_device_plaintext"
+
+
+def test_login_fails_when_stored_token_cannot_be_verified_for_other_reasons(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials_path = tmp_path / "credentials"
+    monkeypatch.setenv("EVALSHIFT_CREDENTIALS_PATH", str(credentials_path))
+    save_credentials("https://api.evalshift.test", "es_existing", path=credentials_path)
+    fake_client, calls = _device_flow_client(
+        me_for_stored=HostedNetworkError("could not reach https://api.evalshift.test"),
+    )
+    monkeypatch.setattr("evalshift_cli.cli.commands.login.HostedClient", fake_client)
+    monkeypatch.setattr(
+        "evalshift_cli.cli.commands.login.webbrowser.open",
+        lambda _url: pytest.fail("browser flow must not start on a network failure"),
+    )
+
+    result = runner.invoke(app, ["login", "--host", "https://api.evalshift.test"])
+
+    assert result.exit_code == 1
+    assert calls == []
+    assert "could not reach" in result.output
+    stored = load_credentials(path=credentials_path)
+    assert stored is not None
+    assert stored.token == "es_existing"
 
 
 def test_logout_removes_stored_credentials(
