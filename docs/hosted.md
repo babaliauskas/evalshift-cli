@@ -168,7 +168,8 @@ prints this once, before the network is touched:
 ! this run carries no migration policy; the hosted gate will report inconclusive — add migration_policy to evalshift.yaml
 ```
 
-And once the upload response comes back, if the project's only policy was
+And once the server's initiate response comes back — before the bundle is
+uploaded — if the project's only policy was
 configured in the web app and `evalshift.yaml` has no `migration_policy` of
 its own, `push` prints that policy back as the block to paste into the file:
 

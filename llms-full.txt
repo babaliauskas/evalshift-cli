@@ -247,15 +247,16 @@ evalshift push [RUN_ID] [--bundle PATH] [--project] [--host] [--token]
   `Upgrade: <url>` and exits 1; nothing uploaded, local run untouched. Never retried.
   Two policy notices, both before the success line: (1) a bundle with no decision.policy
   (no migration_policy configured) prints, before any HTTP call, "this run carries no
-  migration policy; the hosted gate will report inconclusive -- add migration_policy to
+  migration policy; the hosted gate will report inconclusive — add migration_policy to
   evalshift.yaml" -- without one the run still uploads and renders like any gated one, and the
-  PR it belongs to is simply never blocked. (2) once the upload response is back, if the
-  project's only policy lives in the web app (response.legacy_project_policy) and the yaml has
-  no migration_policy of its own, push prints "this project has a policy configured in the web
-  app; move it into evalshift.yaml:" followed by a migration_policy: YAML block -- validated
-  through MigrationPolicy first and dumped with exclude_unset, so only the keys the server
-  actually sent are shown (writing the CLI's other defaults would pin values meant to move
-  with the CLI). Stops appearing once evalshift.yaml has its own migration_policy.
+  PR it belongs to is simply never blocked. (2) once the server's initiate response comes
+  back -- before the bundle is uploaded -- if the project's only policy lives in the web app
+  (response.legacy_project_policy) and the yaml has no migration_policy of its own, push
+  prints "this project has a policy configured in the web app; move it into evalshift.yaml:"
+  followed by a migration_policy: YAML block -- validated through MigrationPolicy first and
+  dumped with exclude_unset, so only the keys the server actually sent are shown (writing the
+  CLI's other defaults would pin values meant to move with the CLI). Stops appearing once
+  evalshift.yaml has its own migration_policy.
 
 Captures (read from .evalshift/captures/ under CWD, or $EVALSHIFT_DIR):
 evalshift capture list [SUITE] [--json]
@@ -852,13 +853,17 @@ CI gates: analyze/all --gate critical,high (exit 1 on matching severities; allow
 critical,high,medium,low); --policy-gate (exit 1 on fail OR conditional_pass).
 - migration_policy in evalshift.yaml is the single source of truth for these budgets.
   MigrationDecision.policy carries the resolved policy this verdict was computed under
-  (every top-level budget w/ its default applied, plus slices) into migration_decision.json,
-  and `push` carries that same value into the bundle unchanged as decision.policy -- see
-  `evalshift push` above and docs/hosted.md. That is what lets the hosted gate check a PR
-  against the exact budgets this run's own verdict used, instead of a separate, web-edited
-  policy. null on the inconclusive_decision path (no migration_policy configured) and on a
-  migration_decision.json written before this field existed. The web app's per-project policy
-  view is now read-only: it displays this per-run snapshot and cannot edit it.
+  (every top-level budget w/ its default applied, plus slices) into migration_decision.json.
+  `bundle`/`push` never read that file: `bundle` re-resolves the verdict from evalshift.yaml
+  at bundle time (evaluate_migration_policy(policy=cfg.migration_policy, ...), or
+  inconclusive_decision when unset -- hosted/bundle.py), so the bundle's decision.policy is
+  the config's policy AS OF THE BUNDLE, not a copy of migration_decision.json -- editing
+  migration_policy between analyze and push changes what push uploads. Either way this is
+  what lets the hosted gate check a PR against the exact budgets the bundle's own verdict
+  used, instead of a separate, web-edited policy -- see `evalshift push` above and
+  docs/hosted.md. null on the inconclusive_decision path (no migration_policy configured) and
+  on a migration_decision.json written before this field existed. The web app's per-project
+  policy view is now read-only: it displays this per-run snapshot and cannot edit it.
 
 ## Run insights
 
