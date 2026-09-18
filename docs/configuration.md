@@ -242,6 +242,22 @@ When configured, `analyze` writes `migration_decision.json` next to
 Use `--policy-gate` on `analyze` or `compare` to fail CI for `fail` and
 `conditional_pass`.
 
+`evalshift.yaml`'s `migration_policy` is the single source of truth for these
+budgets. `analyze` stamps the resolved policy it computed the verdict under —
+every top-level budget with its default applied, plus `slices` — onto
+`migration_decision.json` as `policy`. `bundle` and `push` do not read that
+file: `bundle` re-resolves the verdict from `evalshift.yaml` at bundle time,
+so the bundle's `decision.policy` is the policy the config held *when the
+bundle was built* — edit `migration_policy` between `analyze` and `push` and
+the bundle carries the new numbers, not the ones `analyze` last wrote. Either
+way, the hosted gate checks a pull request against exactly the budgets the
+bundle's own verdict used. `evalshift.yaml` is the source of truth for that
+policy; the web app's project policy view is becoming a read-only display of
+the snapshot each run pushed. `policy` is `null` when no `migration_policy` is
+configured, and on a `migration_decision.json` written before this field
+existed. See [What `push` sends](hosted.md#what-push-sends-block-by-block) for
+the upload contract and the notices `push` prints around a policy-less run.
+
 ## `prompts`
 
 `prompts` is the **template axis** and [`suites`](#suites) the **dataset

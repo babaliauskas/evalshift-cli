@@ -10,9 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import yaml
+from pydantic import ValidationError
 from rich.console import Console
 
+from evalshift_cli.cli.commands._suites import _BlockDumper
 from evalshift_cli.config.loader import ConfigError, load_config
+from evalshift_cli.config.models import MigrationPolicy
 from evalshift_cli.hosted.bundle import (
     BUNDLE_FILENAME,
     BundleError,
@@ -50,6 +54,24 @@ SOFT_LIMIT_BYTES = 50 * _MB
 
 HARD_LIMIT_BYTES = 100 * _MB
 """The server's default rejection threshold, quoted in the warning and enforced there."""
+
+_MISSING_POLICY_WARNING = (
+    "this run carries no migration policy; unless this project still has an old "
+    "web-app policy, the hosted gate reports inconclusive and never blocks "
+    "— add migration_policy to evalshift.yaml"
+)
+"""Said out loud because the alternative reads as approval: a run with no policy
+uploads, renders and reports exactly like a gated one, and the pull request it
+belongs to is then never blocked. Hedged because this prints before any network
+call: a project that still carries a web-app policy is re-evaluated against that
+one server-side, so the gate does still run there."""
+
+_LEGACY_POLICY_HINT = (
+    "this project has a policy configured in the web app; move it into evalshift.yaml:"
+)
+"""The other half of that: projects whose only policy was web-edited would
+otherwise read the warning above as wrong. The yaml is the source of truth now,
+so the web-app policy is shown as the block that puts it there."""
 
 
 def _soft_limit_warning(size_bytes: int) -> str | None:
@@ -182,6 +204,11 @@ def push_bundle(
     # carried inside the bundle it describes.
     upload_size_bytes = bundle_path.stat().st_size
     _warn_soft_limit(console, upload_size_bytes)
+    # Both of these are facts about the file on disk, so they are said before
+    # the network is touched — and, deliberately, before the resume path below
+    # returns: a run finalized from a checkpoint lands on the server just as
+    # ungated as one uploaded here.
+    _warn_missing_policy(console, bundle)
     if project is not None and project != manifest["project_slug"]:
         raise PushError(
             f"--project {project!r} does not match bundle project {manifest['project_slug']!r}; "
@@ -234,6 +261,10 @@ def push_bundle(
         raise PushError(str(exc)) from exc
 
     _warn_threshold_drift(console, resolved_thresholds, response)
+    # Beside the drift warning because it reads the same response, and above
+    # the existing-run return below so a re-push of an available run still
+    # prints it exactly once.
+    _print_legacy_policy_hint(console, config_path, response)
     server_run_id = _require_str_field(response, "id", "hosted API did not return a run id")
     view_url = str(response.get("view_url") or "")
     upload_url = response.get("upload_url")
@@ -568,6 +599,94 @@ def _warn_threshold_drift(
         "[yellow]![/yellow] thresholds in evalshift.yaml differ from project "
         "canonical thresholds:\n" + body
     )
+
+
+def _warn_missing_policy(console: Console | None, bundle: dict[str, Any]) -> None:
+    """Warn when the bundle carries no resolved ``migration_policy``.
+
+    ``decision.policy`` is the only thing the hosted gate has to check a pull
+    request against. Without it the run still uploads and still renders, the
+    gate reports ``inconclusive`` unless the project still has an old web-app
+    policy to fall back on, and nothing blocks the merge — a silence that is
+    indistinguishable from a passing gate unless the CLI says so here.
+    """
+    if console is None:
+        return
+    decision = bundle.get("decision")
+    policy = decision.get("policy") if isinstance(decision, dict) else None
+    if policy is not None:
+        return
+    console.print(f"[yellow]![/yellow] {_MISSING_POLICY_WARNING}")
+
+
+def _print_legacy_policy_hint(
+    console: Console | None,
+    config_path: Path | None,
+    response: dict[str, Any],
+) -> None:
+    """Show a web-app policy as the ``evalshift.yaml`` block that adopts it.
+
+    Only for projects that have no ``migration_policy`` in their yaml: once the
+    yaml has one it is the source of truth, and the server's copy is history
+    nobody needs to act on.
+
+    Everything about ``legacy_project_policy`` is read defensively. It is a
+    field of a *response*, so an older server omits it, a newer one may change
+    it, and neither is a reason to fail a push whose bundle is already on its
+    way to storage.
+    """
+    if console is None or config_path is None:
+        return
+    legacy = response.get("legacy_project_policy")
+    if not isinstance(legacy, dict):
+        return
+    try:
+        config = load_config(config_path)
+    except ConfigError:
+        # A config that cannot be read cannot say whether it already has a
+        # policy, and guessing here would push the wrong half of the advice.
+        return
+    if config.migration_policy is not None:
+        return
+    block = _policy_yaml_block(legacy)
+    if block is None:
+        return
+    console.print(f"[yellow]![/yellow] {_LEGACY_POLICY_HINT}")
+    # No markup and no highlighting: this block is meant to be copied into a
+    # file verbatim, not rendered.
+    console.print(block, markup=False, highlight=False)
+
+
+def _policy_yaml_block(policy: dict[str, Any]) -> str | None:
+    """Render a server-side policy as pasteable YAML, or ``None`` if it cannot be.
+
+    Validated through :class:`MigrationPolicy` first, so what is printed is by
+    construction something ``evalshift.yaml`` will load — a server policy the
+    CLI's model rejects is a block that would break the file it is pasted into.
+
+    Only the keys the server actually sent survive (``exclude_unset``). A
+    web-app policy has six of the nine budgets; writing out the other three
+    would pin today's CLI defaults into the user's file as if they had chosen
+    them, and they are meant to move with the CLI.
+    """
+    try:
+        parsed = MigrationPolicy.model_validate(policy)
+    except ValidationError:
+        return None
+    fields = parsed.model_dump(mode="json", exclude_unset=True)
+    if not fields:
+        return None
+    # The settings ``_suites.render_suites_yaml`` writes the managed suites
+    # region with, so a pasted block matches the rest of the file.
+    return yaml.dump(
+        {"migration_policy": fields},
+        Dumper=_BlockDumper,
+        sort_keys=False,
+        default_flow_style=False,
+        indent=2,
+        allow_unicode=True,
+        width=10_000,
+    ).rstrip("\n")
 
 
 __all__ = [

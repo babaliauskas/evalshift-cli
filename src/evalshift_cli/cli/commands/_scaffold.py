@@ -160,11 +160,12 @@ CI_WORKFLOW_TEMPLATE: Final = """\
 # evalshift.yaml. A suite added by `capture sync` is picked up on the next run —
 # no workflow edit.
 #
-# How the verdict is decided: `fail-on: policy` asks hosted EvalShift to
-# re-score the run against the `migration_policy` limits in evalshift.yaml —
-# the same budgets `init` scaffolded. Other modes: `regression` (fail on any
-# regressed example), `any-slice-regression`, `never`. If the policy check is
-# unreachable the action falls back to plain regression gating and says so.
+# How the verdict is decided: `fail-on: policy` asks hosted EvalShift for the
+# verdict the run itself computed against the `migration_policy` limits in
+# evalshift.yaml — the same budgets `init` scaffolded, carried in the pushed
+# bundle rather than re-scored server-side. Other modes: `regression` (fail on
+# any regressed example), `any-slice-regression`, `never`. If the policy check
+# is unreachable the action falls back to plain regression gating and says so.
 
 name: evalshift
 

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `migration_decision.json` and the bundle now carry the resolved
+  `migration_policy` the verdict was computed under, as `decision.policy`. The
+  hosted server previously gated pull requests on a separate, web-edited
+  policy that nobody configures, silently turning the PR gate off; the CLI's
+  own budgets riding inside the bundle is what lets the server check a
+  migration against the same numbers the CLI's verdict used. `null` when no
+  `migration_policy` is configured, and on a `migration_decision.json`
+  written by an older CLI. This release needs a hosted server that accepts
+  `decision.policy`: local pre-flight validation passes for a policy-carrying
+  bundle, so pushing a gated run at a host that has not deployed that change
+  yet uploads in full and only then fails at finalize — self-hosted and
+  staging deployments behind `EVALSHIFT_HOST` should upgrade the server first.
+
+- `evalshift push` — and `evalshift compare --push`, which prints through the
+  same console — now warn when the run being pushed carries no migration
+  policy: unless the project still has an old web-app policy for the server to
+  fall back on, the hosted gate reports `inconclusive` and the pull request it
+  belongs to is never blocked, which is otherwise indistinguishable from a gate
+  that passed. Projects whose only policy was configured in the web app get
+  that policy printed back as the `migration_policy:` block to paste into
+  `evalshift.yaml` — printed only while the yaml has no policy of its own, and
+  validated first, so what is shown is config the CLI accepts.
+
 ## [1.0.1] - 2026-09-18
 
 ### Fixed

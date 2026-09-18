@@ -383,8 +383,9 @@ class TestInitCI:
         assert "!= '[]'" in jobs["evalshift"]["if"]
 
     def test_gates_on_hosted_policy_verdict(self, in_tmp: Path) -> None:
-        # `policy` re-scores against the migration_policy block init itself
-        # writes into evalshift.yaml — the two scaffolds gate on one contract.
+        # `policy` gates on the verdict computed against the migration_policy
+        # block init itself writes into evalshift.yaml — the two scaffolds gate
+        # on one contract.
         body, _ = self._workflow(in_tmp)
         assert "fail-on: policy" in body
         assert "fail-on: regression" not in body

@@ -25,9 +25,9 @@ checklist) with three jobs:
   the suite is wired under in `evalshift.yaml`, not its path, so the suite's
   own evaluator block travels with it (see [Selecting a
   suite](#selecting-a-suite-name-not-path)). Runs `fail-on: policy`, so the verdict
-  is the hosted re-score against the `migration_policy` block in
-  `evalshift.yaml`. `evalshift-version` is pinned to the CLI that scaffolded
-  the project: the CLI that *reads* the config in CI must be at least as new
+  is the one this run computed against its own `migration_policy` block in
+  `evalshift.yaml` and pushed inside the bundle. `evalshift-version` is pinned
+  to the CLI that scaffolded the project: the CLI that *reads* the config in CI must be at least as new
   as the CLI that *wrote* it locally (`extra: forbid` rejects newer keys), and
   the CLI warns when the pin falls behind — see [Pin drift](#pin-drift). `max-parallel` defaults to 1 —
   raise it toward your hosted plan's in-flight-run ceiling (Free 1, Pro 5,
@@ -113,7 +113,7 @@ but there is no baseline yet. Gating passes in that case.
 
 | Mode | Behavior |
 | --- | --- |
-| `policy` (default) | Ask hosted EvalShift for the migration-policy verdict — the run re-scored against the `migration_policy` limits in `evalshift.yaml`. `fail` fails; `pass`/`conditional_pass` pass. If the policy check is unreachable, falls back to `regression` gating and says so. |
+| `policy` (default) | Ask hosted EvalShift for the migration-policy verdict — the verdict the run itself computed against the `migration_policy` limits in `evalshift.yaml` and carried in its bundle, returned rather than re-scored. `fail` fails; `pass`/`conditional_pass` pass. If the policy check is unreachable, falls back to `regression` gating and says so. |
 | `never` | Do not fail the workflow for hosted regressions. |
 | `regression` | Fail when the hosted diff reports one or more regressed examples. |
 | `any-slice-regression` | Fail when any slice pass rate moves down. |
