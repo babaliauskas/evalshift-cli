@@ -56,12 +56,15 @@ HARD_LIMIT_BYTES = 100 * _MB
 """The server's default rejection threshold, quoted in the warning and enforced there."""
 
 _MISSING_POLICY_WARNING = (
-    "this run carries no migration policy; the hosted gate will report "
-    "inconclusive — add migration_policy to evalshift.yaml"
+    "this run carries no migration policy; unless this project still has an old "
+    "web-app policy, the hosted gate reports inconclusive and never blocks "
+    "— add migration_policy to evalshift.yaml"
 )
 """Said out loud because the alternative reads as approval: a run with no policy
 uploads, renders and reports exactly like a gated one, and the pull request it
-belongs to is simply never blocked."""
+belongs to is then never blocked. Hedged because this prints before any network
+call: a project that still carries a web-app policy is re-evaluated against that
+one server-side, so the gate does still run there."""
 
 _LEGACY_POLICY_HINT = (
     "this project has a policy configured in the web app; move it into evalshift.yaml:"
@@ -603,8 +606,9 @@ def _warn_missing_policy(console: Console | None, bundle: dict[str, Any]) -> Non
 
     ``decision.policy`` is the only thing the hosted gate has to check a pull
     request against. Without it the run still uploads and still renders, the
-    gate reports ``inconclusive``, and nothing blocks the merge — a silence
-    that is indistinguishable from a passing gate unless the CLI says so here.
+    gate reports ``inconclusive`` unless the project still has an old web-app
+    policy to fall back on, and nothing blocks the merge — a silence that is
+    indistinguishable from a passing gate unless the CLI says so here.
     """
     if console is None:
         return

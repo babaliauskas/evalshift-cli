@@ -158,14 +158,16 @@ The hard limit is the server's to enforce and is configurable there, so the CLI
 quotes it rather than applying it.
 
 Two more notices can appear before `push` reports success. A bundle with no
-`migration_policy` configured carries no `decision.policy`; it still uploads
-and renders like any other run, but the hosted gate then reports
-`inconclusive` and the pull request it belongs to is never blocked — a
-silence that reads exactly like a passing gate unless `push` says so. It
-prints this once, before the network is touched:
+`migration_policy` configured carries no `decision.policy`, so the hosted gate
+has nothing of this run's own to check: unless the project still has an old
+web-app policy for the server to fall back on, the gate reports `inconclusive`
+and the pull request it belongs to is never blocked — a silence that reads
+exactly like a passing gate unless `push` says so. The warning prints before
+the network is touched, so it cannot yet know which of the two this project is;
+it hedges accordingly, and prints once:
 
 ```
-! this run carries no migration policy; the hosted gate will report inconclusive — add migration_policy to evalshift.yaml
+! this run carries no migration policy; unless this project still has an old web-app policy, the hosted gate reports inconclusive and never blocks — add migration_policy to evalshift.yaml
 ```
 
 And once the server's initiate response comes back — before the bundle is
@@ -334,4 +336,4 @@ credential file locally and repository secrets in CI.
 | `cannot auto-create <slug> at <host>` | The message names the host it talked to and the server's status. Most often the host is not the one you meant: with no `--host` and no `EVALSHIFT_HOST`, an unset credentials file falls back to `https://api.evalshift.dev`, where your org does not exist. | Run `evalshift whoami` and check the host it prints. If it is wrong, `evalshift login --host <hosted-api-url>`. If the host is right and the status is 403, the token lacks org access — see [Project auto-create](#project-auto-create). |
 | Threshold warning | Local `thresholds` differ from hosted canonical thresholds. | Pull the current project thresholds from the web app or ask an owner to sync them. |
 | `this run needs a paid plan` | The org's plan does not cover this push, or the subscription has stopped paying. | Open the upgrade URL printed with the message, or wait for the monthly reset and push the same run id again. See [Plan limits](#plan-limits). |
-| `this run carries no migration policy` warning | No `migration_policy` is configured in `evalshift.yaml`, so the bundle has no `decision.policy`. | Add `migration_policy` to `evalshift.yaml` (see [Configuration](configuration.md#migration_policy)). Until then the hosted gate reports `inconclusive` and never blocks the pull request. |
+| `this run carries no migration policy` warning | No `migration_policy` is configured in `evalshift.yaml`, so the bundle has no `decision.policy`. | Add `migration_policy` to `evalshift.yaml` (see [Configuration](configuration.md#migration_policy)). Until then the gate has only whatever old web-app policy the project still has; with none, it reports `inconclusive` and never blocks the pull request. |

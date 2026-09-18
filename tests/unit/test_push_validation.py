@@ -271,8 +271,9 @@ def test_push_bundle_command_exits_nonzero_on_an_invalid_bundle(
 # --- missing policy and the legacy-policy hint -------------------------------
 
 MISSING_POLICY_WARNING = (
-    "this run carries no migration policy; the hosted gate will report "
-    "inconclusive — add migration_policy to evalshift.yaml"
+    "this run carries no migration policy; unless this project still has an old "
+    "web-app policy, the hosted gate reports inconclusive and never blocks "
+    "— add migration_policy to evalshift.yaml"
 )
 LEGACY_HINT = "this project has a policy configured in the web app; move it into evalshift.yaml:"
 

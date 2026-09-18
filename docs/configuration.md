@@ -251,11 +251,12 @@ so the bundle's `decision.policy` is the policy the config held *when the
 bundle was built* — edit `migration_policy` between `analyze` and `push` and
 the bundle carries the new numbers, not the ones `analyze` last wrote. Either
 way, the hosted gate checks a pull request against exactly the budgets the
-bundle's own verdict used. The web app shows that per-run snapshot; it cannot
-edit it. `policy` is `null` when no `migration_policy` is configured, and on a
-`migration_decision.json` written before this field existed. See
-[What `push` sends](hosted.md#what-push-sends-block-by-block) for the upload
-contract and the notices `push` prints around a policy-less run.
+bundle's own verdict used. `evalshift.yaml` is the source of truth for that
+policy; the web app's project policy view is becoming a read-only display of
+the snapshot each run pushed. `policy` is `null` when no `migration_policy` is
+configured, and on a `migration_decision.json` written before this field
+existed. See [What `push` sends](hosted.md#what-push-sends-block-by-block) for
+the upload contract and the notices `push` prints around a policy-less run.
 
 ## `prompts`
 
