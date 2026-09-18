@@ -157,6 +157,33 @@ A bundle at or over **50 MB** compressed prints a warning and uploads anyway:
 The hard limit is the server's to enforce and is configurable there, so the CLI
 quotes it rather than applying it.
 
+Two more notices can appear before `push` reports success. A bundle with no
+`migration_policy` configured carries no `decision.policy`; it still uploads
+and renders like any other run, but the hosted gate then reports
+`inconclusive` and the pull request it belongs to is never blocked — a
+silence that reads exactly like a passing gate unless `push` says so. It
+prints this once, before the network is touched:
+
+```
+! this run carries no migration policy; the hosted gate will report inconclusive — add migration_policy to evalshift.yaml
+```
+
+And once the upload response comes back, if the project's only policy was
+configured in the web app and `evalshift.yaml` has no `migration_policy` of
+its own, `push` prints that policy back as the block to paste into the file:
+
+```
+! this project has a policy configured in the web app; move it into evalshift.yaml:
+migration_policy:
+  max_overall_regression_rate: 0.3
+  min_equivalence_rate: 0.75
+```
+
+Only the budgets the web app actually set are printed — writing the CLI's
+other defaults into the file would pin values that are meant to move with the
+CLI. Once `evalshift.yaml` has its own `migration_policy`, the yaml is the
+source of truth and this hint stops appearing.
+
 On success, `push` prints only the hosted run URL. If the backend already has
 an available run with the same id, the CLI treats that as idempotent success
 and prints the existing URL.
@@ -240,7 +267,7 @@ The bundle itself contains:
 | --- | --- |
 | `manifest` | Run id, `org/project` slug, source and target model ids, suite name, git commit SHA, branch name, PR number, the **local suite file path** as a string (it can reveal directory or user names), two content hashes, the run timestamp, and the CLI version. |
 | `examples[]` — one row per prompt × example | The example's template variables (`inputs`) **verbatim**; its `expected` reference output **verbatim**; both models' **full output text**; tool-call traces (tool names and arguments; for imported agent traces also tool results capped at 16 KB each, retrieval queries and documents, and guardrail verdicts; plus any final text and refusal/error messages, the whole stream capped at 256 KB per side); per-evaluator scores and error strings; per-side cost and latency; tags and slice names. |
-| `aggregate`, `analysis`, `decision`, `economics` | Pass/fail counts, statistical comparisons, the migration verdict, and per-role token/cost/latency rollups. Numbers and verdict labels, not content. |
+| `aggregate`, `analysis`, `decision`, `economics` | Pass/fail counts, statistical comparisons, the migration verdict, and per-role token/cost/latency rollups. Numbers and verdict labels, not content. `decision.policy` is the resolved `migration_policy` this run's verdict was computed under — every top-level budget with its default applied, plus `slices` — or `null` when no `migration_policy` is configured. It is what lets the hosted gate check a pull request against the exact budgets the verdict used, instead of a separate policy configured elsewhere. |
 | `methodology_notes` | The model ids and the statistical-contract sentences shown in every report. |
 | `insights` | The machine-written run narrative, when one was generated. It is prose *about* your run and can paraphrase or quote the regressions it summarizes. |
 | `evaluator_config` | Config version; the prompt list **metadata only** — prompt names, file paths, and variable names, with every prompt body replaced by a `content_hash`; `defaults` (model ids, concurrency, cache flag, cost ceiling, max_tokens); slice definitions; and the full evaluators block — which includes each `llm_judge` entry's `criterion_prompt` text, so keep judge criteria free of secrets. |
@@ -306,3 +333,4 @@ credential file locally and repository secrets in CI.
 | `cannot auto-create <slug> at <host>` | The message names the host it talked to and the server's status. Most often the host is not the one you meant: with no `--host` and no `EVALSHIFT_HOST`, an unset credentials file falls back to `https://api.evalshift.dev`, where your org does not exist. | Run `evalshift whoami` and check the host it prints. If it is wrong, `evalshift login --host <hosted-api-url>`. If the host is right and the status is 403, the token lacks org access — see [Project auto-create](#project-auto-create). |
 | Threshold warning | Local `thresholds` differ from hosted canonical thresholds. | Pull the current project thresholds from the web app or ask an owner to sync them. |
 | `this run needs a paid plan` | The org's plan does not cover this push, or the subscription has stopped paying. | Open the upgrade URL printed with the message, or wait for the monthly reset and push the same run id again. See [Plan limits](#plan-limits). |
+| `this run carries no migration policy` warning | No `migration_policy` is configured in `evalshift.yaml`, so the bundle has no `decision.policy`. | Add `migration_policy` to `evalshift.yaml` (see [Configuration](configuration.md#migration_policy)). Until then the hosted gate reports `inconclusive` and never blocks the pull request. |
