@@ -284,6 +284,46 @@ def test_every_emitted_budget_carries_an_integer_denominator(run_fixture: RunFix
         assert budget["denominator"] >= 0, budget["name"]
 
 
+_RESOLVED_POLICY_KEYS = {
+    "max_overall_regression_rate",
+    "max_critical_regressions",
+    "min_equivalence_rate",
+    "max_tool_argument_drift",
+    "max_tool_divergence",
+    "tool_argument_drift_floor",
+    "max_cost_increase",
+    "max_latency_increase",
+    "fail_on_dropped_params",
+    "slices",
+}
+
+
+def test_a_bundle_with_a_configured_policy_carries_it_on_the_decision(
+    run_fixture: RunFixture,
+) -> None:
+    """The hosted gate reads ``decision.policy``, not a separately-edited web policy.
+
+    ``evaluate_migration_policy`` stamps the resolved policy on the decision
+    (see ``analysis/policy.py``); this proves it survives all the way through
+    ``build_bundle`` — ``decision.to_dict()`` — and the vendored-schema
+    validation ``build_bundle`` runs before writing.
+    """
+    path = run_fixture.build(config_path=_with_migration_policy(run_fixture)).path
+    policy = _decision(_load(path))["policy"]
+    assert isinstance(policy, dict)
+    assert set(policy) == _RESOLVED_POLICY_KEYS
+    assert policy["max_overall_regression_rate"] == 0.10
+    Draft202012Validator(_vendored_schema()["bundle"]).validate(_load(path))
+
+
+def test_a_bundle_with_no_configured_policy_has_no_decision_policy(
+    built_bundle_path: Path,
+) -> None:
+    """``write_project_files`` ships no ``migration_policy``: the run is an
+    ``inconclusive_decision``, which resolves nothing to stamp."""
+    assert _decision(_load(built_bundle_path))["policy"] is None
+
+
 def test_a_bundle_without_denominators_still_validates(run_fixture: RunFixture) -> None:
     """Backwards compatibility, from the other side.
 
