@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-18
+
 ### Changed
+
+- **First stable release.** EvalShift now follows Semantic Versioning against a
+  written contract: `evalshift.yaml`, command names and flags, exit codes, the
+  documented artifact fields, and the run bundle are public surface, and a
+  breaking change to any of them requires a major release. What is explicitly
+  *not* public — the internals of `.evalshift/`, the `evalshift_cli` Python
+  package, report markup, console wording — is listed too, so the boundary is
+  checkable rather than implied. See
+  [Compatibility and stability](DOCS.md#compatibility-and-stability). The config
+  schema keeps its own evolution rule, unchanged: `version:` bumps only for
+  breaking schema changes, additive fields ride the CLI version.
 
 - **`evalshift all` is now `evalshift compare`.** The old name promised
   something the command never did: it runs all pipeline *stages*

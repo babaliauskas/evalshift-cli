@@ -1,7 +1,7 @@
 # evalshift (CLI) — complete reference for AI tools
 
 Canonical hosted copy: https://www.evalshift.dev/cli-llms-full.txt
-Package: evalshift (PyPI) | CLI entry point: evalshift | version: 0.15.0
+Package: evalshift (PyPI) | CLI entry point: evalshift | version: 1.0.0
 Python: >=3.11 | license: Apache-2.0 | status: stable
 Install: pip install evalshift   (or: uv pip install evalshift)
 
@@ -375,6 +375,32 @@ evalshift validate [-s SUITE=golden.jsonl] [-c CONFIG]   (config+suite+prompt cr
     `judge family` row; advisory, exit unchanged)
 evalshift test-call -m/--model MODEL [-p/--prompt TEXT] [-t/--temperature 0..2=0]
     [--max-tokens 1..8192=256] [--tools FILE]   (single live call; --tools prints a ToolTrace)
+
+## Compatibility contract (SemVer, from 1.0.0)
+
+PUBLIC -- a breaking change here requires a new major version:
+- evalshift.yaml: every documented field, its type and meaning. extra="forbid", so unknown keys
+  are rejected in both directions.
+- Command names and their flags, including --gate severities and --policy-gate verdicts.
+- Exit codes: 0 success; 1 failure or gate breach.
+- Documented fields of report.json, analysis.json, scores.jsonl, raw.jsonl.
+- The run bundle (shared with the hosted server, versioned in its own right).
+
+NOT PUBLIC -- may change in any release, do not build on it:
+- The internal layout of .evalshift/ (cache db, checkpoints, undocumented state.json fields).
+- The `evalshift_cli` Python package. This is a CLI; importing it is unsupported (the import
+  package was already renamed once, in 0.14.0).
+- HTML report markup/DOM and styling. The report's CONTENT is documented; its structure is not.
+- Console wording, progress rendering and log formatting.
+
+Config schema version is NOT tied to the CLI major: `version:` in evalshift.yaml bumps only when
+a field is renamed, removed or redefined; additive fields ride the CLI version. Consequence: the
+CLI that READS a config must be at least as new as the CLI that WROTE it -- which is what the CI
+pin check enforces.
+
+Renames keep the old name as a hidden alias that still works (`all` -> `compare` in 1.0.0;
+`evalshift all` still runs). Removing an alias is itself breaking, so it cannot happen within a
+major version. Deprecations warn on stderr, never stdout.
 
 ## Environment variables
 
