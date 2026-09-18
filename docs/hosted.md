@@ -135,7 +135,7 @@ evalshift push --bundle .evalshift/runs/<run-id>/run_bundle.json.gz
 Run the whole local pipeline, then push:
 
 ```bash
-evalshift all --yes --push
+evalshift compare --suite-name <suite> --yes --push
 ```
 
 `push` validates the bundle against the same schema the server uses before it

@@ -4,7 +4,7 @@ LiteLLM attaches a ``StreamHandler`` at import time, capturing the real
 ``sys.stderr`` object. Anything that redirects ``sys.stderr`` afterwards —
 notably the redirect ``rich.live.Live`` installs to keep a live region
 intact — is therefore bypassed, and a warning arriving mid-frame scribbles
-over the ``evalshift all`` pipeline block, leaving a duplicate of it behind.
+over the ``evalshift compare`` pipeline block, leaving a duplicate of it behind.
 Resolving the stream per write hands those lines back to Rich.
 """
 

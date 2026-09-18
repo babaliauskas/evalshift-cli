@@ -146,7 +146,7 @@ safe to leave in production permanently:
 ```bash
 EVALSHIFT_CAPTURE=1 python your_agent.py   # writes .evalshift/captures/
 evalshift capture sync                     # captures → golden suites + wired config
-evalshift all --suite-name support_agent --to <candidate-model>
+evalshift compare --suite-name support_agent --to <candidate-model>
 ```
 
 See [docs/sdk.md](docs/sdk.md) for the full capture contract, and
@@ -158,7 +158,8 @@ instrument the agent? A hand-written `golden.jsonl` works just as well — see
 
 ### Driving the pipeline
 
-`evalshift all` drives the full five-stage pipeline under a single
+`evalshift compare` drives the full five-stage pipeline — two models on one
+suite per invocation — under a single
 Rich Live region — stacked status rows, an inline progress bar for
 the run stage, and a final verdict block that tells you whether the
 candidate is significantly better, regressed, or showed no
@@ -198,7 +199,7 @@ evalshift whoami
 #   pass_rate_min: 0.95
 
 # Run locally, then package and push the result.
-evalshift all --yes --push
+evalshift compare --suite-name support_agent --yes --push
 ```
 
 You can also drive the hosted steps manually:

@@ -9,7 +9,7 @@ data. The intended flow is:
     evalshift init                 # writes evalshift.yaml
     # instrument your agent with the evalshift-sdk, exercise it to record captures
     evalshift capture sync         # promote captures into suites + wire them in
-    evalshift all --suite-name <suite> --to <candidate>
+    evalshift compare --suite-name <suite> --to <candidate>
 
 ``evalshift.yaml`` is never overwritten unless ``--force`` is passed.
 """
@@ -102,7 +102,7 @@ version: 1
 # Hosted only (https://www.evalshift.dev): the project runs are pushed to, in
 # `org/project` form — lowercase letters, digits and hyphens on both sides.
 # Local runs never need it and nothing leaves this machine without an explicit
-# `evalshift push` / `evalshift all --push`; `push --project` overrides it for
+# `evalshift push` / `evalshift compare --push`; `push --project` overrides it for
 # one invocation. Uncomment and set it to save typing that flag.
 # project: your-org/your-project
 
@@ -293,7 +293,7 @@ def init(
         " and wire them into evalshift.yaml.",
     )
     console.print(
-        "  3. [cyan]evalshift all --suite-name <suite> --to <candidate>[/cyan]"
+        "  3. [cyan]evalshift compare --suite-name <suite> --to <candidate>[/cyan]"
         "  - run the migration end to end.",
     )
     if wire_agents:

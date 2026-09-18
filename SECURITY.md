@@ -39,7 +39,7 @@ commands. The local threat model is centred on:
   `EVALSHIFT_TOKEN` through secrets, not command-line logs.
 * **Hosted uploads are opt-in.** `evalshift bundle` packages completed run
   artifacts locally into `run_bundle.json.gz`. `evalshift push` and
-  `evalshift all --push` upload that bundle to the hosted backend configured
+  `evalshift compare --push` upload that bundle to the hosted backend configured
   by `--host` or `EVALSHIFT_HOST`.
 
 Do not include hosted API tokens, provider API keys, OAuth codes, signed

@@ -63,7 +63,7 @@ evalshift init --profile cost-reduction
 ```
 
 The default `model-upgrade` profile scaffolds a `migration_policy` block
-that powers the verdict in `analyze`, `all`, and `report`.
+that powers the verdict in `analyze`, `compare`, and `report`.
 
 This writes a single, minimal, capture-first `evalshift.yaml`: a
 passthrough `replay` prompt, advisory semantic + LLM-judge evaluators, an
@@ -144,7 +144,7 @@ synced with, it ends with an advisory warning and the exact
 The fast path is one command:
 
 ```bash
-evalshift all --suite-name support_agent --to <candidate-model> --yes --open
+evalshift compare --suite-name support_agent --to <candidate-model> --yes --open
 ```
 
 This runs `doctor → run → evaluate → analyze → report` under a single
@@ -152,7 +152,7 @@ Rich Live region with a progress bar for the run stage and a final
 verdict block. Warnings raised along the way (LiteLLM deprecation
 notices, insights retries) are held back and printed as one `⚠` section
 directly under the pipeline block; errors are never deferred.
-`run`/`all` estimate worst-case cost up front and prompt for
+`run`/`compare` estimate worst-case cost up front and prompt for
 confirmation above $10 (skip with `--yes`).
 
 If you want to drive each stage by hand (useful when re-running just
@@ -165,9 +165,20 @@ evalshift analyze <run-id>
 evalshift report <run-id> --open
 ```
 
-`evalshift all` accepts every flag the underlying commands do
+`evalshift compare` accepts every flag the underlying commands do
 (`--from/--to`, `--config`, `--suite`, `--suite-name`, `--yes`, `--resume`,
 `--gate`, `--policy-gate`, `--open`, `--push`).
+
+One invocation compares two models on **one** suite. It picks the suite for
+you when `evalshift.yaml` wires exactly one; with several, name it with
+`--suite-name` (the error lists a ready-to-run command per suite). To cover
+every suite, loop:
+
+```bash
+for s in support_agent billing_agent; do
+  evalshift compare --suite-name "$s" --yes --push
+done
+```
 
 ## 8. Optional: import agent traces
 
@@ -209,7 +220,7 @@ thresholds:
 Then push a completed run:
 
 ```bash
-evalshift all --yes --push
+evalshift compare --suite-name <suite> --yes --push
 ```
 
 Or package and push manually:

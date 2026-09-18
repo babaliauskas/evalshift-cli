@@ -48,7 +48,7 @@ thresholds:
 Then run:
 
 ```bash
-evalshift all --yes --push
+evalshift compare --yes --push
 ```
 
 ## What the example demonstrates

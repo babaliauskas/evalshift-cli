@@ -63,7 +63,7 @@ Quickstart (recommended, capture-first):
    (promotion_source: requested) instead of the executed ones.
 5. evalshift capture sync               -> captures become .evalshift/suites/<suite>/golden.jsonl
                                            and the managed `suites:` block in evalshift.yaml
-6. evalshift all --suite-name <suite> --to <candidate-model>   (real API calls; costs money —
+6. evalshift compare --suite-name <suite> --to <candidate-model>   (real API calls; costs money —
    confirm prompt above $10 estimate)
 Suite-first alternative: hand-write golden.jsonl and point `suites:` at it. Fully supported;
 capture-first is recommended because the suite is only worth the examples in it.
@@ -71,8 +71,10 @@ capture-first is recommended because the suite is only worth the examples in it.
 ## Pipeline and artifacts
 
 Stages: init (scaffold) -> doctor (checks) -> run -> evaluate -> analyze -> report.
-`evalshift all` chains doctor..report. Each stage writes one artifact under
-.evalshift/runs/<run-id>/ and is independently re-runnable. Run id: r_<YYYYMMDD>_<suite-slug>_<hex>.
+`evalshift compare` chains doctor..report over ONE suite (never every suite; with >1 suite
+wired it errors and asks for --suite-name). Formerly `all`: hidden alias, still works.
+Each stage writes one artifact under .evalshift/runs/<run-id>/ and is independently
+re-runnable. Run id: r_<YYYYMMDD>_<suite-slug>_<hex>.
 Warnings raised mid-pipeline (LiteLLM deprecations, insights retries) are deferred and printed
 as one section under the pipeline block (also on stage failure); errors are never deferred.
 
@@ -160,7 +162,7 @@ evalshift run [-f/--from MODEL] [-t/--to MODEL] [-c CONFIG] [-s/--suite FILE]
 evalshift evaluate RUN_ID [-c CONFIG]      -> scores.jsonl
   Prints a red doctor-style "broken eval harness" row when the SOURCE model failed the recorded
   ground truth on >= 50% of >= 4 tool_selection.conformance rows, naming the rate and the likely
-  causes (wrong toolset, wrong prompt, suite promoted from another agent). `all` reprints it
+  causes (wrong toolset, wrong prompt, suite promoted from another agent). `compare` reprints it
   directly above the verdict block. Also on EvaluateResult.harness_check.
 evalshift analyze RUN_ID [-c CONFIG] [--gate SEVS] [--policy-gate]
   --gate: comma-separated from {critical,high,medium,low}; any matching comparison -> exit 1.
@@ -180,9 +182,11 @@ evalshift report RUN_ID [-c CONFIG] [--open] [--insights/--no-insights (default 
   as their labels (max_tool_divergence -> "Tool-selection divergence"; map in
   analysis/policy.py BUDGET_LABELS) with the yaml field kept as a secondary code hint in the
   budget-failures table only. report.json and the bundle keep the machine labels.
-evalshift all [run flags] [--gate SEVS] [--policy-gate] [--open] [--push]
+evalshift compare [run flags] [--gate SEVS] [--policy-gate] [--open] [--push]
     [--insights/--no-insights (default on)]
-  doctor -> run -> evaluate -> analyze -> report under one live progress display.
+  doctor -> run -> evaluate -> analyze -> report under one live progress display, for one
+  suite. Auto-selects the suite when exactly one is wired; with several, pass --suite-name
+  (there is no run-every-suite mode -- loop in the shell or use a CI matrix job per suite).
 
 Hosted:
 evalshift login [--token es_...] [--host URL] [--no-browser] [--timeout SECS=900]
@@ -453,7 +457,7 @@ evaluators:                         # every evaluator config also takes blocking
       #   (ground truth came from the source model), NOT a migration finding
       # SOURCE side < 1.0 on >= 50% of >= 4 conformance rows -> `evaluate` prints a red
       #   doctor-style "broken eval harness" row naming the rate + likely causes, and
-      #   `all` reprints it directly above the verdict. Counted on the SOURCE side alone:
+      #   `compare` reprints it directly above the verdict. Counted on the SOURCE side alone:
       #   0.0/1.0 (source fails, target passes) is a POSITIVE delta with no
       #   TOOL_GROUND_TRUTH_MISS tag, so the exclusion rule cannot see it and it is just
       #   as broken. < 4 rows -> silent (Wilson lower bound on 3/3 is 0.44, under half)
@@ -810,7 +814,7 @@ critical,high,medium,low); --policy-gate (exit 1 on fail OR conditional_pass).
 
 ## Run insights
 
-Machine-written narrative produced by `report` (and `all`): verdict_summary, advisory_summary,
+Machine-written narrative produced by `report` (and `compare`): verdict_summary, advisory_summary,
 economics_summary, findings[] (kind positive|negative|warning, title, detail), recommendation.
 Rendered at the top of report.html, uploaded as bundle["insights"], cached in insights.json.
 Model: defaults.insights_model, falling back to defaults.judge_model.
@@ -1108,7 +1112,7 @@ pip install evalshift-sdk                   # already a dependency of the CLI; a
 EVALSHIFT_CAPTURE=1 python my_agent.py      # record captures via SDK instrumentation
 evalshift capture list
 evalshift capture sync                      # promote all -> .evalshift/suites/<suite>/golden.jsonl
-evalshift all --suite-name <suite> --to gemini-3.1-pro-preview --gate critical,high --policy-gate
+evalshift compare --suite-name <suite> --to gemini-3.1-pro-preview --gate critical,high --policy-gate
 
 # Tools from code — no separate sync step: capture what your agent actually calls
 # Whatever your Python code defines as tools, the evalshift-sdk records the exact toolset a

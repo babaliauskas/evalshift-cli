@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`evalshift all` is now `evalshift compare`.** The old name promised
+  something the command never did: it runs all pipeline *stages*
+  (`doctor → run → evaluate → analyze → report`) against **one** suite, so a
+  project with several wired suites typed what looked like a complete command
+  and got an error. `compare` says what it does — compare two models on a
+  suite — and nobody expects a comparison to fan out.
+
+  **`all` keeps working and is not scheduled for removal.** It is hidden from
+  `--help` and prints a one-line notice on stderr (so CI parsing stdout is
+  unaffected) pointing at the new name. Both names bind the same function, so
+  there is no second code path. The alias is permanent because `evalshift init`
+  writes `EVALSHIFT.md` into user repos telling agents to run `evalshift all`,
+  and that file is never regenerated.
+
+  Scripts, CI jobs, and scaffolded projects need no change. Docs, `--help`,
+  `llms-full.txt`, the `EVALSHIFT.md` template, and the `init` / `capture sync`
+  next-step hints all teach `compare` now.
+
+- **Suite selection explains itself when it cannot pick one.** `run` and
+  `compare` used to fail with a single line when `evalshift.yaml` wired more
+  than one suite. They now print a framed panel that names the wired suites and
+  lists one ready-to-run command per suite, rebuilt from the flags actually
+  typed — so `evalshift compare --yes --push` is answered with
+  `evalshift compare --yes --push --suite-name <suite>`, and a stale
+  `--suite-name` is stripped rather than duplicated. Invoked under the legacy
+  `all` name, the panel also spells out that `all` meant all *stages*, not all
+  suites. An unknown `--suite-name` gets the same treatment, and `bundle` /
+  `push` share it. Behaviour is unchanged: one suite per invocation,
+  auto-selected when exactly one is wired.
+
+- Docs no longer show a bare pipeline invocation in the hosted-push
+  walkthroughs; every example names a suite, and `docs/getting-started.md`
+  shows the shell loop for covering every suite.
+
 ## [0.15.0] - 2026-09-15
 
 ### Changed

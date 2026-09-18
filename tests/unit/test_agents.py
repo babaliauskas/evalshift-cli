@@ -49,7 +49,7 @@ class TestWritesGuide:
         body = (tmp_path / AGENT_INSTRUCTIONS_FILENAME).read_text(encoding="utf-8")
         # The backfill + report + push recipe uses commands, not manual edits.
         assert "evalshift capture sync" in body
-        assert "evalshift all" in body
+        assert "evalshift compare" in body
         assert "evalshift push" in body
 
     def test_guide_forbids_editing_generated_state(self, tmp_path: Path) -> None:

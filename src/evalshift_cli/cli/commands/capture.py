@@ -968,7 +968,7 @@ def capture_sync(
     config_path.write_text(updated, encoding="utf-8")
     console.print(f"[green]✓[/green] wired {len(suite_paths)} suite(s) into {config_path}")
     first = sorted(suite_paths)[0]
-    console.print(f"run: [cyan]evalshift all --suite-name {first} --to <candidate>[/cyan]")
+    console.print(f"run: [cyan]evalshift compare --suite-name {first} --to <candidate>[/cyan]")
     _warn_ci_pin(console, config_path)
 
 

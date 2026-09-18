@@ -93,7 +93,7 @@ def push(
             config_path=config_path,
         )
     except (ConfigError, UnknownSuiteNameError) as exc:
-        console.print(f"[red]✗[/red] {exc}")
+        console.print(exc.format_rich())
         raise typer.Exit(code=1) from exc
     try:
         if bundle_path is not None:

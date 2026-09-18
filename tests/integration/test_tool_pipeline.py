@@ -357,7 +357,7 @@ class TestToolPipeline:
 
 
 class TestBrokenHarnessReachesTheVerdictBlock:
-    """S5 — ``evalshift all`` must print it, not only ``evalshift evaluate``.
+    """S5 — ``evalshift compare`` must print it, not only ``evalshift evaluate``.
 
     ``all`` scores with ``quiet=True`` because the evaluate stage runs inside
     a Live grid this table would fight with, so the finding is handed back on

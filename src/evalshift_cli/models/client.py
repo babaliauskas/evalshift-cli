@@ -87,7 +87,7 @@ class _LateBoundStderr:
     library is imported, so every later redirection of ``sys.stderr`` is
     bypassed — including the one ``rich.live.Live`` installs to keep a live
     region coherent. A warning arriving mid-frame wrote straight over the
-    ``evalshift all`` pipeline block, and Rich then redrew the block below the
+    ``evalshift compare`` pipeline block, and Rich then redrew the block below the
     damage: one run, two pipeline blocks on screen.
 
     Resolving the stream per write hands those lines back to Rich, which
@@ -174,7 +174,7 @@ class _DeferredWarningsHandler(logging.Handler):
 def deferred_console_warnings() -> Iterator[list[logging.LogRecord]]:
     """Buffer console WARNING records for the duration of the block.
 
-    ``evalshift all`` renders a pipeline block and a verdict; a warning
+    ``evalshift compare`` renders a pipeline block and a verdict; a warning
     arriving mid-run — LiteLLM's per-call deprecation notices, the insights
     generator's retry notes — used to print wherever the emitting call
     happened to be, splitting the output into fragments. Under this context

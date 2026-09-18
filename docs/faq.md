@@ -36,7 +36,7 @@ all.
 
 It costs one model call per run, is cached in `insights.json`, and skips
 itself when no API key is configured. Disable it with
-`evalshift report --no-insights` or `evalshift all --no-insights`.
+`evalshift report --no-insights` or `evalshift compare --no-insights`.
 
 ## What happens if a single LLM call fails?
 
@@ -78,16 +78,16 @@ Set `project: org-slug/project-slug` in `evalshift.yaml` or pass
 `--project org-slug/project-slug`, then run:
 
 ```bash
-evalshift all --yes --push
+evalshift compare --suite-name <suite> --yes --push
 ```
 
 See [Hosted EvalShift](hosted.md) for credential precedence, bundle contents,
 and troubleshooting.
 
-## Why does the `max cost` row in `evalshift all` look so much higher than the actual `Total cost` in the report?
+## Why does the `max cost` row in `evalshift compare` look so much higher than the actual `Total cost` in the report?
 
 The pre-flight figure is a **worst-case ceiling**, not a forecast.
-`evalshift all` (and `evalshift run`) prices each call as if the model
+`evalshift compare` (and `evalshift run`) prices each call as if the model
 emits its full registry `default_max_tokens` of completion (4096).
 Real completions — especially agent-style runs that produce short
 tool-call decisions — are usually far shorter than the cap, so the
@@ -142,7 +142,7 @@ Three common causes, all by design:
    confirm it** at this suite size — grow the suite.
 3. **All comparisons were `insufficient`** (n < 5).
 
-`analyze` and `all` print the specific reason and the recommended fix
+`analyze` and `compare` print the specific reason and the recommended fix
 under the verdict line, and record them in `migration_decision.json`
 (`reason` / `recommendations`).
 
