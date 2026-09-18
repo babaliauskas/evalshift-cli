@@ -156,8 +156,9 @@ CI_WORKFLOW_TEMPLATE: Final = """\
 #
 # How suites get evaluated: the action evaluates ONE suite per invocation, so
 # the `discover` job lists `.evalshift/suites/*/golden.jsonl` and fans out a
-# matrix job per suite. A suite added by `capture sync` is picked up on the
-# next run — no workflow edit.
+# matrix job per suite, selecting each by the name it is wired under in
+# evalshift.yaml. A suite added by `capture sync` is picked up on the next run —
+# no workflow edit.
 #
 # How the verdict is decided: `fail-on: policy` asks hosted EvalShift to
 # re-score the run against the `migration_policy` limits in evalshift.yaml —
@@ -196,6 +197,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: List suites under .evalshift/suites
         id: list
+        # Directory names, which are the `suites:` keys the eval job selects by:
+        # `capture sync` promotes a suite to `.evalshift/suites/<name>/golden.jsonl`
+        # and wires it under that same `<name>`.
         # nullglob: with no suites yet (fresh project, suites not committed)
         # the glob must yield an empty list — not the literal pattern, which
         # would matrix a job over a suite named "*" and fail every run.
@@ -248,7 +252,14 @@ jobs:
         with:
           token: ${{ secrets.EVALSHIFT_TOKEN }}
           config: evalshift.yaml
-          suite: .evalshift/suites/${{ matrix.suite }}/golden.jsonl
+          # By NAME, not by path: `suite-name` keys into the `suites:` block in
+          # evalshift.yaml, which is where each captured suite's own evaluators
+          # live (`capture sync` writes a tool-calling suite its tool evaluators
+          # there). `suite: <path>` loads the same rows but resolves no name, so
+          # the suite is scored with the top-level `evaluators:` instead --
+          # silently, and for a tool-calling suite that means no scored rows at
+          # all and a run that dies at analyze with an empty scores.jsonl.
+          suite-name: ${{ matrix.suite }}
           # Pin CI to the CLI version that scaffolded this project; the
           # action's own default can lag, and evalshift.yaml from a newer CLI
           # fails loudly on an older one. Bump when you upgrade locally.
