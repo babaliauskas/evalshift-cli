@@ -12,15 +12,18 @@ from __future__ import annotations
 import gzip
 import io
 import json
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from rich.console import Console
 from typer.testing import CliRunner
 
 from evalshift_cli.cli.main import app
+from evalshift_cli.config.loader import load_config
 from evalshift_cli.hosted.bundle import build_bundle
 from evalshift_cli.hosted.push import (
     HARD_LIMIT_BYTES,
@@ -41,8 +44,30 @@ def _runs_base(tmp_path: Path) -> Path:
     return tmp_path / ".evalshift" / "runs"
 
 
-def _bundle_for_push(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _add_migration_policy(tmp_path: Path) -> None:
+    """Give the project's config a ``migration_policy``.
+
+    ``write_project_files`` writes a config without one. Its yaml carries the
+    indentation of the triple-quoted block it comes from, so the appended block
+    has to match it.
+    """
+    config = tmp_path / "evalshift.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").rstrip()
+        + "\n        migration_policy:\n          max_cost_increase: 0.5\n",
+        encoding="utf-8",
+    )
+
+
+def _bundle_for_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    with_policy: bool = False,
+) -> Path:
     write_project_files(tmp_path)
+    if with_policy:
+        _add_migration_policy(tmp_path)
     write_completed_run(tmp_path)
     monkeypatch.setenv("GITHUB_SHA", "a" * 40)
     return build_bundle(
@@ -69,18 +94,19 @@ def _install(monkeypatch: pytest.MonkeyPatch, fake: FakeHostedClient) -> None:
     monkeypatch.setattr("evalshift_cli.hosted.push._put_with_retries", lambda *a, **k: None)
 
 
-def _fake() -> FakeHostedClient:
+def _fake(*, legacy_policy: Any = None) -> FakeHostedClient:
+    response: dict[str, Any] = {
+        "id": SERVER_RUN_ID,
+        "client_run_id": CLIENT_RUN_ID,
+        "status": "pending_upload",
+        "upload_url": "https://storage.test/upload",
+        "finalize_url": FINALIZE_URL,
+        "view_url": VIEW_URL,
+    }
+    if legacy_policy is not None:
+        response["legacy_project_policy"] = legacy_policy
     return FakeHostedClient(
-        responses=[
-            {
-                "id": SERVER_RUN_ID,
-                "client_run_id": CLIENT_RUN_ID,
-                "status": "pending_upload",
-                "upload_url": "https://storage.test/upload",
-                "finalize_url": FINALIZE_URL,
-                "view_url": VIEW_URL,
-            }
-        ],
+        responses=[response],
         finalize_response={"id": SERVER_RUN_ID, "view_url": VIEW_URL},
     )
 
@@ -240,3 +266,173 @@ def test_push_bundle_command_exits_nonzero_on_an_invalid_bundle(
     assert result.exit_code == 1, result.output
     assert "schema validation" in result.output
     assert fake.initiate_calls == 0
+
+
+# --- missing policy and the legacy-policy hint -------------------------------
+
+MISSING_POLICY_WARNING = (
+    "this run carries no migration policy; the hosted gate will report "
+    "inconclusive — add migration_policy to evalshift.yaml"
+)
+LEGACY_HINT = "this project has a policy configured in the web app; move it into evalshift.yaml:"
+
+# What a web-edited project policy carries: six of the CLI's nine fields.
+LEGACY_POLICY = {
+    "max_overall_regression_rate": 0.1,
+    "max_critical_regressions": 0,
+    "min_equivalence_rate": 0.9,
+    "max_tool_argument_drift": 0.15,
+    "max_cost_increase": 0.5,
+    "max_latency_increase": 0.25,
+}
+
+
+def test_push_warns_once_when_the_bundle_carries_no_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Silence used to read as "gated"; a run with no policy is not gated at all."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch)
+    fake = _fake()
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    result = _push(bundle_path, tmp_path, console=console)
+
+    output = str(console.file.getvalue())
+    assert output.count(MISSING_POLICY_WARNING) == 1
+    assert result.uploaded is True
+
+
+def test_push_says_nothing_when_the_bundle_carries_a_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The warning is about the gate being off, so a gated run must not draw it."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch, with_policy=True)
+    fake = _fake()
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    _push(bundle_path, tmp_path, console=console)
+
+    assert "no migration policy" not in str(console.file.getvalue())
+
+
+def test_push_prints_the_legacy_policy_as_pasteable_yaml(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The block has to be the policy, in the form evalshift.yaml wants it."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch)
+    fake = _fake(legacy_policy=LEGACY_POLICY)
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    _push(bundle_path, tmp_path, console=console)
+
+    output = str(console.file.getvalue())
+    assert LEGACY_HINT in output
+    block = output[output.index("migration_policy:") :]
+    assert yaml.safe_load(block) == {"migration_policy": LEGACY_POLICY}
+
+
+def test_the_printed_legacy_block_is_config_the_cli_accepts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pasting the block into evalshift.yaml must produce a loadable config."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch)
+    fake = _fake(legacy_policy=LEGACY_POLICY)
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    _push(bundle_path, tmp_path, console=console)
+
+    output = str(console.file.getvalue())
+    block = output[output.index("migration_policy:") :]
+    config = tmp_path / "evalshift.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").rstrip() + "\n" + textwrap.indent(block, " " * 8),
+        encoding="utf-8",
+    )
+    policy = load_config(config).migration_policy
+    assert policy is not None
+    assert policy.max_cost_increase == LEGACY_POLICY["max_cost_increase"]
+
+
+def test_push_ignores_a_legacy_policy_when_the_yaml_has_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The yaml is the source of truth; there is nothing to move."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch, with_policy=True)
+    fake = _fake(legacy_policy=LEGACY_POLICY)
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    _push(bundle_path, tmp_path, console=console)
+
+    output = str(console.file.getvalue())
+    assert LEGACY_HINT not in output
+    assert "migration_policy:" not in output
+
+
+@pytest.mark.parametrize(
+    "legacy_policy",
+    [
+        {"max_cost_increase": "half of it"},
+        {"unknown_budget": 1.0},
+        {},
+        "not a policy at all",
+    ],
+    ids=["wrong-type", "unknown-field", "empty", "not-a-mapping"],
+)
+def test_push_prints_nothing_for_a_legacy_policy_it_cannot_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_policy: Any,
+) -> None:
+    """A server sending nonsense must not fail a push that otherwise succeeded."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch)
+    fake = _fake(legacy_policy=legacy_policy)
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    result = _push(bundle_path, tmp_path, console=console)
+
+    output = str(console.file.getvalue())
+    assert LEGACY_HINT not in output
+    assert "migration_policy:" not in output
+    assert result.uploaded is True
+
+
+def test_both_notices_reach_a_run_the_server_already_has(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The idempotent re-push returns early — the notices still have to print."""
+    bundle_path = _bundle_for_push(tmp_path, monkeypatch)
+    fake = FakeHostedClient(
+        responses=[
+            {
+                "id": SERVER_RUN_ID,
+                "client_run_id": CLIENT_RUN_ID,
+                "status": "available",
+                "upload_url": None,
+                "finalize_url": FINALIZE_URL,
+                "view_url": VIEW_URL,
+                "legacy_project_policy": LEGACY_POLICY,
+            }
+        ],
+        finalize_response={"id": SERVER_RUN_ID, "view_url": VIEW_URL},
+    )
+    _install(monkeypatch, fake)
+    console = Console(file=io.StringIO(), width=200)
+
+    result = _push(bundle_path, tmp_path, console=console)
+
+    output = str(console.file.getvalue())
+    assert result.uploaded is False
+    assert output.count(MISSING_POLICY_WARNING) == 1
+    assert output.count(LEGACY_HINT) == 1

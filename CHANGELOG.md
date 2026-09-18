@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `migration_policy` is configured, and on a `migration_decision.json`
   written by an older CLI.
 
+- `evalshift push` now warns when the run it is pushing carries no migration
+  policy: without one the hosted gate reports `inconclusive` and the pull
+  request it belongs to is never blocked, which is otherwise indistinguishable
+  from a gate that passed. Projects whose only policy was configured in the web
+  app get that policy printed back as the `migration_policy:` block to paste
+  into `evalshift.yaml` — printed only while the yaml has no policy of its own,
+  and validated first, so what is shown is config the CLI accepts.
+
 ## [1.0.1] - 2026-09-18
 
 ### Fixed
