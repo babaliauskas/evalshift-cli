@@ -21,7 +21,10 @@ checklist) with three jobs:
   sync` is evaluated on the next run with no workflow edit; a project with no
   suites yet skips green with a notice instead of failing.
 - **`eval <suite>`** — a matrix job per discovered suite (the action
-  evaluates one suite per invocation). Runs `fail-on: policy`, so the verdict
+  evaluates one suite per invocation), selected with `suite-name:` — the key
+  the suite is wired under in `evalshift.yaml`, not its path, so the suite's
+  own evaluator block travels with it (see [Selecting a
+  suite](#selecting-a-suite-name-not-path)). Runs `fail-on: policy`, so the verdict
   is the hosted re-score against the `migration_policy` block in
   `evalshift.yaml`. `evalshift-version` is pinned to the CLI that scaffolded
   the project: the CLI that *reads* the config in CI must be at least as new
@@ -127,13 +130,42 @@ Common inputs:
 | `token` | required | Hosted EvalShift API token. |
 | `host` | hosted default | Hosted API base URL. |
 | `config` | `evalshift.yaml` | Config path. |
-| `suite` | `golden.jsonl` | Suite path (one suite per invocation). |
+| `suite-name` | — | Name of a suite wired under `suites:` in `evalshift.yaml`. Preferred — see [Selecting a suite](#selecting-a-suite-name-not-path). Needs a CLI pin of `0.14.0` or newer. |
+| `suite` | `golden.jsonl` | Suite path, for a file that is not wired into the config (one suite per invocation). Mutually exclusive with `suite-name`. |
 | `fail-on` | `policy` | Gate mode — see the table above. |
 | `evalshift-version` | action default (may lag) | Exact CLI version installed from PyPI. Always set it: it must be at least as new as the CLI that writes your `evalshift.yaml` (reader ≥ writer). `init --ci` pins it to the scaffolding CLI. |
 | `create-project` | `true` | Allow project auto-create when permissions allow it. |
 | `comment` | `true` | Post or update the PR comment on pull requests. |
 
 See the action repository README for the full input list.
+
+## Selecting a suite: name, not path
+
+The action takes either `suite-name:` (a key under `suites:` in
+`evalshift.yaml`) or `suite:` (a path). They load the same rows, but only the
+name resolves that suite's **own `evaluators:` block** — the one `evalshift
+capture sync` writes for a tool-calling suite:
+
+```yaml
+suites:
+  planner:
+    source: captured
+    path: .evalshift/suites/planner/golden.jsonl
+    evaluators:
+      tool_selection:
+        - name: routing
+          conformance: expected
+          divergence: set
+```
+
+Select that suite by path and it is scored with the **top-level** `evaluators:`
+instead. There is no warning — a bare path is a legitimate way to run a suite
+that has no entry under `suites:`. If the top level is `semantic` + `llm_judge`
+and the suite's rows are tool calls, nothing scores at all and the run fails at
+`analyze` with `scores.jsonl is empty`.
+
+So: a suite with an entry under `suites:` is selected by name, which is what
+`init --ci` scaffolds. `suite:` is for a one-off file outside the config.
 
 ## Pin drift
 

@@ -393,6 +393,29 @@ class TestInitCI:
         body, _ = self._workflow(in_tmp)
         assert f'evalshift-version: "{evalshift_cli.__version__}"' in body
 
+    def test_selects_each_suite_by_name_not_by_path(self, in_tmp: Path) -> None:
+        # `suite-name` keys into `suites:`, which is where a captured suite's own
+        # tool evaluators live; `suite` is a bare path and loses them. A
+        # tool-calling suite scored with the top-level semantic/judge evaluators
+        # produces no rows at all, so the run dies at analyze with an empty
+        # scores.jsonl and nothing pointing at the selection as the cause.
+        _, wf = self._workflow(in_tmp)
+        jobs = wf["jobs"]
+        assert isinstance(jobs, dict)
+        steps = jobs["evalshift"]["steps"]
+        (action_step,) = [
+            step for step in steps if str(step.get("uses", "")).startswith("babaliauskas/")
+        ]
+        assert action_step["with"]["suite-name"] == "${{ matrix.suite }}"
+        assert "suite" not in action_step["with"]
+
+    def test_discovers_suite_names_that_the_config_can_be_keyed_by(self, in_tmp: Path) -> None:
+        # The matrix carries `suites:` keys, not paths: `capture sync` promotes a
+        # suite to `.evalshift/suites/<name>/golden.jsonl` and wires it under that
+        # same `<name>`, so the directory name is the key.
+        body, _ = self._workflow(in_tmp)
+        assert 'names+=("$(basename "$(dirname "$f")")")' in body
+
     def test_provider_key_matches_provider(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp, "--provider", "anthropic")
         assert "ANTHROPIC_API_KEY" in body

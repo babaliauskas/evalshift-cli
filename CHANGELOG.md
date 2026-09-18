@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `evalshift init --ci` now scaffolds the eval job with `suite-name: ${{ matrix.suite }}`
+  instead of `suite: .evalshift/suites/<name>/golden.jsonl`. The path form loads the same
+  rows but resolves no suite *name*, so the suite was scored with the top-level
+  `evaluators:` and its own block under `suites:` — the tool evaluators `capture sync`
+  writes for a tool-calling suite — never loaded. On a capture-first project whose top
+  level is `semantic` + `llm_judge`, that scored no rows at all and CI failed at `analyze`
+  with `scores.jsonl is empty`, naming nothing that pointed at the selection. Regenerate
+  the workflow (`evalshift init --ci --force`) or change the input by hand; the step needs
+  `babaliauskas/evalshift-action@v0` at a release that offers `suite-name`, and an
+  `evalshift-version` pin of 0.14.0 or newer.
+
 ## [1.0.0] - 2026-09-18
 
 ### Changed

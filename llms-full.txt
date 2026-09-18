@@ -1155,7 +1155,8 @@ evalshift compare --suite-name <suite> --to gemini-3.1-pro-preview --gate critic
 
 # CI workflow (what init --ci scaffolds, shape)
 # Three jobs; the generated file's header comment carries the full setup checklist.
-#   discover -> lists committed suites (.evalshift/suites/*/golden.jsonl); nullglob-safe, a
+#   discover -> lists committed suites (.evalshift/suites/*/golden.jsonl) and emits their
+#     DIRECTORY NAMES, which are the `suites:` keys `capture sync` wires; nullglob-safe, a
 #     project with no suites yet skips green. Suites must be COMMITTED: keep `.evalshift/*`
 #     ignored, un-ignore `!.evalshift/suites/` and `!.evalshift/toolsets/`.
 #   eval <suite> -> matrix job per suite (action evaluates ONE suite per invocation);
@@ -1174,14 +1175,23 @@ permissions: {contents: read, pull-requests: write, issues: write, statuses: wri
 env: {EVALSHIFT_NONINTERACTIVE: "1", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"}  # key matches --provider
 uses: babaliauskas/evalshift-action@v0
 with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", config: evalshift.yaml,
-       suite: ".evalshift/suites/<name>/golden.jsonl", evalshift-version: "<pinned>",
+       suite-name: "${{ matrix.suite }}", evalshift-version: "<pinned>",
        fail-on: policy}
+# SUITE SELECTION, name vs path -- the action takes `suite-name` (a `suites:` key) or `suite`
+# (a path), never both. Only the NAME resolves that suite's own `evaluators:` override
+# (EvalShiftConfig.evaluators_for maps a None name to the top-level block). A wired suite
+# selected by path is SILENTLY scored with the top-level evaluators: for a tool-calling suite
+# under a semantic+llm_judge top level that scores zero rows and the run dies at analyze with
+# `scores.jsonl is empty`. So a suite with a `suites:` entry is selected by name (what
+# init --ci scaffolds); `suite:` is for a file not wired into the config. The name form needs
+# an evalshift-version pin >= 0.14.0.
 # EVALSHIFT_TOKEN must be an encrypted GitHub secret (repository or, preferably, environment)
 # holding a scoped service account key -- never a personal token, never a literal in YAML,
 # never reachable from pull_request_target. A scoped key cannot auto-create the project
 # (project:create is owner-only -> pre-create it, set create-project: false) and cannot rewrite
 # gating thresholds (policy:configure is owner-only -> keep `thresholds:` out of the CI config).
-# Action inputs: token (required), host, config=evalshift.yaml, suite=golden.jsonl,
+# Action inputs: token (required), host, config=evalshift.yaml, suite-name (a `suites:` key)
+# OR suite=golden.jsonl (a path) -- mutually exclusive,
 # fail-on=policy(default: hosted migration-policy verdict, falls back to regression gating when
 # unreachable)|never|regression|any-slice-regression, evalshift-version, create-project=true,
 # comment=true.
