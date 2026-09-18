@@ -12,7 +12,7 @@ hosted (opt-in)  run history, diffs, PR gates
 
 The suite is the crux, so the capture SDK is the recommended way to build one: it records real production runs to disk and `evalshift capture sync` promotes them into golden suites. Hand-written suites are fully supported — see [The golden suite](#the-golden-suite).
 
-- **Package name:** `evalshift` · **CLI entry point:** `evalshift` · **version:** 0.15.0
+- **Package name:** `evalshift` · **CLI entry point:** `evalshift` · **version:** 1.0.0
 - **Python:** >= 3.11 · **License:** Apache-2.0 · **Status:** stable
 - **Local-first.** Runs, scores, stats, and reports all happen on your machine under `.evalshift/`. The only network calls are the model API calls you asked for — and, if you opt in, pushes to the hosted service.
 - **Four pieces:** CLI (this doc), SDK, GitHub Action, hosted server — each with its own machine-readable reference for AI tools. See [Ecosystem and AI-tool references](#ecosystem-and-ai-tool-references).
@@ -40,9 +40,10 @@ The suite is the crux, so the capture SDK is the recommended way to build one: i
 17. [Hosted EvalShift](#hosted-evalshift)
 18. [GitHub Action](#github-action)
 19. [Command reference](#command-reference)
-20. [Environment variables](#environment-variables)
-21. [Troubleshooting / FAQ](#troubleshooting--faq)
-22. [Further reading](#further-reading)
+20. [Compatibility and stability](#compatibility-and-stability)
+21. [Environment variables](#environment-variables)
+22. [Troubleshooting / FAQ](#troubleshooting--faq)
+23. [Further reading](#further-reading)
 
 ---
 
@@ -837,6 +838,33 @@ All `run` flags, plus `--gate` · `--policy-gate` · `--open` · `--push` · `--
 **`evalshift test-call`** — one live smoke-test call. `-m/--model` (required) · `-p/--prompt` · `-t/--temperature` (0–2, default 0) · `--max-tokens` (1–8192, default 256) · `--tools <file>` (prints a ToolTrace)
 
 ---
+
+## Compatibility and stability
+
+EvalShift follows [Semantic Versioning](https://semver.org). From **1.0.0** onward, a breaking change to anything listed as public below requires a new major version. The point of writing the boundary down is that you can check it rather than infer it.
+
+**Public surface — a breaking change here means a major release:**
+
+| Surface | What is covered |
+|---|---|
+| `evalshift.yaml` | Every documented field, its type, and its meaning. Unknown keys are rejected (`extra="forbid"`), so the schema is a contract in both directions — a typo fails loudly rather than being ignored. |
+| Command names and flags | Every command in the [Command reference](#command-reference) and its options, including the severities accepted by `--gate` and the verdicts that trip `--policy-gate`. |
+| Exit codes | `0` success · `1` failure, or a gate breach under `--gate` / `--policy-gate`. |
+| Documented artifact fields | The `report.json`, `analysis.json`, `scores.jsonl` and `raw.jsonl` keys described in this document. |
+| The run bundle | Shared with the hosted server and versioned in its own right — see [Hosted EvalShift](#hosted-evalshift). |
+
+**Not public — these may change in any release:**
+
+- The internal layout of `.evalshift/`: the response cache database, checkpoint files, and the fields of `state.json` beyond those documented here. It is generated state the CLI owns.
+- The `evalshift_cli` Python package. EvalShift is a command-line tool; importing it is not a supported interface, and the package was renamed once already (`0.14.0`).
+- The HTML report's markup, styling, and internal structure. Its *content* is described here; its DOM is not.
+- Console output wording, progress rendering, and log formatting.
+
+**Config schema evolution** has its own rule, and it is deliberately not tied to the CLI's major version: `version:` in `evalshift.yaml` bumps only when a field is renamed, removed, or given a different meaning. Additive fields ride the CLI version instead. See [Config version policy](docs/configuration.md#config-version-policy) for what that requires of your CI pin.
+
+**Renames keep the old name.** When a command is renamed, the previous name stays registered as a hidden alias that still works — it stops being advertised, not accepted. `evalshift all` became `evalshift compare` in 1.0.0 and `all` still runs. Removing such an alias would itself be a breaking change, so it cannot happen inside a major version.
+
+**Deprecations** are announced in `CHANGELOG.md` and warn on stderr at the point of use, so a pipeline that parses stdout is unaffected.
 
 ## Environment variables
 
