@@ -236,12 +236,21 @@ def _with_migration_policy(run_fixture: RunFixture) -> Path:
     ``write_project_files`` deliberately ships none, so the shared bundle is an
     ``inconclusive_decision`` with no budgets at all — nothing to assert a
     denominator on.
+
+    Includes a ``checkout`` slice override so a schema-validated bundle
+    actually exercises ``SliceMigrationPolicy`` — itself
+    ``additionalProperties: false`` server-side — end to end, not just the
+    top-level ``MigrationPolicy``. The override sets a non-default value so
+    the dumped slice is distinguishable from an all-``null`` one.
     """
     config = run_fixture.root / "evalshift_policy.yaml"
     config.write_text(
         run_fixture.config.read_text(encoding="utf-8").rstrip()
         + "\n        migration_policy:\n"
-        + "          max_overall_regression_rate: 0.10\n",
+        + "          max_overall_regression_rate: 0.10\n"
+        + "          slices:\n"
+        + "            checkout:\n"
+        + "              max_overall_regression_rate: 0.05\n",
         encoding="utf-8",
     )
     return config
@@ -297,6 +306,12 @@ _RESOLVED_POLICY_KEYS = {
     "slices",
 }
 
+# The eight per-slice ratio/count budgets: the nine top-level fields minus
+# ``fail_on_dropped_params`` (not overridable per slice — see
+# ``MigrationPolicy.fail_on_dropped_params``'s docstring) and minus ``slices``
+# itself (a slice cannot nest another slice).
+_RESOLVED_SLICE_POLICY_KEYS = _RESOLVED_POLICY_KEYS - {"fail_on_dropped_params", "slices"}
+
 
 def test_a_bundle_with_a_configured_policy_carries_it_on_the_decision(
     run_fixture: RunFixture,
@@ -306,13 +321,21 @@ def test_a_bundle_with_a_configured_policy_carries_it_on_the_decision(
     ``evaluate_migration_policy`` stamps the resolved policy on the decision
     (see ``analysis/policy.py``); this proves it survives all the way through
     ``build_bundle`` — ``decision.to_dict()`` — and the vendored-schema
-    validation ``build_bundle`` runs before writing.
+    validation ``build_bundle`` runs before writing. The fixture configures a
+    ``checkout`` slice override, so this also exercises the nested
+    ``SliceMigrationPolicy`` `$def` — itself ``additionalProperties: false``
+    server-side — not just the top-level ``MigrationPolicy``.
     """
     path = run_fixture.build(config_path=_with_migration_policy(run_fixture)).path
     policy = _decision(_load(path))["policy"]
     assert isinstance(policy, dict)
     assert set(policy) == _RESOLVED_POLICY_KEYS
     assert policy["max_overall_regression_rate"] == 0.10
+    slices = policy["slices"]
+    assert isinstance(slices, dict)
+    checkout = slices["checkout"]
+    assert set(checkout) == _RESOLVED_SLICE_POLICY_KEYS
+    assert checkout["max_overall_regression_rate"] == 0.05
     Draft202012Validator(_vendored_schema()["bundle"]).validate(_load(path))
 
 
