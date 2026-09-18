@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `migration_decision.json` and the bundle now carry the resolved
+  `migration_policy` the verdict was computed under, as `decision.policy`. The
+  hosted server previously gated pull requests on a separate, web-edited
+  policy that nobody configures, silently turning the PR gate off; the CLI's
+  own budgets riding inside the bundle is what lets the server check a
+  migration against the same numbers the CLI's verdict used. `null` when no
+  `migration_policy` is configured, and on a `migration_decision.json`
+  written by an older CLI.
+
 ## [1.0.1] - 2026-09-18
 
 ### Fixed

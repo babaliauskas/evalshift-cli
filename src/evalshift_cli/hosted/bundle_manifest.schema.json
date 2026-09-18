@@ -490,6 +490,17 @@
           "overall": {
             "$ref": "#/$defs/PolicyMetricSummary"
           },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/MigrationPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "reason": {
             "anyOf": [
               {
@@ -1171,6 +1182,104 @@
         "title": "Insights",
         "type": "object"
       },
+      "MigrationPolicy": {
+        "additionalProperties": false,
+        "description": "The governed regression-budget policy (mirrors the CLI ``MigrationPolicy``).",
+        "properties": {
+          "fail_on_dropped_params": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Fail On Dropped Params"
+          },
+          "max_cost_increase": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Max Cost Increase",
+            "type": "number"
+          },
+          "max_critical_regressions": {
+            "minimum": 0,
+            "title": "Max Critical Regressions",
+            "type": "integer"
+          },
+          "max_latency_increase": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Max Latency Increase",
+            "type": "number"
+          },
+          "max_overall_regression_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Overall Regression Rate",
+            "type": "number"
+          },
+          "max_tool_argument_drift": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Tool Argument Drift",
+            "type": "number"
+          },
+          "max_tool_divergence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tool Divergence"
+          },
+          "min_equivalence_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Equivalence Rate",
+            "type": "number"
+          },
+          "slices": {
+            "additionalProperties": {
+              "$ref": "#/$defs/SliceMigrationPolicy"
+            },
+            "title": "Slices",
+            "type": "object"
+          },
+          "tool_argument_drift_floor": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Argument Drift Floor"
+          }
+        },
+        "required": [
+          "max_overall_regression_rate",
+          "max_critical_regressions",
+          "min_equivalence_rate",
+          "max_tool_argument_drift",
+          "max_cost_increase",
+          "max_latency_increase"
+        ],
+        "title": "MigrationPolicy",
+        "type": "object"
+      },
       "ModelCallEvent": {
         "additionalProperties": false,
         "description": "A model invocation. Marks a round boundary.\n\nCarries metrics only \u2014 the CLI drops ``input`` and ``output`` payloads,\nwhich are ~95% of a capture's bytes and duplicate ``Example.input``.",
@@ -1496,6 +1605,125 @@
           "metrics"
         ],
         "title": "SliceDecision",
+        "type": "object"
+      },
+      "SliceMigrationPolicy": {
+        "additionalProperties": false,
+        "description": "Per-slice budget overrides; ``None`` inherits the top-level value.",
+        "properties": {
+          "max_cost_increase": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Cost Increase"
+          },
+          "max_critical_regressions": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Critical Regressions"
+          },
+          "max_latency_increase": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Latency Increase"
+          },
+          "max_overall_regression_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Overall Regression Rate"
+          },
+          "max_tool_argument_drift": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tool Argument Drift"
+          },
+          "max_tool_divergence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tool Divergence"
+          },
+          "min_equivalence_rate": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Min Equivalence Rate"
+          },
+          "tool_argument_drift_floor": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Argument Drift Floor"
+          }
+        },
+        "title": "SliceMigrationPolicy",
         "type": "object"
       },
       "SliceStat": {

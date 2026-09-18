@@ -258,6 +258,17 @@ class MigrationDecision:
     report, read this field; a second channel would have to be plumbed
     through ``migration_decision.json`` and the bundle manifest, whose schema
     the server owns.
+
+    ``policy`` is the resolved ``migration_policy`` the verdict above was
+    computed under — ``policy.model_dump(mode="json")``, a plain ``dict``
+    rather than the pydantic model, because :meth:`to_dict` is
+    ``asdict(self)`` and a dict is what that walk expects. Riding it inside
+    every pushed bundle (``hosted/bundle.py``) is what lets the hosted gate
+    check a pull request against exactly the budgets this run's own verdict
+    used, instead of a separate, web-edited policy nobody configures.
+    ``None`` on the ``inconclusive_decision`` path — no ``migration_policy``
+    was configured, so there is nothing resolved to stamp — and on a
+    ``migration_decision.json`` written before this field existed.
     """
 
     run_id: str
@@ -273,6 +284,7 @@ class MigrationDecision:
     reason: str | None = None
     advisory: PolicyMetricSummary | None = None
     advisory_regressions: list[BlockingRegression] = field(default_factory=list)
+    policy: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable representation."""
@@ -327,6 +339,7 @@ class MigrationDecision:
                 advisory_regressions=[
                     BlockingRegression(**r) for r in payload.get("advisory_regressions") or []
                 ],
+                policy=payload.get("policy"),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise ValueError(f"not a migration decision: {exc}") from exc
@@ -559,6 +572,7 @@ def evaluate_migration_policy(
         reason=reason,
         advisory=advisory,
         advisory_regressions=_blocking_regressions(advisory_comparisons),
+        policy=policy.model_dump(mode="json"),
     )
 
 

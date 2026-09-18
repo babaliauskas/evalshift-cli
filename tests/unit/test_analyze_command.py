@@ -119,6 +119,12 @@ class TestAnalyzeHappy:
         assert data["run_id"] == run_id
         assert data["verdict"] in {"fail", "conditional_pass", "pass", "inconclusive"}
         assert "budget_results" in data
+        # The resolved policy the verdict was computed under rides in the
+        # persisted decision too, so the bundle can carry exactly what
+        # `analyze` gated on rather than a config the server re-reads later.
+        assert data["policy"]["max_overall_regression_rate"] == 0.01
+        assert data["policy"]["max_critical_regressions"] == 0
+        assert data["policy"]["min_equivalence_rate"] == 0.99
 
     def test_an_advisory_evaluator_that_scored_nothing_is_not_called_blocking(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

@@ -563,6 +563,89 @@ class TestAllAdvisoryVerdict:
         ]
 
 
+_RESOLVED_POLICY_KEYS = {
+    "max_overall_regression_rate",
+    "max_critical_regressions",
+    "min_equivalence_rate",
+    "max_tool_argument_drift",
+    "max_tool_divergence",
+    "tool_argument_drift_floor",
+    "max_cost_increase",
+    "max_latency_increase",
+    "fail_on_dropped_params",
+    "slices",
+}
+
+
+class TestDecisionPolicy:
+    """``decision.policy`` carries the resolved budgets the verdict was made under.
+
+    The hosted server gates pull requests on its own, separately-edited policy
+    unless the bundle tells it otherwise; riding the CLI's resolved policy
+    inside every pushed bundle is what makes the two agree. See
+    ``evaluate_migration_policy`` / ``inconclusive_decision``.
+    """
+
+    def test_evaluate_migration_policy_stamps_the_resolved_policy(self) -> None:
+        policy = MigrationPolicy(max_overall_regression_rate=0.05)
+        decision = evaluate_migration_policy(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            policy=policy,
+            comparisons=[],
+            records=[_record(example_id="e0", delta=0.0)],
+            calls=[],
+        )
+        assert decision.policy == policy.model_dump(mode="json")
+        assert decision.policy is not None
+        assert set(decision.policy) == _RESOLVED_POLICY_KEYS
+
+    def test_inconclusive_decision_has_no_policy(self) -> None:
+        """The no-``migration_policy`` path: nothing was resolved to stamp."""
+        decision = inconclusive_decision(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            comparisons=[],
+            records=[_record(example_id="e0", delta=0.0)],
+            calls=[],
+        )
+        assert decision.policy is None
+
+    def test_round_trips_through_to_dict_and_from_dict(self) -> None:
+        policy = MigrationPolicy(slices={"checkout": SliceMigrationPolicy()})
+        decision = evaluate_migration_policy(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            policy=policy,
+            comparisons=[],
+            records=[_record(example_id="e0", delta=0.0)],
+            calls=[],
+        )
+        restored = MigrationDecision.from_dict(
+            json.loads(json.dumps(decision.to_dict())),
+        )
+        assert restored == decision
+        assert restored.policy == policy.model_dump(mode="json")
+
+    def test_from_dict_of_a_decision_without_a_policy_key_still_loads(self) -> None:
+        """A ``migration_decision.json`` written before this field existed."""
+        payload = inconclusive_decision(
+            run_id="r1",
+            source_model="src",
+            target_model="tgt",
+            comparisons=[],
+            records=[_record(example_id="e0", delta=0.0)],
+            calls=[],
+        ).to_dict()
+        assert "policy" in payload
+        del payload["policy"]
+        restored = MigrationDecision.from_dict(payload)
+        assert restored.policy is None
+
+
 class TestFromDict:
     """``migration_decision.json`` is what every downstream surface describes."""
 
