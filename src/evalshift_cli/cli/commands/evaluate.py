@@ -156,7 +156,7 @@ class EvaluateResult:
     #: The broken-harness finding, when the source model failed the ground
     #: truth recorded from it (see
     #: :func:`~evalshift_cli.cli.commands.doctor.source_conformance_check`).
-    #: Carried as well as printed because ``evalshift all`` scores quietly,
+    #: Carried as well as printed because ``evalshift compare`` scores quietly,
     #: inside a Live grid this table would fight with, and renders it itself
     #: immediately above the verdict it invalidates.
     harness_check: CheckResult | None = None
@@ -181,7 +181,7 @@ def run_evaluate(
     """Score a completed run. Raises typed errors on failure.
 
     The standalone Typer command catches and pretty-prints these; the
-    aggregate ``evalshift all`` command catches them too and renders a
+    aggregate ``evalshift compare`` command catches them too and renders a
     failed pipeline row.
     """
     cfg = load_config(config_path)

@@ -498,7 +498,7 @@ class TestTheBrokenHarnessIsAnnounced:
     def test_the_check_is_carried_on_the_result_not_only_printed(
         self, evaluated: tuple[Any, str]
     ) -> None:
-        """``evalshift all`` scores quietly inside a Live grid and prints it itself."""
+        """``evalshift compare`` scores quietly inside a Live grid and prints it itself."""
         result, _ = evaluated
         assert result.harness_check is not None
         assert result.harness_check.status == "fail"

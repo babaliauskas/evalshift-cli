@@ -99,7 +99,9 @@ init  ->  doctor  ->  run  ->  evaluate  ->  analyze  ->  report
 Each stage writes one artifact under `.evalshift/runs/<run-id>/` and the next
 stage reads it; stages are independently re-runnable.
 
-- `evalshift all` drives doctor -> run -> evaluate -> analyze -> report end to end.
+- `evalshift compare` drives doctor -> run -> evaluate -> analyze -> report end
+  to end, comparing two models on ONE suite. (`all` is the former name, still
+  accepted; it never meant "every suite".)
 
 ## Recipes
 
@@ -107,27 +109,29 @@ stage reads it; stages are independently re-runnable.
 
 ```
 evalshift capture sync     # promote captures into a suite AND wire evalshift.yaml
-evalshift all              # doctor -> run -> evaluate -> analyze -> report (report.html)
+evalshift compare          # doctor -> run -> evaluate -> analyze -> report (report.html)
 evalshift push <run-id>    # optional: upload the run to hosted EvalShift
 ```
 
-Bare `evalshift all` auto-selects the suite when `evalshift.yaml` wires exactly
-one (the common case after `capture sync`). With several suites it will tell you
-to pick one: add `--suite-name <name>`.
+Bare `evalshift compare` auto-selects the suite when `evalshift.yaml` wires
+exactly one (the common case after `capture sync`). It never runs every suite:
+with several wired it prints a ready-to-run command per suite, and you add
+`--suite-name <name>`. To cover them all, loop over the names.
 
 `capture sync` **is** the backfill — do not do it by hand. It renders each
 capture's model input, attaches `expected_tools` / `expected_no_tools` from the
 recorded tool calls, and writes the `suites:` block into `evalshift.yaml`. Tune
 matching with its flags (`--input-var`, `--strict-args`, `--names-only`,
 `--tool-count`); see `evalshift capture sync --help`. After it runs, go straight
-to `evalshift all` — you do **not** need to write case inputs, edit the
+to `evalshift compare` — you do **not** need to write case inputs, edit the
 `suites:` block, or touch any capture file yourself.
 
 ## Rules for agents
 
-- **Prefer `evalshift all`.** It runs doctor -> run -> evaluate -> analyze ->
-  report in one go. Only drop to individual stages (`run`, `evaluate`, ...) when
-  re-running a single stage after a fix — never reimplement the pipeline by hand.
+- **Prefer `evalshift compare`.** It runs doctor -> run -> evaluate -> analyze ->
+  report in one go, for one suite. Only drop to individual stages (`run`,
+  `evaluate`, ...) when re-running a single stage after a fix — never
+  reimplement the pipeline by hand.
 - **Never create, edit, or backfill anything under `.evalshift/`** (captures,
   runs, cache, artifacts). It is generated state the CLI owns and reads. To turn
   captures into eval cases, run `evalshift capture sync` — not manual JSON/YAML
@@ -146,7 +150,7 @@ to `evalshift all` — you do **not** need to write case inputs, edit the
 | `evalshift evaluate` | Score `raw.jsonl` -> `scores.jsonl`. |
 | `evalshift analyze` | Paired stats per (prompt, evaluator, slice) -> `analysis.json`. |
 | `evalshift report` | Render the single-file HTML report. |
-| `evalshift all` | Run doctor -> run -> evaluate -> analyze -> report end to end. |
+| `evalshift compare` | Run doctor -> run -> evaluate -> analyze -> report end to end on one suite (formerly `all`). |
 | `evalshift inspect` | Inspect a run / artifact. |
 | `evalshift capture ...` | `list` / `promote` / `clean` / `diff` / `sync` captures into suites. |
 | `evalshift diff case` | Diff a single case between runs. |
@@ -165,7 +169,7 @@ interactive `login`).
 
 ## Safety — confirm with the human before these
 
-- **Costs money:** `evalshift run` and `evalshift all` always call real
+- **Costs money:** `evalshift run` and `evalshift compare` always call real
   models. They prompt above $10 unless `--yes` is passed; do **not** pass
   `--yes` on a paid run without explicit approval.
 - **Deletes local data:** `evalshift runs clean`, `evalshift cache clear`.

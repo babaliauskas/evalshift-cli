@@ -27,5 +27,5 @@ evalshift push "$RUN_ID" --project acme/model-migration
 Or add `project: acme/model-migration` to `evalshift.yaml` and run:
 
 ```bash
-evalshift all --yes --push
+evalshift compare --yes --push
 ```

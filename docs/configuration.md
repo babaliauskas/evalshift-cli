@@ -70,7 +70,7 @@ matters.
 ## `migration_policy`
 
 Optional local regression budget used by `evalshift analyze`,
-`evalshift all`, and the HTML report to produce a migration verdict.
+`evalshift compare`, and the HTML report to produce a migration verdict.
 Ratio fields use decimal fractions: `0.03` means 3%.
 
 ```yaml
@@ -239,7 +239,7 @@ Two behaviours to know:
 Verdicts are `pass`, `conditional_pass`, `fail`, or `inconclusive`.
 When configured, `analyze` writes `migration_decision.json` next to
 `analysis.json`; `report` renders it as the top-level migration verdict.
-Use `--policy-gate` on `analyze` or `all` to fail CI for `fail` and
+Use `--policy-gate` on `analyze` or `compare` to fail CI for `fail` and
 `conditional_pass`.
 
 ## `prompts`
@@ -302,7 +302,7 @@ A list of prompt definitions. Each entry has:
 
 ### Run insights
 
-`evalshift report` (and therefore `all`) writes a plain-language
+`evalshift report` (and therefore `compare`) writes a plain-language
 explanation of the run — a summary each for the verdict, the advisory
 signal and the economics, plus behavioural findings and a
 recommendation. It is rendered at the top of `report.html` and uploaded
@@ -322,7 +322,7 @@ bad generations fall back to deterministic templated prose.
 - One model call per run (a second only on a rejected generation),
   cached in `insights.json` and keyed on the run's `config_hash` plus
   the model id — re-running `report` or `push` costs nothing.
-- Skip it with `--insights/--no-insights` on `report` and `all`. It is
+- Skip it with `--insights/--no-insights` on `report` and `compare`. It is
   also skipped when no API key is configured for the chosen model, and
   when the run has no usable `evalshift.yaml`.
 - A generation failure never fails the run.
@@ -740,7 +740,7 @@ never touches another's entry either way.
 
 ## `retention`
 
-Bounds how much run history accumulates under `.evalshift/runs/`. Every `run` / `all` invocation
+Bounds how much run history accumulates under `.evalshift/runs/`. Every `run` / `compare` invocation
 writes a fresh `r_<date>_<suite>_<hex>/` directory, so without a cap they pile up indefinitely.
 After each **completed** run the orchestrator prunes old directories automatically; an in-progress
 run and the run that just finished are never touched.
@@ -822,7 +822,7 @@ carries the recorded tool results so `run` replays every round teacher-forced
 `--force`/`-f` to overwrite
 existing suite files, and `--print` to preview the wiring without writing
 (`--write` is the default). After syncing, run the whole pipeline against a
-named suite with `evalshift all --suite-name <suite>` (it mirrors
+named suite with `evalshift compare --suite-name <suite>` (it mirrors
 `evalshift run --suite-name`).
 
 To promote a single capture instead of all of them, use

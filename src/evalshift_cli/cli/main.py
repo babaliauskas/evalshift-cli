@@ -12,11 +12,12 @@ from typing import Annotated
 import typer
 
 from evalshift_cli import __version__
-from evalshift_cli.cli.commands.all import all_command as _all
 from evalshift_cli.cli.commands.analyze import analyze_command as _analyze
 from evalshift_cli.cli.commands.bundle import bundle as _bundle
 from evalshift_cli.cli.commands.cache import cache_app
 from evalshift_cli.cli.commands.capture import capture_app
+from evalshift_cli.cli.commands.compare import LEGACY_COMMAND_NAME
+from evalshift_cli.cli.commands.compare import compare_command as _compare
 from evalshift_cli.cli.commands.diff import diff_app
 from evalshift_cli.cli.commands.doctor import doctor as _doctor
 from evalshift_cli.cli.commands.evaluate import evaluate as _evaluate
@@ -42,8 +43,9 @@ app = typer.Typer(
     ),
     epilog=(
         "Pipeline: init -> doctor -> run -> evaluate -> analyze -> report. "
-        "'evalshift all' runs it end to end. 'run'/'all' call real models and "
-        "cost money — pass '--yes' to skip the cost-confirmation prompt. "
+        "'evalshift compare' runs it end to end on one suite. 'run'/'compare' "
+        "call real models and cost money — pass '--yes' to skip the "
+        "cost-confirmation prompt. "
         "Full agent guide: EVALSHIFT.md (written by 'evalshift init')."
     ),
     no_args_is_help=True,
@@ -84,7 +86,10 @@ app.command(name="logout")(_logout)
 app.command(name="whoami")(_whoami)
 app.command(name="bundle")(_bundle)
 app.command(name="push")(_push)
-app.command(name="all")(_all)
+app.command(name="compare")(_compare)
+# The former name. Hidden from help but permanently supported: scaffolded
+# EVALSHIFT.md files in user repos still tell agents to run it.
+app.command(name=LEGACY_COMMAND_NAME, hidden=True)(_compare)
 app.add_typer(cache_app, name="cache")
 app.add_typer(capture_app, name="capture")
 app.add_typer(runs_app, name="runs")

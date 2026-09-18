@@ -117,10 +117,10 @@ Point EvalShift at a real project. `evalshift init` writes a capture-first confi
 evalshift init
 # instrument the agent with evalshift-sdk, then run it with EVALSHIFT_CAPTURE=1
 evalshift capture sync
-evalshift all --suite-name <suite> --to <candidate-model>
+evalshift compare --suite-name <suite> --to <candidate-model>
 ```
 
-`evalshift all` drives the full pipeline — `doctor → run → evaluate → analyze → report` — under one live progress display, then opens `report.html`: a single-file, offline-capable HTML report with per-prompt/per-slice comparisons, severity badges, effect sizes with 95% CIs, and a migration-policy verdict panel. `run`/`all` estimate worst-case cost up front and prompt for confirmation above $10 (skip with `--yes`).
+`evalshift compare` drives the full pipeline — `doctor → run → evaluate → analyze → report` — over one suite under one live progress display, then opens `report.html`: a single-file, offline-capable HTML report with per-prompt/per-slice comparisons, severity badges, effect sizes with 95% CIs, and a migration-policy verdict panel. `run`/`compare` estimate worst-case cost up front and prompt for confirmation above $10 (skip with `--yes`).
 
 See [Project setup](#project-setup) and [Capturing from production](#capturing-from-production). No captures to work from? Write `golden.jsonl` by hand — see [The golden suite](#the-golden-suite).
 
@@ -179,7 +179,7 @@ Strictness knobs for the derived tool expectations: `--strict-args` (exact argum
 Then evaluate a candidate against real recorded behaviour:
 
 ```bash
-evalshift all --suite-name <suite> --to <candidate-model>
+evalshift compare --suite-name <suite> --to <candidate-model>
 ```
 
 `capture promote` (single capture) recovers history only from that capture's own messages list — promoting a mid-conversation capture warns and points you at `sync`, which does cross-capture reconstruction.
@@ -208,7 +208,7 @@ init          →   doctor   →   run          →   evaluate       →   analy
 - **`evaluate`** scores each (source, target) pair with the configured evaluators, one `EvalRecord` per pair × evaluator. Scoring runs under the same `defaults.concurrency` semaphore as `run`, and the embedding/judge calls it makes go through the same response cache.
 - **`analyze`** runs paired statistics per `(prompt, evaluator, slice)`, applies Benjamini–Hochberg FDR correction, classifies severities, and — when a `migration_policy` is configured — computes a pass/fail verdict.
 - **`report`** renders the single-file HTML report (no external assets; works offline and attaches cleanly to a PR or email), and writes the machine-written [run insights](#run-insights) narrative unless `--no-insights` is passed. The page opens on a verdict / advisory-signal / economics panel row and a six-cell run strip (examples, calls, failed-or-truncated, spend, latency Δ, mean score Δ), then the executive summary, the narrative, one section per prompt, and the methodology. Every figure on it is derived from the run's own artefacts; the deltas in the header are the run-level rollup of the per-prompt economics. Top regressions are collapsed cards — expand one for the trace diff, the tool diffs and the conversation context. The report is dark-only.
-- **`all`** chains everything end to end and adds `--gate`, `--policy-gate`, `--push`, `--open`. Warnings raised while the pipeline runs (LiteLLM deprecation notices, insights-retry notes) are deferred and printed as one `⚠` section directly under the pipeline block — also when a stage fails, since a held-back warning may explain the failure. Errors are never deferred.
+- **`compare`** chains everything end to end over one suite and adds `--gate`, `--policy-gate`, `--push`, `--open`. Warnings raised while the pipeline runs (LiteLLM deprecation notices, insights-retry notes) are deferred and printed as one `⚠` section directly under the pipeline block — also when a stage fails, since a held-back warning may explain the failure. Errors are never deferred.
 
 ### Artefacts
 
@@ -239,7 +239,7 @@ The cache covers the evaluate stage too: `semantic` embeddings are keyed by `(em
 
 ### Run retention
 
-Run history is pruned automatically after every completed `run`/`all`, per suite: keep the newest `retention.max_runs_per_suite` (default 20), optionally evict runs older than `retention.run_ttl_days`. In-progress runs and the run just finished are never pruned. `EVALSHIFT_MAX_RUNS` overrides the count; `evalshift runs clean` prunes on demand with `--keep` / `--older-than` / `--suite` / `--dry-run`.
+Run history is pruned automatically after every completed `run`/`compare`, per suite: keep the newest `retention.max_runs_per_suite` (default 20), optionally evict runs older than `retention.run_ttl_days`. In-progress runs and the run just finished are never pruned. `EVALSHIFT_MAX_RUNS` overrides the count; `evalshift runs clean` prunes on demand with `--keep` / `--older-than` / `--suite` / `--dry-run`.
 
 ---
 
@@ -673,7 +673,7 @@ How the verdict is computed:
 - **A slice budget gates the run exactly like an overall one.** The budgets under `migration_policy.slices` are evaluated on the same terms as the top-level ones: a conclusively breached slice budget **fails** the run, and an unconfirmed breach makes it `inconclusive` — the same Wilson rule, counted over that slice's own denominator. Since the overall rows can all be green in a run a slice budget fails, `recommendations` names the one that blocked (`The 'security' slice breached its overall regression rate budget (the share of scored comparisons where the target did worse): 20% over n=20 vs the 0% limit.`) and the `inconclusive` `reason` scope-qualifies it the same way. Per-slice verdicts under `slices[*].verdict` are unchanged, and a slice that fails on *comparison severity* rather than a budget still only downgrades an overall `pass` to `conditional_pass`.
 - Semantic drift that stays above `min_similarity` counts as equivalent, not regression.
 
-CI wiring (on `analyze` and `all`):
+CI wiring (on `analyze` and `compare`):
 
 - `--gate critical,high` — exit 1 when any comparison at those severities exists (allowed values: `critical`, `high`, `medium`, `low`).
 - `--policy-gate` — exit 1 when the policy verdict is `fail` **or** `conditional_pass`.
@@ -683,7 +683,7 @@ CI wiring (on `analyze` and `all`):
 
 ## Run insights
 
-`report` (and therefore `all`) writes a plain-language explanation of the run: one summary each for the verdict, the advisory signal and the economics, a short list of **behavioural findings** taken from the worst regressions, and a recommendation. It is rendered at the top of `report.html` and uploaded with the bundle.
+`report` (and therefore `compare`) writes a plain-language explanation of the run: one summary each for the verdict, the advisory signal and the economics, a short list of **behavioural findings** taken from the worst regressions, and a recommendation. It is rendered at the top of `report.html` and uploaded with the bundle.
 
 **The prose is machine-written; the figures in it are not.** Every number the narrative may mention is computed first and handed to the model pre-rendered as a display string (`+102%`, `$0.0204`, `< 0.0001`), with an instruction to copy them verbatim. The output is then scanned for numeric tokens that were not supplied — one is enough to reject the generation and retry, and two bad generations fall back to deterministic templated prose (`model: "none"`, no findings). A narrative therefore cannot contain a derived, rounded or invented number.
 
@@ -715,7 +715,7 @@ evalshift login                       # device-code browser flow
 evalshift login --token es_...        # or paste a token (verified via GET /me)
 evalshift whoami
 evalshift push <run-id> --project my-org/my-project
-evalshift all --push                  # pipeline + push in one go
+evalshift compare --suite-name <suite> --push  # pipeline + push in one go
 evalshift logout
 ```
 
@@ -793,14 +793,14 @@ Without `--ci`, warns after writing when an existing workflow under `.github/wor
 `-f/--from <model>` · `-t/--to <model>` · `-c/--config` · `-s/--suite <file>` · `--suite-name <name>` · `--resume` · `-y/--yes`
 
 **`evalshift evaluate <run-id>`** — score all pairs → `scores.jsonl`. `-c/--config`
-Prints a red doctor-style **broken eval harness** row when the *source* model failed the recorded ground truth on at least half of at least four `tool_selection.conformance` rows — the suite's expectations were captured from the source model, so the source is the one side that should satisfy them, and when it does not the run measured the harness rather than the migration. It names the rate (`10 of 10 … (100%)`) and the likely causes. `evalshift all` prints the same row immediately above the verdict block. Below four conformance rows the check stays silent: a 100% rate over three has a 95% Wilson lower bound of 0.44 and cannot support the claim.
+Prints a red doctor-style **broken eval harness** row when the *source* model failed the recorded ground truth on at least half of at least four `tool_selection.conformance` rows — the suite's expectations were captured from the source model, so the source is the one side that should satisfy them, and when it does not the run measured the harness rather than the migration. It names the rate (`10 of 10 … (100%)`) and the likely causes. `evalshift compare` prints the same row immediately above the verdict block. Below four conformance rows the check stays silent: a 100% rate over three has a 95% Wilson lower bound of 0.44 and cannot support the claim.
 
 **`evalshift analyze <run-id>`** — paired stats → `analysis.json` (+ `migration_decision.json`).
 `-c/--config` · `--gate <severities>` · `--policy-gate`
 
 **`evalshift report <run-id>`** — render `report.html` + `report.json`. `-c/--config` · `--open` · `--insights/--no-insights` (default on; one extra LLM call — see [Run insights](#run-insights))
 
-**`evalshift all`** — full pipeline under one live display.
+**`evalshift compare`** — full pipeline under one live display: two models, **one** suite. It takes a single `--suite-name`/`--suite`, auto-selects when exactly one suite is wired, and prints a ready-to-run command per suite when several are. It does not run every suite — loop over the names, or use one CI job per suite. Formerly `all`; that name is hidden but still works, since scaffolded `EVALSHIFT.md` files reference it.
 All `run` flags, plus `--gate` · `--policy-gate` · `--open` · `--push` · `--insights/--no-insights`
 
 ### Hosted
@@ -877,7 +877,7 @@ Usually correct behaviour: no statistically significant difference. Check n (n <
 
 ### The policy verdict is `inconclusive`
 
-Three common causes, all by design: (1) every configured evaluator is advisory (`blocking: false` — the fresh `init` state) so nothing gates quality — set `blocking: true` on at least one trusted evaluator; (2) a rate budget was breached but the Wilson CI can't confirm it at this suite size — grow the suite; (3) all comparisons were `insufficient` (n < 5). Note that case (1) still reads `fail` when the cost or latency budget is breached — those are computed from the run's calls and hold with no blocking evaluator at all. `analyze` and `all` print the specific reason and the recommended fix under the verdict line (also in `migration_decision.json` as `reason` / `recommendations`).
+Three common causes, all by design: (1) every configured evaluator is advisory (`blocking: false` — the fresh `init` state) so nothing gates quality — set `blocking: true` on at least one trusted evaluator; (2) a rate budget was breached but the Wilson CI can't confirm it at this suite size — grow the suite; (3) all comparisons were `insufficient` (n < 5). Note that case (1) still reads `fail` when the cost or latency budget is breached — those are computed from the run's calls and hold with no blocking evaluator at all. `analyze` and `compare` print the specific reason and the recommended fix under the verdict line (also in `migration_decision.json` as `reason` / `recommendations`).
 
 ### Does EvalShift evaluate multi-turn conversations?
 

@@ -139,7 +139,7 @@ def run(
             config_path=config_path,
         )
     except (UnknownSuiteNameError, AmbiguousSuiteError) as exc:
-        console.print(f"[red]✗[/red] {exc}")
+        console.print(exc.format_rich())
         raise typer.Exit(code=1) from exc
 
     try:

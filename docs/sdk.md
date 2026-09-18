@@ -133,7 +133,7 @@ section of DOCS.md.
 ## 4. Evaluate a candidate against real behaviour
 
 ```bash
-evalshift all --suite-name <suite> --to <candidate-model>
+evalshift compare --suite-name <suite> --to <candidate-model>
 ```
 
 That is a normal EvalShift run — the only difference is that the suite came

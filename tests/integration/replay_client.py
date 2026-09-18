@@ -3,7 +3,7 @@
 Used by ``tests/integration/test_conversation_pipeline.py`` to exercise the
 full capture -> sync -> run -> evaluate -> analyze -> report pipeline
 deterministically, without a real model call. There is no CLI ``--offline``
-flag -- ``evalshift run`` / ``evalshift all`` always call a real model -- so
+flag -- ``evalshift run`` / ``evalshift compare`` always call a real model -- so
 this class is injected directly through ``client=`` to ``run_orchestrator``
 (``src/evalshift/runner/orchestrator.py``); everything else in the pipeline
 is unchanged.

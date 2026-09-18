@@ -358,7 +358,7 @@ def preflight_cost(
 ) -> CostPlan:
     """Estimate cost + call count without dispatching any work.
 
-    Used by ``evalshift all`` to render the "estimated cost" row before
+    Used by ``evalshift compare`` to render the "estimated cost" row before
     starting the run, and to decide whether the cost-confirmation prompt
     will fire. Mirrors what :func:`run_orchestrator` computes internally
     so the two stay in lockstep.

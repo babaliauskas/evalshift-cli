@@ -92,7 +92,7 @@ evalshift capture sync
 ```
 ✓ promoted 3 capture(s) into 1 suite(s), wired generation config for 3 case(s).
 ✓ wired 1 suite(s) into evalshift.yaml
-run: evalshift all --suite-name oncall_triage --to <candidate>
+run: evalshift compare --suite-name oncall_triage --to <candidate>
 ```
 
 `sync` promotes every capture, rebuilds `golden.jsonl`, and rewrites the managed
@@ -173,7 +173,7 @@ does — the captures, the suite and the config were all produced offline.
 cd examples/capture-first
 export GEMINI_API_KEY=<gemini-api-key>
 
-evalshift all --suite-name oncall_triage --to gemini-3.1-pro-preview
+evalshift compare --suite-name oncall_triage --to gemini-3.1-pro-preview
 ```
 
 `--suite-name` looks the suite up in the `suites:` block, which is where its

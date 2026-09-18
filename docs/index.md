@@ -48,7 +48,7 @@ The recommended path is capture-first:
 evalshift init                        # scaffold a capture-first evalshift.yaml
 # instrument your agent with evalshift-sdk, run it with EVALSHIFT_CAPTURE=1
 evalshift capture sync                # promote captures into a golden suite
-evalshift all --suite-name <suite> --to <candidate-model>
+evalshift compare --suite-name <suite> --to <candidate-model>
                                       # doctor → run → evaluate → analyze → report
 ```
 
@@ -78,7 +78,7 @@ evalshift login       # authenticate the CLI for hosted upload
 evalshift whoami      # show hosted identity and org roles
 evalshift bundle      # package a completed local run
 evalshift push        # upload a bundle to hosted EvalShift
-evalshift all --push  # run locally, then push
+evalshift compare --suite-name <suite> --push  # run locally, then push
 ```
 
 ## Local-first by design

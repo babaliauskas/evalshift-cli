@@ -14,11 +14,16 @@ implementation.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import shlex
+import sys
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
 import yaml
+from rich.console import Group, RenderableType
+from rich.panel import Panel
+from rich.text import Text
 
 from evalshift_cli.captures.toolset import EMPTY_TOOLSET_FINGERPRINT
 from evalshift_cli.config.loader import load_config
@@ -252,12 +257,170 @@ def derive_suite_slug(*, suite_name: str | None, suite_path: Path) -> str:
     return suite_path.stem
 
 
+# Options that select a suite. A hint that appends ``--suite-name`` has to drop
+# these first, or the suggested command carries the selection it is correcting.
+_SUITE_SELECTION_FLAGS: Final = ("--suite-name", "--suite")
+
+
+def format_invocation(argv: Sequence[str] | None = None) -> str:
+    """Rebuild the current command line as a copy-pasteable ``evalshift ...`` string.
+
+    ``argv[0]`` is replaced with the published entry-point name, so the hint
+    reads the way the user types it rather than as an absolute path into a
+    virtualenv. Any suite-selection option is dropped: callers append
+    ``--suite-name`` to the result, and a command carrying both spellings would
+    not do what the hint promises.
+
+    Args:
+        argv: Argument vector to render. Defaults to :data:`sys.argv`.
+
+    Returns:
+        A single shell-quoted command line, always starting with ``evalshift``.
+    """
+    args = list(sys.argv if argv is None else argv)
+    kept: list[str] = []
+    skip_next = False
+    for arg in args[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in _SUITE_SELECTION_FLAGS:
+            skip_next = True
+            continue
+        if any(arg.startswith(f"{flag}=") for flag in _SUITE_SELECTION_FLAGS):
+            continue
+        kept.append(arg)
+    return shlex.join(["evalshift", *kept])
+
+
+def _normalize_invocation(invocation: str) -> str:
+    """Re-render a caller-supplied invocation through :func:`format_invocation`.
+
+    The errors below append ``--suite-name`` to whatever they are handed, so a
+    stale selection flag has to be stripped here rather than trusted away: the
+    hint must hold even when a caller passes a raw command line.
+    """
+    return format_invocation(shlex.split(invocation))
+
+
+def _command_word(invocation: str) -> str:
+    """Return the subcommand in ``invocation`` (``"compare"`` for ``evalshift compare -y``)."""
+    parts = shlex.split(invocation)
+    return parts[1] if len(parts) > 1 else ""
+
+
+# ``all`` chains every pipeline stage over one suite; the name reads as "every
+# suite" often enough that the ambiguity error says so outright.
+_ALL_MEANS_STAGES: Final = (
+    "`all` runs all pipeline stages (doctor \u2192 run \u2192 evaluate \u2192 analyze "
+    "\u2192 report) over one suite \u2014 it does not run all suites."
+)
+
+
+def _suite_commands(invocation: str, names: Sequence[str]) -> list[str]:
+    """Render one ready-to-run command per suite, in name order."""
+    return [f"{invocation} --suite-name {name}" for name in sorted(names)]
+
+
+def _selection_panel(title: str, summary: str, note: str | None, commands: Sequence[str]) -> Panel:
+    """Frame a suite-selection error the way the loaders frame theirs."""
+    body: list[RenderableType] = [Text(summary, style="bold red")]
+    if note:
+        body.extend((Text(""), Text(note, style="dim")))
+    if commands:
+        body.append(Text(""))
+        body.extend(Text(f"    {command}", style="cyan") for command in commands)
+    return Panel(
+        Group(*body),
+        title=f"[red]{title}[/red]",
+        title_align="left",
+        border_style="red",
+    )
+
+
 class UnknownSuiteNameError(ValueError):
     """Raised when ``--suite-name`` names a suite absent from ``evalshift.yaml``."""
+
+    def __init__(self, *, name: str, known: Sequence[str], invocation: str) -> None:
+        self.name = name
+        self.known: tuple[str, ...] = tuple(known)
+        self.invocation = _normalize_invocation(invocation)
+        super().__init__(self.format_plain())
+
+    @property
+    def _summary(self) -> str:
+        listed = ", ".join(sorted(self.known)) or "(none)"
+        return f"unknown --suite-name {self.name!r}. Known suites: {listed}."
+
+    @property
+    def _note(self) -> str | None:
+        if self.known:
+            return None
+        return (
+            "No suites are wired yet. Define one under suites: in evalshift.yaml "
+            "(`evalshift capture sync` writes them), or pass --suite <path>."
+        )
+
+    def format_plain(self) -> str:
+        """Render this error as a multi-line plain-text string."""
+        lines = [self._summary]
+        if self._note:
+            lines.extend(("", self._note))
+        commands = _suite_commands(self.invocation, self.known)
+        if commands:
+            lines.append("")
+            lines.extend(f"    {command}" for command in commands)
+        return "\n".join(lines)
+
+    def format_rich(self) -> RenderableType:
+        """Render this error inside a Rich :class:`Panel`."""
+        return _selection_panel(
+            "Unknown suite",
+            self._summary,
+            self._note,
+            _suite_commands(self.invocation, self.known),
+        )
 
 
 class AmbiguousSuiteError(ValueError):
     """Raised when no suite is given but ``evalshift.yaml`` wires more than one."""
+
+    def __init__(self, *, suite_names: Sequence[str], invocation: str) -> None:
+        self.suite_names: tuple[str, ...] = tuple(suite_names)
+        self.invocation = _normalize_invocation(invocation)
+        super().__init__(self.format_plain())
+
+    @property
+    def _summary(self) -> str:
+        listed = ", ".join(sorted(self.suite_names))
+        return (
+            f"evalshift.yaml wires {len(self.suite_names)} suites, so there is no "
+            f"default to pick: {listed}."
+        )
+
+    @property
+    def _note(self) -> str | None:
+        return _ALL_MEANS_STAGES if _command_word(self.invocation) == "all" else None
+
+    def format_plain(self) -> str:
+        """Render this error as a multi-line plain-text string."""
+        lines = [self._summary]
+        if self._note:
+            lines.extend(("", self._note))
+        lines.append("")
+        lines.extend(
+            f"    {command}" for command in _suite_commands(self.invocation, self.suite_names)
+        )
+        return "\n".join(lines)
+
+    def format_rich(self) -> RenderableType:
+        """Render this error inside a Rich :class:`Panel`."""
+        return _selection_panel(
+            "Pick a suite",
+            self._summary,
+            self._note,
+            _suite_commands(self.invocation, self.suite_names),
+        )
 
 
 def resolve_suite_path(
@@ -272,7 +435,7 @@ def resolve_suite_path(
     Precedence: an explicit ``--suite`` path wins; then ``--suite-name`` (looked
     up in ``cfg.suites`` and resolved relative to the config file's directory).
     When neither is given, a single wired suite is auto-selected so bare
-    ``evalshift all`` works after ``capture sync``; with several wired suites the
+    ``evalshift compare`` works after ``capture sync``; with several wired suites the
     choice is ambiguous and must be named. Falling back to a ``golden.jsonl``
     file in the CWD only happens when no suites are wired at all.
 
@@ -296,10 +459,10 @@ def resolve_suite_path(
     if suite_name is not None:
         entry = cfg.suites.get(suite_name)
         if entry is None:
-            known = ", ".join(sorted(cfg.suites)) or "(none)"
             raise UnknownSuiteNameError(
-                f"unknown --suite-name {suite_name!r}. Known suites: {known}. "
-                "Define it under suites: in evalshift.yaml (or use --suite <path>).",
+                name=suite_name,
+                known=sorted(cfg.suites),
+                invocation=format_invocation(),
             )
         return config_dir / entry.path
     # Neither --suite nor --suite-name: prefer the wired suites over the
@@ -308,10 +471,9 @@ def resolve_suite_path(
         (entry,) = cfg.suites.values()
         return config_dir / entry.path
     if len(cfg.suites) > 1:
-        known = ", ".join(sorted(cfg.suites))
         raise AmbiguousSuiteError(
-            f"multiple suites in evalshift.yaml: {known}. "
-            "Pass --suite-name <name> to pick one (or --suite <path>).",
+            suite_names=sorted(cfg.suites),
+            invocation=format_invocation(),
         )
     return Path(SUITE_FILENAME)
 
@@ -363,6 +525,7 @@ __all__ = [
     "UnknownSuiteNameError",
     "derive_suite_evaluators",
     "derive_suite_slug",
+    "format_invocation",
     "inject_suites_block",
     "parse_suites_region",
     "render_suites_region",

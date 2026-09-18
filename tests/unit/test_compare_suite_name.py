@@ -1,4 +1,4 @@
-"""Tests for ``evalshift all --suite-name``.
+"""Tests for ``evalshift compare --suite-name``.
 
 ``all`` gained a ``--suite-name`` option that resolves a named suite from
 ``evalshift.yaml`` (mirroring ``run``). The path-resolution logic itself is

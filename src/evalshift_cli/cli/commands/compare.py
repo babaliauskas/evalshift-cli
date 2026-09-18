@@ -1,9 +1,13 @@
-"""Implementation of ``evalshift all``: the full pipeline in one command.
+"""Implementation of ``evalshift compare``: the full pipeline in one command.
 
 Runs ``doctor → run → evaluate → analyze → report`` end to end with a
 single ``rich.live.Live`` UI: stacked status rows for each stage, an
 inline block-bar for the run stage, and a final verdict block printed
 after the Live region closes.
+
+Registered under ``compare`` and, permanently, under the former name
+``all`` -- see :func:`evalshift_cli.cli.main` for the aliasing. Both names
+bind this one function, so there is no second code path to keep in step.
 
 The five stages are driven by the reusable cores in their respective
 command modules (``run_evaluate``, ``run_analyze``, ``run_report``);
@@ -305,11 +309,38 @@ def _confirm_cost(console: Console, est_usd: float, total_calls: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# The ``evalshift all`` command
+# The ``evalshift compare`` command
 # ---------------------------------------------------------------------------
 
 
-def all_command(
+#: The name this command shipped under before it was ``compare``. Kept
+#: registered forever: ``evalshift init`` writes ``EVALSHIFT.md`` into user
+#: repos telling agents to run it, and that file is never regenerated.
+LEGACY_COMMAND_NAME: str = "all"
+
+
+def _warn_if_legacy_name(ctx: typer.Context) -> None:
+    """Print a rename notice when invoked as ``all`` rather than ``compare``.
+
+    Written to stderr so a pipeline parsing stdout is unaffected, and phrased
+    as a notice rather than a warning: the alias is supported, not scheduled
+    for removal. Says only that the name moved -- what the command actually
+    scopes to is the suite-selection error's job, and repeating it here would
+    print the same sentence twice.
+
+    Args:
+        ctx: The Typer context, whose ``info_name`` is the name typed.
+    """
+    if ctx.info_name != LEGACY_COMMAND_NAME:
+        return
+    Console(stderr=True).print(
+        "[yellow]![/yellow] [bold]all[/bold] is now [bold]evalshift compare[/bold]. "
+        "The old name keeps working.",
+    )
+
+
+def compare_command(
+    ctx: typer.Context,
     source: Annotated[
         str | None,
         typer.Option(
@@ -350,7 +381,10 @@ def all_command(
         str | None,
         typer.Option(
             "--suite-name",
-            help="Named suite from evalshift.yaml suites: (e.g. a promoted capture).",
+            help=(
+                "Named suite from evalshift.yaml suites: (e.g. a promoted capture). "
+                "Required once more than one suite is wired."
+            ),
         ),
     ] = None,
     resume: Annotated[
@@ -399,8 +433,17 @@ def all_command(
         typer.Option("--runs-base", help="Base directory for run state (advanced).", hidden=True),
     ] = Path(".evalshift") / "runs",
 ) -> None:
-    """Run the full doctor → run → evaluate → analyze → report pipeline."""
+    """Compare two models on one suite: doctor, run, evaluate, analyze, report.
+
+    One invocation compares two models on a single suite. The suite is
+    auto-selected when evalshift.yaml wires exactly one; with several, name it
+    with --suite-name. To cover every suite, loop over them in the shell (or
+    use one CI job per suite).
+
+    Formerly named 'all'. That name still works but is no longer advertised.
+    """
     console = Console()
+    _warn_if_legacy_name(ctx)
 
     if not yes and os.environ.get("EVALSHIFT_NONINTERACTIVE", "").strip():
         yes = True
@@ -435,7 +478,7 @@ def all_command(
             config_path=config_path,
         )
     except (UnknownSuiteNameError, AmbiguousSuiteError) as exc:
-        console.print(f"[red]✗[/red] {exc}")
+        console.print(exc.format_rich())
         raise typer.Exit(code=1) from exc
 
     try:
@@ -709,4 +752,4 @@ def all_command(
             raise typer.Exit(code=1)
 
 
-__all__ = ["all_command"]
+__all__ = ["LEGACY_COMMAND_NAME", "compare_command"]
