@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-18
+
 ### Fixed
 
 - `evalshift init --ci` now scaffolds the eval job with `suite-name: ${{ matrix.suite }}`
@@ -19,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the workflow (`evalshift init --ci --force`) or change the input by hand; the step needs
   `babaliauskas/evalshift-action@v0` at a release that offers `suite-name`, and an
   `evalshift-version` pin of 0.14.0 or newer.
+
+- `evalshift login` reuses a working stored token instead of minting a new one. Every
+  browser approval mints a fresh personal token on the server and the CLI holds only one
+  at a time, so re-running `login` stranded the previous token — two "EvalShift CLI
+  <host>" tokens after two logins. `login` now verifies the stored credential for the
+  requested host first and reports "already logged in" when it still works; a 401/403
+  falls through to the browser flow, other failures are reported as-is, and an explicit
+  `--token` still always saves.
 
 ## [1.0.0] - 2026-09-18
 
