@@ -4,7 +4,7 @@
 
 **Goal:** A project's migration policy is written once, in `evalshift.yaml`, travels with every pushed run, and is what every surface gates on: the local `compare --policy-gate`, the run's Policy tab, the hosted policy-check endpoint, the PR list "blocked" signal, and the GitHub Action's commit status. The web app displays the policy; it no longer edits it.
 
-**Scope:** Four repositories, in deploy order: `[server]` → `[cli]` → `[client]` → `[action]`. `thresholds` (the free-form, non-gating key) is explicitly **out of scope** and keeps its current push-sync behaviour.
+**Scope:** Four repositories, in deploy order: `[server]` → `[cli]` → `[client]` → `[action]`. `thresholds` (the free-form, non-gating key) is explicitly **out of scope** and keeps its current push-sync behaviour. *(Superseded 2026-09-19 — Phase 5's `[cli]` item deleted `thresholds` outright; see the note there.)*
 
 **Tech Stack:** server — FastAPI, pydantic, raw SQL via SQLAlchemy `text()`, alembic, pytest on SQLite, `ruff` + `mypy --strict`. cli — Python 3.11+, pydantic, typer/rich, pytest, `mypy --strict`. client — React + TypeScript, vitest + testing-library. action — stdlib Python, pytest.
 
@@ -47,7 +47,7 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 **D7 — Adoption hint for projects that only have a web policy.**
 `RunUploadResponse` gains `legacy_project_policy: dict | null` (the column value, when set). If the CLI's config has no `migration_policy` and the server reports a legacy one, `push` prints it as a ready-to-paste `migration_policy:` YAML block after the upload. The legacy column is never cleared automatically.
 
-**D8 — Permissions.** Pushing a policy needs only `run:create` — it is evidence about the run, like the rest of the decision block. `policy:configure` remains for `thresholds` only. A PR can loosen its own gate by editing the yaml; that is visible in the diff and is how every CI config works. Org-level floors are a possible later layer, not part of this plan.
+**D8 — Permissions.** Pushing a policy needs only `run:create` — it is evidence about the run, like the rest of the decision block. `policy:configure` remains for `thresholds` only. A PR can loosen its own gate by editing the yaml; that is visible in the diff and is how every CI config works. Org-level floors are a possible later layer, not part of this plan. **[Superseded 2026-09-19:** Phase 5 removed `thresholds` from the CLI, so `policy:configure` now gates nothing the CLI is able to send. A `[server]` cleanup of that permission and of the orphaned `canonical_thresholds` response field is unscheduled.**]**
 
 **Rollout order matters.** A new CLI emitting `decision.policy` against an old server is rejected at finalize (`extra="forbid"`). Ship and deploy `[server]` Phase 1 before releasing `[cli]` Phase 2. Version bumps are deferred to release per project convention.
 
@@ -130,7 +130,7 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 - [x] Test: `PATCH /projects/{id}` with `migration_policy` (any value, including `null`) → 422 with detail `"migration_policy is configured in evalshift.yaml and synced on push"`; a PATCH with only `name` still works. `POST /orgs/{org}/projects` with `migration_policy` → 422 same message.
 - [x] Remove `migration_policy` from `ProjectPatch` and the create payload (pydantic `extra="forbid"` on those models yields the 422; if they are not `forbid`, add an explicit check so the message is the one above). Delete `update_migration_policy` plumbing from `organizations.update_project`; keep the read path and the audit-diff for the column so history still renders.
 - [x] Keep `Project.migration_policy` in the public read model — the client shows it in the legacy banner.
-- [x] Remove the `policy:configure` requirement from anything policy-related that remains (there should be nothing left; `thresholds` keeps it).
+- [x] Remove the `policy:configure` requirement from anything policy-related that remains (there should be nothing left; `thresholds` keeps it). *(Superseded 2026-09-19 — Phase 5's `[cli]` item deleted `thresholds` outright; see the note there.)*
 - [x] `make lint && make test`.
 
 ### Task 1.9 — Adoption hint in `RunUploadResponse` (D7)
@@ -243,6 +243,15 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 
 - [ ] `[server]` After 90 days with no `policy_source == "project_policy"` answers in logs: drop `projects.migration_policy_json`, `load_policy`, `evaluate_policy`'s legacy path, and `_effective_slice_policy`. Add a structlog counter now so the decision can be made from data.
 - [x] `[cli]` Fold `thresholds` into `migration_policy` or delete it; today it is free-form and gates nothing (`docs/configuration.md:53`).
+      **Done 2026-09-19 — deleted outright** (maintainer's call: not folded, no deprecation
+      period). Branch `chore/remove-thresholds`. The field, the push sync, `_thresholds_from_config`,
+      `_non_empty` and `_warn_threshold_drift` are gone; a config still setting `thresholds:` now
+      fails to load with a message naming the removal. Breaking — the repo is 1.0.1, so this
+      implies 2.0.0. **Two follow-ups this opened:** (a) `evalshift.yaml`'s `version:` literal is
+      still `1` while `docs/configuration.md` and `llms-full.txt` both state that `version:` bumps
+      when a field is *removed* — bump it or amend the rule at release; (b) `[server]`
+      `canonical_thresholds` now has no consumer and `policy:configure` (D8) guards nothing —
+      needs its own cleanup, not tracked by any bullet below.
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---
