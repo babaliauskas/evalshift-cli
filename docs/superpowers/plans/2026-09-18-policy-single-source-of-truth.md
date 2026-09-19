@@ -274,6 +274,11 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 ## Phase 5 — cleanup and follow-ups (not blocking release)
 
 - [ ] `[server]` After 90 days with no `policy_source == "project_policy"` answers in logs: drop `projects.migration_policy_json`, `load_policy`, `evaluate_policy`'s legacy path, and `_effective_slice_policy`. Add a structlog counter now so the decision can be made from data.
+      **Counter done 2026-09-19** (PR #8, branch `chore/p17-phase5-cleanup`): every answer emits
+      `policy_check_answered` with `run_id`, `project_id` and `policy_source`, so the window is a
+      query over one event and the `run_policy`/`none` answers give it a denominator. The drop
+      itself stays open until the window is clear — earliest **2026-12-18**, counting from the
+      day the counter ships, not from the day it was decided.
 - [x] `[cli]` Fold `thresholds` into `migration_policy` or delete it; today it is free-form and gates nothing (`docs/configuration.md:53`).
       **Done 2026-09-19 — deleted outright** (maintainer's call: not folded, no deprecation
       period). Branch `chore/remove-thresholds`. The field, the push sync, `_thresholds_from_config`,
@@ -287,11 +292,25 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
       the CHANGELOG entry now say so. (b) `[server]` `canonical_thresholds` now has no consumer and
       `policy:configure` (D8) guards nothing — **scheduled 2026-09-19 as the `[server]` bullet
       below.**
-- [ ] `[server]` Retire the thresholds plumbing the CLI no longer feeds (follow-up (b) above):
+- [x] `[server]` Retire the thresholds plumbing the CLI no longer feeds (follow-up (b) above):
       `canonical_thresholds` on the upload response, `_sync_project_thresholds`, and the
       `policy:configure` requirement on `POST /runs`. A CLI older than 2.0.0 still sends
       `thresholds`, so the field keeps being *accepted* — what goes is the sync, the response
       field, and the permission that gated a write nothing performs any more.
+      **Done 2026-09-19** (PR #8). `RunCreate.thresholds` is marked deprecated and ignored;
+      `PATCH /projects/{id}` is the only writer left. Breaking in contract terms —
+      `canonical_thresholds` is gone from the `POST /runs` response — but CLI ≤ 1.0.1 reads it
+      through `.get` and simply skips its drift warning, and it has no other consumer.
+      **What this opened:** `policy:configure` now guards nothing at all. Deleting the key is a
+      coordinated change across three places — the server catalog (token creation validates
+      scopes against it), the role map served by `GET /orgs/{slug}/permissions`, and the web
+      app's `permissionCatalog.ts` label — so it stays defined, as its own bullet below.
+- [ ] `[server]` + `[client]` Delete the `policy:configure` permission. It guards no route as of
+      PR #8. Three coordinated edits: drop it from `POLICY_PERMISSIONS`/`ALL_PERMISSIONS` and the
+      role map, confirm no stored token scope list is *rejected* for carrying an unknown key (only
+      that it stops matching), and drop the label from the client's `permissionCatalog.ts`. Not
+      urgent — an inert permission is harmless — but it is now the only thing the thresholds
+      removal left behind.
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---
