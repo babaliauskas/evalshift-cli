@@ -279,7 +279,6 @@ class FakeHostedClient:
         manifest: dict[str, Any],
         *,
         size_bytes: int,
-        thresholds: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.initiate_calls += 1
         self.initiate_sizes.append(size_bytes)
@@ -310,7 +309,6 @@ class FakeHostedClient:
         *,
         slug: str,
         name: str,
-        thresholds: dict[str, Any] | None,
     ) -> dict[str, Any]:
         if self.create_project_error is not None:
             raise self.create_project_error
@@ -318,7 +316,6 @@ class FakeHostedClient:
             "org_slug": org_slug,
             "slug": slug,
             "name": name,
-            "thresholds": thresholds,
         }
         return self.created_project
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import io
 import json
 import stat
 from pathlib import Path
@@ -682,7 +681,6 @@ def test_push_treats_available_run_as_idempotent_without_upload(
                 "upload_url": None,
                 "finalize_url": _SERVER_FINALIZE_URL,
                 "view_url": _SERVER_VIEW_URL,
-                "canonical_thresholds": {"pass_rate_min": 0.9},
             },
         ],
     )
@@ -712,7 +710,6 @@ def test_push_sends_the_uploaded_files_size_on_create(
                 "upload_url": None,
                 "finalize_url": _SERVER_FINALIZE_URL,
                 "view_url": _SERVER_VIEW_URL,
-                "canonical_thresholds": {"pass_rate_min": 0.9},
             },
         ],
     )
@@ -987,7 +984,6 @@ def test_push_auto_creates_missing_project_when_org_is_visible(
                 "upload_url": None,
                 "finalize_url": _SERVER_FINALIZE_URL,
                 "view_url": _SERVER_VIEW_URL,
-                "canonical_thresholds": {"pass_rate_min": 0.9},
             },
         ],
         projects=[],
@@ -1003,7 +999,6 @@ def test_push_auto_creates_missing_project_when_org_is_visible(
         "org_slug": "acme",
         "slug": "model-migration",
         "name": "Model Migration",
-        "thresholds": {"pass_rate_min": 0.9},
     }
 
 
@@ -1229,44 +1224,6 @@ def test_put_retries_rate_limited_uploads() -> None:
     )
 
     assert attempts == 2
-
-
-def test_push_warns_when_canonical_thresholds_differ_from_local(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from rich.console import Console
-
-    bundle_path = _build_bundle_for_push(tmp_path, monkeypatch)
-    fake = _fake_client(
-        responses=[
-            {
-                "id": _SERVER_RUN_ID,
-                "client_run_id": "r_20260516_abcdef",
-                "status": "available",
-                "upload_url": None,
-                "finalize_url": _SERVER_FINALIZE_URL,
-                "view_url": _SERVER_VIEW_URL,
-                "canonical_thresholds": {"pass_rate_min": 0.95, "regression_max": 0.0},
-            },
-        ],
-    )
-    monkeypatch.setenv("EVALSHIFT_HOST", "https://api.evalshift.test")
-    monkeypatch.setenv("EVALSHIFT_TOKEN", "es_secret")
-    monkeypatch.setattr("evalshift_cli.hosted.push.HostedClient", lambda **_: fake)
-
-    buffer = io.StringIO()
-    _push(
-        bundle_path,
-        tmp_path,
-        create_project=False,
-        console=Console(file=buffer, force_terminal=False, width=120),
-    )
-
-    output = buffer.getvalue()
-    assert "differ from project canonical thresholds" in output
-    assert "pass_rate_min" in output
-    assert "regression_max" in output
 
 
 def test_put_retries_connection_errors_then_raises(monkeypatch: pytest.MonkeyPatch) -> None:

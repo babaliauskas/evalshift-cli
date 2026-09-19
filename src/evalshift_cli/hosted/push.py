@@ -21,7 +21,6 @@ from evalshift_cli.hosted.bundle import (
     BUNDLE_FILENAME,
     BundleError,
     build_bundle,
-    canonical_json,
     load_bundle,
     validate_bundle,
 )
@@ -175,7 +174,6 @@ def push_bundle(
     project: str | None = None,
     host: str | None = None,
     token: str | None = None,
-    thresholds: dict[str, Any] | None = None,
     create_project: bool = True,
     console: Console | None = None,
     runs_base: Path | None = None,
@@ -227,15 +225,8 @@ def push_bundle(
     )
     if resumed is not None:
         return resumed
-    resolved_thresholds = (
-        thresholds if thresholds is not None else _thresholds_from_config(config_path)
-    )
     try:
-        response = client.initiate_run(
-            manifest,
-            size_bytes=upload_size_bytes,
-            thresholds=_non_empty(resolved_thresholds),
-        )
+        response = client.initiate_run(manifest, size_bytes=upload_size_bytes)
         project_created = False
     except HostedHTTPError as exc:
         if exc.status_code == _PAYMENT_REQUIRED:
@@ -246,24 +237,14 @@ def push_bundle(
                     "project was not found and auto-creation is disabled or not permitted",
                 ) from exc
             raise PushError(str(exc)) from exc
-        _auto_create_project(
-            client,
-            project_slug=str(manifest["project_slug"]),
-            thresholds=_non_empty(resolved_thresholds),
-        )
+        _auto_create_project(client, project_slug=str(manifest["project_slug"]))
         project_created = True
-        response = client.initiate_run(
-            manifest,
-            size_bytes=upload_size_bytes,
-            thresholds=_non_empty(resolved_thresholds),
-        )
+        response = client.initiate_run(manifest, size_bytes=upload_size_bytes)
     except (HostedNetworkError, HostedError) as exc:
         raise PushError(str(exc)) from exc
 
-    _warn_threshold_drift(console, resolved_thresholds, response)
-    # Beside the drift warning because it reads the same response, and above
-    # the existing-run return below so a re-push of an available run still
-    # prints it exactly once.
+    # Above the existing-run return below, so a re-push of an available run
+    # still prints it exactly once.
     _print_legacy_policy_hint(console, config_path, response)
     server_run_id = _require_str_field(response, "id", "hosted API did not return a run id")
     view_url = str(response.get("view_url") or "")
@@ -494,26 +475,7 @@ def _manifest(bundle: dict[str, Any]) -> dict[str, Any]:
     return manifest
 
 
-def _thresholds_from_config(config_path: Path | None) -> dict[str, Any] | None:
-    if config_path is None:
-        return None
-    try:
-        cfg = load_config(config_path)
-    except ConfigError as exc:
-        raise PushError(str(exc)) from exc
-    return dict(cfg.thresholds)
-
-
-def _non_empty(value: dict[str, Any] | None) -> dict[str, Any] | None:
-    return value if value else None
-
-
-def _auto_create_project(
-    client: HostedClient,
-    *,
-    project_slug: str,
-    thresholds: dict[str, Any] | None,
-) -> None:
+def _auto_create_project(client: HostedClient, *, project_slug: str) -> None:
     try:
         org_slug, project = project_slug.split("/", 1)
     except ValueError as exc:
@@ -530,12 +492,7 @@ def _auto_create_project(
     if any(item.get("slug") == project for item in projects):
         return
     try:
-        client.create_project(
-            org_slug,
-            slug=project,
-            name=_name_from_slug(project),
-            thresholds=thresholds,
-        )
+        client.create_project(org_slug, slug=project, name=_name_from_slug(project))
     except HostedHTTPError as exc:
         raise PushError(
             f"cannot auto-create {project_slug!r} at {client.host}: "
@@ -569,36 +526,6 @@ def _warn_soft_limit(console: Console | None, size_bytes: int) -> None:
     if console is None or warning is None:
         return
     console.print(f"[yellow]![/yellow] {warning}")
-
-
-def _warn_threshold_drift(
-    console: Console | None,
-    local: dict[str, Any] | None,
-    response: dict[str, Any],
-) -> None:
-    """Warn when the local thresholds differ from the server's canonical view."""
-    if console is None or not local:
-        return
-    canonical = response.get("canonical_thresholds")
-    if not isinstance(canonical, dict):
-        return
-    if canonical_json(canonical) == canonical_json(local):
-        return
-    deltas: list[str] = []
-    missing = object()
-    for key in sorted(set(local) | set(canonical)):
-        local_v = local.get(key, missing)
-        remote_v = canonical.get(key, missing)
-        if local_v != remote_v:
-            deltas.append(
-                f"  {key}: local={'<unset>' if local_v is missing else repr(local_v)} "
-                f"canonical={'<unset>' if remote_v is missing else repr(remote_v)}"
-            )
-    body = "\n".join(deltas) or "(no per-key differences detected)"
-    console.print(
-        "[yellow]![/yellow] thresholds in evalshift.yaml differ from project "
-        "canonical thresholds:\n" + body
-    )
 
 
 def _warn_missing_policy(console: Console | None, bundle: dict[str, Any]) -> None:
