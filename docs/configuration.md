@@ -28,9 +28,17 @@ fast instead of silently dropping.
 
 ## Config version policy
 
-`version: 1` changes **only for breaking changes** — a field renamed, removed,
-or given a different meaning. Additive fields (a new evaluator option, a new
-top-level block) do *not* bump it; they ride on the CLI version instead.
+`version: 1` changes when a config that is still *valid* would be read with the
+wrong meaning by the wrong CLI — a field renamed, or redefined to mean
+something else. Additive fields (a new evaluator option, a new top-level block)
+do *not* bump it; they ride on the CLI version instead.
+
+Nor does removing a field, as long as a config that still sets it **fails to
+load and says why**. The literal exists to catch silent misreadings, and an
+error naming the removed key is the opposite of silent — it cannot be mistaken
+for a config that still works. `thresholds` left in 2.0.0 that way, and
+`version` stayed `1`; bumping it would have forced an edit on every config,
+including the majority that never set the key.
 
 Because unknown keys are rejected, that puts one rule on you: the CLI that
 *reads* a config must be at least as new as the CLI that *wrote* it. In

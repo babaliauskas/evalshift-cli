@@ -279,11 +279,19 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
       period). Branch `chore/remove-thresholds`. The field, the push sync, `_thresholds_from_config`,
       `_non_empty` and `_warn_threshold_drift` are gone; a config still setting `thresholds:` now
       fails to load with a message naming the removal. Breaking — the repo is 1.0.1, so this
-      implies 2.0.0. **Two follow-ups this opened:** (a) `evalshift.yaml`'s `version:` literal is
-      still `1` while `docs/configuration.md` and `llms-full.txt` both state that `version:` bumps
-      when a field is *removed* — bump it or amend the rule at release; (b) `[server]`
-      `canonical_thresholds` now has no consumer and `policy:configure` (D8) guards nothing —
-      needs its own cleanup, not tracked by any bullet below.
+      implies 2.0.0. **Two follow-ups this opened:** (a) **resolved 2026-09-19 — the rule was
+      amended, `version:` stays `1`.** The literal marks a config that is still valid but would be
+      read with the wrong meaning; a removal that fails the load while naming the key is the
+      opposite of that, and bumping would have forced an edit on every config, including the
+      majority that never set `thresholds`. `docs/configuration.md`, `DOCS.md`, `llms-full.txt` and
+      the CHANGELOG entry now say so. (b) `[server]` `canonical_thresholds` now has no consumer and
+      `policy:configure` (D8) guards nothing — **scheduled 2026-09-19 as the `[server]` bullet
+      below.**
+- [ ] `[server]` Retire the thresholds plumbing the CLI no longer feeds (follow-up (b) above):
+      `canonical_thresholds` on the upload response, `_sync_project_thresholds`, and the
+      `policy:configure` requirement on `POST /runs`. A CLI older than 2.0.0 still sends
+      `thresholds`, so the field keeps being *accepted* — what goes is the sync, the response
+      field, and the permission that gated a write nothing performs any more.
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---

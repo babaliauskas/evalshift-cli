@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   axis: `push_bundle()` in `evalshift_cli.hosted.push` no longer takes a
   `thresholds` keyword.
 
+  `version:` stays `1`. The config version policy now says so explicitly: the
+  literal marks a config that is still valid but would be read with the wrong
+  meaning, and a removal that fails the load while naming the key is the
+  opposite of that. Bumping it would have forced an edit on every config,
+  including the majority that never set `thresholds`.
+
 - The hosted traffic that carried it goes with it: `push` no longer sends
   `thresholds` when it uploads a run or creates a project, the CLI ignores the
   server's `canonical_thresholds` response field, and the "local thresholds

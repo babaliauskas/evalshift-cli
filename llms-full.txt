@@ -1237,8 +1237,10 @@ with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", config: evalshift.yaml,
 # set `evalshift-version: "<local>"`; unpinned (input absent, action default may lag) -> add
 # it; ahead (all pins > local) -> pip install -U evalshift. Equal, `${{ }}` expressions, and
 # 0.0.0+unknown are silent. Advisory only: never edits the workflow, never changes exit codes;
-# a no-op in CI (the running CLI is the pin). Config `version: 1` bumps only for breaking
-# changes; additive fields ride on the CLI version and this check is the mechanism.
+# a no-op in CI (the running CLI is the pin). Config `version: 1` bumps only when a still-valid
+# config would be read with the wrong meaning (a field renamed or redefined); additive fields, and
+# removals that fail the load with a message naming the key, ride on the CLI version instead, and
+# this check is the mechanism.
 
 ## Troubleshooting checklist
 
