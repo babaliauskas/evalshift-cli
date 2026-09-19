@@ -86,8 +86,6 @@ The Action expects the CLI project to know where hosted runs should land:
 
 ```yaml
 project: acme/model-migration
-thresholds:
-  pass_rate_min: 0.95
 ```
 
 The default workflow runs the local pipeline, finds the latest run id, and

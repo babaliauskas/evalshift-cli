@@ -195,8 +195,6 @@ evalshift whoami
 
 # Add a hosted project to evalshift.yaml:
 # project: acme/model-migration
-# thresholds:
-#   pass_rate_min: 0.95
 
 # Run locally, then package and push the result.
 evalshift compare --suite-name support_agent --yes --push
@@ -329,8 +327,8 @@ wires these links into your project automatically: it writes
 * [Agent traces](docs/traces.md) — bring-your-own agent timelines
 * [Capture SDK](docs/sdk.md) — instrument your agent, promote captures to suites
 * [Methodology](docs/methodology.md) — the statistical machinery
-* [Hosted EvalShift](docs/hosted.md) — login, bundle, push, thresholds, and the
-  privacy model: exactly what data uploads and what never leaves your machine
+* [Hosted EvalShift](docs/hosted.md) — login, bundle, push, and the privacy
+  model: exactly what data uploads and what never leaves your machine
 * [GitHub Action](docs/github-action.md) — PR comments + hosted regression gate
 * [FAQ](docs/faq.md) — common questions
 * [llms-full.txt](llms-full.txt) — dense single-file reference for AI coding

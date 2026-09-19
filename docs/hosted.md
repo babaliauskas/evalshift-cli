@@ -68,9 +68,6 @@ Hosted push needs a project path in `org-slug/project-slug` form. Put it in
 
 ```yaml
 project: acme/model-migration
-thresholds:
-  pass_rate_min: 0.95
-  regression_max: 0
 ```
 
 Or pass it for a single command:
@@ -79,9 +76,10 @@ Or pass it for a single command:
 evalshift push <run-id> --project acme/model-migration
 ```
 
-`thresholds` are hosted project settings. They are not part of the frozen run
-bundle manifest. If you push thresholds, the hosted backend requires project
-owner rights and returns the canonical thresholds for that project.
+`evalshift.yaml` used to accept a `thresholds:` block here. It was removed: it
+gated nothing, and a config that still sets it fails to load. Delete the key —
+[`migration_policy`](configuration.md#migration_policy) is the single source of
+truth for gating, and `push` carries the resolved policy in the bundle.
 
 ## Bundle and push
 
@@ -258,11 +256,11 @@ both initiated by you:
 
 ### What `push` sends, block by block
 
-`push` uploads `run_bundle.json.gz` plus three pieces of request metadata: the
-bearer token (an `Authorization` header, sent only to the configured host),
-the compressed bundle size, and the `thresholds` from `evalshift.yaml` when
-set. (`login` additionally sends a client name that includes your machine's
-hostname, so you can recognize the session in the web app.)
+`push` uploads `run_bundle.json.gz` plus two pieces of request metadata: the
+bearer token (an `Authorization` header, sent only to the configured host) and
+the compressed bundle size. (`login` additionally sends a client name that
+includes your machine's hostname, so you can recognize the session in the web
+app.)
 
 The bundle itself contains:
 
@@ -334,6 +332,5 @@ credential file locally and repository secrets in CI.
 | `hosted project is required` | No `project` in config and no `--project` flag. | Add `project: org/project` or pass `--project`. |
 | `project was not found` | The project does not exist and auto-create is disabled or not allowed. | Ask an owner to create it, use an org-scoped owner token, or enable auto-create. |
 | `cannot auto-create <slug> at <host>` | The message names the host it talked to and the server's status. Most often the host is not the one you meant: with no `--host` and no `EVALSHIFT_HOST`, an unset credentials file falls back to `https://api.evalshift.dev`, where your org does not exist. | Run `evalshift whoami` and check the host it prints. If it is wrong, `evalshift login --host <hosted-api-url>`. If the host is right and the status is 403, the token lacks org access — see [Project auto-create](#project-auto-create). |
-| Threshold warning | Local `thresholds` differ from hosted canonical thresholds. | Pull the current project thresholds from the web app or ask an owner to sync them. |
 | `this run needs a paid plan` | The org's plan does not cover this push, or the subscription has stopped paying. | Open the upgrade URL printed with the message, or wait for the monthly reset and push the same run id again. See [Plan limits](#plan-limits). |
 | `this run carries no migration policy` warning | No `migration_policy` is configured in `evalshift.yaml`, so the bundle has no `decision.policy`. | Add `migration_policy` to `evalshift.yaml` (see [Configuration](configuration.md#migration_policy)). Until then the gate has only whatever old web-app policy the project still has; with none, it reports `inconclusive` and never blocks the pull request. |

@@ -213,8 +213,6 @@ Add a hosted project path to `evalshift.yaml`:
 
 ```yaml
 project: acme/model-migration
-thresholds:
-  pass_rate_min: 0.95
 ```
 
 Then push a completed run:

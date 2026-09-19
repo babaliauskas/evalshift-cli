@@ -13,7 +13,6 @@ the canonical reference.
 ```yaml
 version: 1                # required, must be 1
 project: org/project      # optional, required for hosted push unless passed by flag
-thresholds: {...}         # optional hosted project thresholds
 migration_policy: {...}   # optional local migration verdict policy
 prompts: [...]            # required, at least one
 defaults: {...}           # optional
@@ -42,23 +41,19 @@ and `validate` warn when a workflow under `.github/workflows/` pins an older
 CLI, or none at all, and print the exact line to set. See
 [Pin drift](github-action.md#pin-drift).
 
-## `project` and `thresholds`
+## `project`
 
-These fields are used only by hosted commands. Local `run`, `evaluate`,
-`analyze`, and `report` do not require them.
+This field is used only by hosted commands. Local `run`, `evaluate`,
+`analyze`, and `report` do not require it.
 
 | Field        | Type   | Required | Description |
 | ------------ | ------ | -------- | ----------- |
 | `project`    | string | no       | Hosted project slug in `org-slug/project-slug` form. `evalshift push` also accepts `--project`, which overrides the config value. |
-| `thresholds` | object | no       | Free-form hosted project thresholds. When provided during `push`, the backend syncs them for owners and returns canonical thresholds. |
 
 Example:
 
 ```yaml
 project: acme/model-migration
-thresholds:
-  pass_rate_min: 0.95
-  regression_max: 0
 ```
 
 `evalshift init` scaffolds `project:` **commented out**, with the slug shape and
@@ -66,6 +61,22 @@ a placeholder — uncomment it once you have a hosted project. It is left unset
 because a local run never needs it and nothing uploads without an explicit
 `push` / `all --push`, so a guessed slug would be wrong in the one place it
 matters.
+
+### `thresholds` was removed
+
+`evalshift.yaml` used to accept a free-form `thresholds:` block next to
+`project:`. It was never read by anything that gates: the migration verdict
+comes from [`migration_policy`](#migration_policy), and the hosted gate reads
+the resolved policy the bundle carries. Nothing replaced it.
+
+A config that still sets the key now **fails to load**:
+
+```text
+`thresholds` was removed: it was free-form and gated nothing. Delete it from evalshift.yaml; migration_policy is the single source of truth for gating.
+```
+
+The fix is to delete the block. If you were using it to express a gate, encode
+that as a `migration_policy` budget instead.
 
 ## `migration_policy`
 
