@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-19
+
 ### Added
 
 - `migration_decision.json` and the bundle now carry the resolved
