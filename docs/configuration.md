@@ -36,7 +36,7 @@ do *not* bump it; they ride on the CLI version instead.
 Nor does removing a field, as long as a config that still sets it **fails to
 load and says why**. The literal exists to catch silent misreadings, and an
 error naming the removed key is the opposite of silent — it cannot be mistaken
-for a config that still works. `thresholds` left in 2.0.0 that way, and
+for a config that still works. `thresholds` left in 1.1.0 that way, and
 `version` stayed `1`; bumping it would have forced an edit on every config,
 including the majority that never set the key.
 

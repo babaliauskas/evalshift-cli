@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-19
+
+Shipped as a minor deliberately. The `thresholds` removal below is breaking by
+the letter of SemVer — a config that sets the key stops loading — but the key
+was free-form, gated nothing, and travelled no further than a project-settings
+blob nobody read. A major would have signalled a migration that, for anyone who
+never wrote `thresholds:`, does not exist. Those who did get an error naming
+the key and the fix, which is the whole migration.
+
 ### Added
 
 - `migration_decision.json` and the bundle now carry the resolved
