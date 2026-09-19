@@ -305,12 +305,13 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
       coordinated change across three places — the server catalog (token creation validates
       scopes against it), the role map served by `GET /orgs/{slug}/permissions`, and the web
       app's `permissionCatalog.ts` label — so it stays defined, as its own bullet below.
-- [ ] `[server]` + `[client]` Delete the `policy:configure` permission. It guards no route as of
-      PR #8. Three coordinated edits: drop it from `POLICY_PERMISSIONS`/`ALL_PERMISSIONS` and the
-      role map, confirm no stored token scope list is *rejected* for carrying an unknown key (only
-      that it stops matching), and drop the label from the client's `permissionCatalog.ts`. Not
-      urgent — an inert permission is harmless — but it is now the only thing the thresholds
-      removal left behind.
+- [x] `[server]` + `[client]` Delete the `policy:configure` permission. **Done 2026-09-19** —
+      server in PR #8, client in evalshift-client#10 (`permissionCatalog.ts` label, the
+      `MigrationPolicy` docs callout, the `ProjectSettings` role fixture). Verified before
+      deleting: `normalize_scopes` is the only validator and runs once, at mint time
+      (`service_accounts/service.py`), while each request merely intersects — so a token that
+      already carries the key keeps working and the key just stops matching. The one behaviour
+      change is that minting a *new* token naming it is a 422.
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---
