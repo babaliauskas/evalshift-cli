@@ -242,7 +242,7 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 ## Phase 5 — cleanup and follow-ups (not blocking release)
 
 - [ ] `[server]` After 90 days with no `policy_source == "project_policy"` answers in logs: drop `projects.migration_policy_json`, `load_policy`, `evaluate_policy`'s legacy path, and `_effective_slice_policy`. Add a structlog counter now so the decision can be made from data.
-- [ ] `[cli]` Fold `thresholds` into `migration_policy` or delete it; today it is free-form and gates nothing (`docs/configuration.md:53`).
+- [x] `[cli]` Fold `thresholds` into `migration_policy` or delete it; today it is free-form and gates nothing (`docs/configuration.md:53`).
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---
