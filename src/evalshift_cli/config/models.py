@@ -27,7 +27,7 @@ from evalshift_cli.suite.tags import RESERVED_SLICE_NAME
 # stronger judge should override via `evaluators.llm_judge[*].judge_model`.
 DEFAULT_JUDGE_MODEL: str = "gemini-3.1-flash-lite-preview"
 
-REMOVED_THRESHOLDS_MESSAGE = (
+_REMOVED_THRESHOLDS_MESSAGE = (
     "`thresholds` was removed: it was free-form and gated nothing. "
     "Delete it from evalshift.yaml; migration_policy is the single "
     "source of truth for gating."
@@ -736,7 +736,7 @@ class EvalShiftConfig(_StrictModel):
         ``after`` validator.
         """
         if isinstance(data, dict) and "thresholds" in data:
-            raise ValueError(REMOVED_THRESHOLDS_MESSAGE)
+            raise ValueError(_REMOVED_THRESHOLDS_MESSAGE)
         return data
 
     @model_validator(mode="after")
@@ -751,7 +751,6 @@ class EvalShiftConfig(_StrictModel):
 
 __all__ = [
     "DEFAULT_JUDGE_MODEL",
-    "REMOVED_THRESHOLDS_MESSAGE",
     "AgentTraceEvaluatorConfig",
     "Defaults",
     "EvalShiftConfig",
