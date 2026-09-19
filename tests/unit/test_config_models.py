@@ -485,7 +485,6 @@ class TestEvalShiftConfig:
         assert isinstance(cfg.evaluators, EvaluatorsConfig)
         assert cfg.slices == []
         assert cfg.project is None
-        assert cfg.thresholds == {}
         assert cfg.migration_policy is None
         assert cfg.evaluators.agent_trace == []
 
@@ -500,17 +499,36 @@ class TestEvalShiftConfig:
         assert cfg.migration_policy is not None
         assert cfg.migration_policy.max_overall_regression_rate == pytest.approx(0.05)
 
-    def test_hosted_project_and_thresholds_are_valid(self) -> None:
+    def test_hosted_project_is_valid(self) -> None:
         cfg = EvalShiftConfig(
             prompts=[
                 PromptDefinition(id="cs", detection="manual", content="hi {n}"),
             ],
             project="acme/model-migration",
-            thresholds={"pass_rate_min": 0.91, "slices": {"security": 0.95}},
         )
 
         assert cfg.project == "acme/model-migration"
-        assert cfg.thresholds == {"pass_rate_min": 0.91, "slices": {"security": 0.95}}
+
+    def test_removed_thresholds_field_is_rejected_by_name(self) -> None:
+        """A config that still sets ``thresholds`` says what happened to it.
+
+        ``extra="forbid"`` would reject the key on its own, but "Extra inputs
+        are not permitted" reads as a typo and sends the user looking for the
+        right spelling of a field that no longer exists.
+        """
+        with pytest.raises(ValidationError) as info:
+            EvalShiftConfig(
+                prompts=[
+                    PromptDefinition(id="cs", detection="manual", content="hi {n}"),
+                ],
+                thresholds={"pass_rate_min": 0.91},
+            )
+
+        message = str(info.value)
+        assert "`thresholds` was removed" in message
+        assert "gated nothing" in message
+        assert "migration_policy is the single source of truth" in message
+        assert "Extra inputs are not permitted" not in message
 
     def test_invalid_hosted_project_slug_fails(self) -> None:
         with pytest.raises(ValidationError):

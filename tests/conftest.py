@@ -53,8 +53,6 @@ def write_project_files(root: Path) -> None:
         """
         version: 1
         project: acme/model-migration
-        thresholds:
-          pass_rate_min: 0.9
         prompts:
           - id: greet
             detection: manual
