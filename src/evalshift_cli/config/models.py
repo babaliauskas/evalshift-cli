@@ -27,6 +27,13 @@ from evalshift_cli.suite.tags import RESERVED_SLICE_NAME
 # stronger judge should override via `evaluators.llm_judge[*].judge_model`.
 DEFAULT_JUDGE_MODEL: str = "gemini-3.1-flash-lite-preview"
 
+_REMOVED_THRESHOLDS_MESSAGE = (
+    "`thresholds` was removed: it was free-form and gated nothing. "
+    "Delete it from evalshift.yaml; migration_policy is the single "
+    "source of truth for gating."
+)
+"""Error text for a config that still carries the removed ``thresholds`` block."""
+
 
 class _StrictModel(BaseModel):
     """Base for every config model: forbid extra keys, validate on assignment."""
@@ -666,7 +673,6 @@ class EvalShiftConfig(_StrictModel):
 
     version: Literal[1] = 1
     project: str | None = Field(default=None, pattern=r"^[a-z0-9-]+/[a-z0-9-]+$")
-    thresholds: dict[str, Any] = Field(default_factory=dict)
     prompts: list[PromptDefinition] = Field(min_length=1)
     defaults: Defaults = Field(default_factory=Defaults)
     evaluators: EvaluatorsConfig = Field(default_factory=EvaluatorsConfig)
@@ -717,6 +723,21 @@ class EvalShiftConfig(_StrictModel):
                 )
             update[family] = value
         return self.evaluators.model_copy(update=update)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_removed_fields(cls, data: Any) -> Any:
+        """Name the fields that were removed instead of calling them typos.
+
+        ``extra="forbid"`` already rejects ``thresholds``, but it says "Extra
+        inputs are not permitted" — which reads as a misspelling and sends the
+        reader hunting for the correct name of a field that is gone. Runs
+        before validation because a forbidden extra never reaches an
+        ``after`` validator.
+        """
+        if isinstance(data, dict) and "thresholds" in data:
+            raise ValueError(_REMOVED_THRESHOLDS_MESSAGE)
+        return data
 
     @model_validator(mode="after")
     def _check_unique_prompt_ids(self) -> Self:

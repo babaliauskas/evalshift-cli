@@ -89,11 +89,8 @@ class HostedClient:
         *,
         slug: str,
         name: str,
-        thresholds: dict[str, Any] | None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"name": name, "slug": slug}
-        if thresholds:
-            payload["thresholds"] = thresholds
         data = self._request("POST", f"/orgs/{org_slug}/projects", json=payload)
         if not isinstance(data, dict):
             raise HostedHTTPError(502, "unexpected project create response")
@@ -104,7 +101,6 @@ class HostedClient:
         manifest: dict[str, Any],
         *,
         size_bytes: int,
-        thresholds: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create the run and get a signed upload URL back.
 
@@ -114,14 +110,11 @@ class HostedClient:
                 uploaded. Request metadata rather than bundle content — a
                 field inside the payload cannot report that payload's own
                 compressed length. Guards the server's pre-upload 413.
-            thresholds: Project thresholds to apply, when the caller has any.
 
         Keyword-only after ``manifest`` so no existing positional call can
-        pass ``thresholds`` where the size now belongs.
+        pass something else where the size belongs.
         """
         payload: dict[str, Any] = {"manifest": manifest, "size_bytes": size_bytes}
-        if thresholds:
-            payload["thresholds"] = thresholds
         data = self._request("POST", "/runs", json=payload)
         if not isinstance(data, dict):
             raise HostedHTTPError(502, "unexpected run create response")

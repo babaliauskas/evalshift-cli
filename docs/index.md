@@ -112,6 +112,6 @@ Each piece publishes a dense, single-file, machine-readable reference:
 * [Multi-turn conversations](conversations.md) — teacher-forced replay.
 * [Agent traces](traces.md) — bring-your-own agent timelines.
 * [Methodology](methodology.md) — the statistical machinery.
-* [Hosted EvalShift](hosted.md) — login, bundle, push, thresholds, privacy.
+* [Hosted EvalShift](hosted.md) — login, bundle, push, privacy.
 * [GitHub Action](github-action.md) — PR comments and hosted gates.
 * [FAQ](faq.md) — common questions.

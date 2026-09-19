@@ -41,7 +41,6 @@ def _pending_upload_response() -> dict[str, Any]:
         "upload_url": "https://storage.test/upload",
         "finalize_url": FINALIZE_URL,
         "view_url": VIEW_URL,
-        "canonical_thresholds": {"pass_rate_min": 0.9},
     }
 
 

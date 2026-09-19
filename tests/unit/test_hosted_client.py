@@ -120,7 +120,7 @@ def test_initiate_run_sends_size_bytes_at_top_level(
         httpx.Response(200, json={"run_id": "r_1", "view_url": "https://app.test/r_1"}),
     )
 
-    client.initiate_run({"run_id": "r_1"}, size_bytes=4096, thresholds=None)
+    client.initiate_run({"run_id": "r_1"}, size_bytes=4096)
 
     assert len(seen) == 1
     request = seen[0]
@@ -130,19 +130,27 @@ def test_initiate_run_sends_size_bytes_at_top_level(
     assert "size_bytes" not in body["manifest"]
 
 
-def test_initiate_run_sends_size_bytes_alongside_thresholds(
+def test_the_client_has_no_thresholds_parameter_left(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """``thresholds`` is gone from the config, so nothing may still offer to send it.
+
+    Checked on the signatures and not only on one payload: the key was
+    optional on both calls, so a reintroduced parameter that no caller happens
+    to pass would leave every payload assertion green while handing the field
+    a way back onto the wire.
+    """
+    for method in (HostedClient.create_project, HostedClient.initiate_run):
+        assert "thresholds" not in inspect.signature(method).parameters
+
     client, seen = _recording_client(
         monkeypatch,
         httpx.Response(200, json={"run_id": "r_1", "view_url": "https://app.test/r_1"}),
     )
 
-    client.initiate_run({"run_id": "r_1"}, size_bytes=17, thresholds={"pass_rate_min": 0.9})
+    client.initiate_run({"run_id": "r_1"}, size_bytes=17)
 
-    body = json.loads(seen[0].content)
-    assert body["size_bytes"] == 17
-    assert body["thresholds"] == {"pass_rate_min": 0.9}
+    assert "thresholds" not in json.loads(seen[0].content)
 
 
 def test_request_raises_error_with_details_from_422_body(

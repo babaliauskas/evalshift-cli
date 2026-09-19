@@ -32,6 +32,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `evalshift.yaml` — printed only while the yaml has no policy of its own, and
   validated first, so what is shown is config the CLI accepts.
 
+### Removed
+
+- **`thresholds` is gone from `evalshift.yaml`, and its removal is breaking.**
+  The key was free-form and gated nothing: the migration verdict has always
+  come from `migration_policy`, and `thresholds` only ever travelled to the
+  hosted API as project settings. Keeping it meant a config could carry numbers
+  that read like a gate and decided nothing — the same confusion
+  `decision.policy` above exists to end. Nothing replaces it. **Migration:
+  delete the block**, and express any gate you meant by it as a
+  `migration_policy` budget.
+
+  The break has two axes. A config that still sets `thresholds:` now **fails to
+  load** instead of being quietly ignored, naming what happened and the fix:
+
+  ```text
+  `thresholds` was removed: it was free-form and gated nothing. Delete it from evalshift.yaml; migration_policy is the single source of truth for gating.
+  ```
+
+  Dropping the key silently would have preserved the very impression the
+  removal is meant to end — a config that looks gated and is not. The second
+  axis: `push_bundle()` in `evalshift_cli.hosted.push` no longer takes a
+  `thresholds` keyword.
+
+  `version:` stays `1`. The config version policy now says so explicitly: the
+  literal marks a config that is still valid but would be read with the wrong
+  meaning, and a removal that fails the load while naming the key is the
+  opposite of that. Bumping it would have forced an edit on every config,
+  including the majority that never set `thresholds`.
+
+- The hosted traffic that carried it goes with it: `push` no longer sends
+  `thresholds` when it uploads a run or creates a project, the CLI ignores the
+  server's `canonical_thresholds` response field, and the "local thresholds
+  differ from the hosted canonical thresholds" warning is gone along with the
+  setting it compared against.
+
 ## [1.0.1] - 2026-09-18
 
 ### Fixed

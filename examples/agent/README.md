@@ -41,8 +41,6 @@ Or add this to `evalshift.yaml`:
 
 ```yaml
 project: acme/model-migration
-thresholds:
-  pass_rate_min: 0.95
 ```
 
 Then run:

@@ -4,7 +4,7 @@
 
 **Goal:** A project's migration policy is written once, in `evalshift.yaml`, travels with every pushed run, and is what every surface gates on: the local `compare --policy-gate`, the run's Policy tab, the hosted policy-check endpoint, the PR list "blocked" signal, and the GitHub Action's commit status. The web app displays the policy; it no longer edits it.
 
-**Scope:** Four repositories, in deploy order: `[server]` → `[cli]` → `[client]` → `[action]`. `thresholds` (the free-form, non-gating key) is explicitly **out of scope** and keeps its current push-sync behaviour.
+**Scope:** Four repositories, in deploy order: `[server]` → `[cli]` → `[client]` → `[action]`. `thresholds` (the free-form, non-gating key) is explicitly **out of scope** and keeps its current push-sync behaviour. *(Superseded 2026-09-19 — Phase 5's `[cli]` item deleted `thresholds` outright; see the note there.)*
 
 **Tech Stack:** server — FastAPI, pydantic, raw SQL via SQLAlchemy `text()`, alembic, pytest on SQLite, `ruff` + `mypy --strict`. cli — Python 3.11+, pydantic, typer/rich, pytest, `mypy --strict`. client — React + TypeScript, vitest + testing-library. action — stdlib Python, pytest.
 
@@ -47,7 +47,7 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 **D7 — Adoption hint for projects that only have a web policy.**
 `RunUploadResponse` gains `legacy_project_policy: dict | null` (the column value, when set). If the CLI's config has no `migration_policy` and the server reports a legacy one, `push` prints it as a ready-to-paste `migration_policy:` YAML block after the upload. The legacy column is never cleared automatically.
 
-**D8 — Permissions.** Pushing a policy needs only `run:create` — it is evidence about the run, like the rest of the decision block. `policy:configure` remains for `thresholds` only. A PR can loosen its own gate by editing the yaml; that is visible in the diff and is how every CI config works. Org-level floors are a possible later layer, not part of this plan.
+**D8 — Permissions.** Pushing a policy needs only `run:create` — it is evidence about the run, like the rest of the decision block. `policy:configure` remains for `thresholds` only. A PR can loosen its own gate by editing the yaml; that is visible in the diff and is how every CI config works. Org-level floors are a possible later layer, not part of this plan. **[Superseded 2026-09-19:** Phase 5 removed `thresholds` from the CLI, so `policy:configure` now gates nothing the CLI is able to send. A `[server]` cleanup of that permission and of the orphaned `canonical_thresholds` response field is unscheduled.**]**
 
 **Rollout order matters.** A new CLI emitting `decision.policy` against an old server is rejected at finalize (`extra="forbid"`). Ship and deploy `[server]` Phase 1 before releasing `[cli]` Phase 2. Version bumps are deferred to release per project convention.
 
@@ -130,7 +130,7 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 - [x] Test: `PATCH /projects/{id}` with `migration_policy` (any value, including `null`) → 422 with detail `"migration_policy is configured in evalshift.yaml and synced on push"`; a PATCH with only `name` still works. `POST /orgs/{org}/projects` with `migration_policy` → 422 same message.
 - [x] Remove `migration_policy` from `ProjectPatch` and the create payload (pydantic `extra="forbid"` on those models yields the 422; if they are not `forbid`, add an explicit check so the message is the one above). Delete `update_migration_policy` plumbing from `organizations.update_project`; keep the read path and the audit-diff for the column so history still renders.
 - [x] Keep `Project.migration_policy` in the public read model — the client shows it in the legacy banner.
-- [x] Remove the `policy:configure` requirement from anything policy-related that remains (there should be nothing left; `thresholds` keeps it).
+- [x] Remove the `policy:configure` requirement from anything policy-related that remains (there should be nothing left; `thresholds` keeps it). *(Superseded 2026-09-19 — Phase 5's `[cli]` item deleted `thresholds` outright; see the note there.)*
 - [x] `make lint && make test`.
 
 ### Task 1.9 — Adoption hint in `RunUploadResponse` (D7)
@@ -193,35 +193,67 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 
 **Files:** `src/lib/api.ts`, `src/lib/api.test.ts` (if present)
 
-- [ ] Add `ProjectPolicy` type and `api.projectPolicy(projectId)` → `GET /projects/{id}/policy`.
-- [ ] Extend `MigrationPolicy` type with the three optional fields; extend `PolicyCheck.policy_source` union with `"run_policy"`.
-- [ ] Remove `migration_policy` from `api.updateProject`'s body type.
+- [x] Add `ProjectPolicy` type and `api.projectPolicy(projectId)` → `GET /projects/{id}/policy`.
+- [x] Extend `MigrationPolicy` type with the three optional fields; extend `PolicyCheck.policy_source` union with `"run_policy"`.
+- [x] Remove `migration_policy` from `api.updateProject`'s body type.
 
 ### Task 3.2 — Project settings card becomes read-only (D4)
 
 **Files:** `src/pages/app/project/ProjectSettings.tsx`, `src/pages/app/project/policyFields.ts`, delete `src/pages/app/project/EditPolicyDialog.tsx`, `src/pages/app/project/ProjectSettings.test.tsx`
 
-- [ ] Tests (replace the edit/reset/create suites at `ProjectSettings.test.tsx:361-510`):
+- [x] Tests (replace the edit/reset/create suites at `ProjectSettings.test.tsx:361-510`):
   - `source: "run_policy"` renders all nine budgets, the line "From run `<short id>` on `<branch>`, pushed `<date>`" linking to the run, and no Edit/Create/Reset buttons even for an owner.
   - `source: "legacy_project_policy"` renders the six budgets plus a banner "Configured in the web app. Move it into `evalshift.yaml` — editing here is no longer possible." and a "Copy as YAML" button that writes the yaml block to the clipboard (mock `navigator.clipboard`).
   - `source: "none"` renders the empty state with the starter template rendered as a `migration_policy:` YAML block and a copy button; the text says the gate reports `inconclusive` until a run is pushed with a policy.
   - The card no longer depends on `policy:configure`; a member sees the same content as an owner.
-- [ ] `policyFields.ts`: extend `POLICY_FIELDS` to nine (add `max_tool_divergence` percent, `tool_argument_drift_floor` percent, `fail_on_dropped_params` boolean → render "yes/no"); delete `validatePolicy`, `toPolicyValues`, `percentMax`, `helpText` and everything only the dialog used. Add `toYaml(policy)` (small hand-rolled renderer for this flat shape plus one level of `slices`; do not add a YAML dependency).
-- [ ] Delete `EditPolicyDialog.tsx`, the `"policy"` edit target, `onResetPolicy`, `confirmReset`, and the `api.policyTemplate` call (the template now arrives inside `api.projectPolicy`).
-- [ ] Load `api.projectPolicy` on mount and on project change; loading/error states use the page's existing `LoadingState`/`ErrorState`.
-- [ ] `npm run lint && npm run typecheck && npm test`.
+- [x] `policyFields.ts`: extend `POLICY_FIELDS` to nine (add `max_tool_divergence` percent, `tool_argument_drift_floor` percent, `fail_on_dropped_params` boolean → render "yes/no"); delete `validatePolicy`, `toPolicyValues`, `percentMax`, `helpText` and everything only the dialog used. Add `toYaml(policy)` (small hand-rolled renderer for this flat shape plus one level of `slices`; do not add a YAML dependency).
+- [x] Delete `EditPolicyDialog.tsx`, the `"policy"` edit target, `onResetPolicy`, `confirmReset`, and the `api.policyTemplate` call (the template now arrives inside `api.projectPolicy`).
+- [x] Load `api.projectPolicy` on mount and on project change; loading/error states use the page's existing `LoadingState`/`ErrorState`.
+- [x] `npm run lint && npm run typecheck && npm test`.
 
 ### Task 3.3 — Run detail Policy tab shows its policy source
 
 **Files:** `src/pages/app/runs/detail/tabs/PolicyTab.tsx`, `src/pages/app/runs/detail/tabs/PolicyTab.test.tsx`, `src/pages/app/runs/detail/fetchers.ts`
 
-- [ ] Test: when `policyCheck.policy_source === "run_policy"` the tab header reads "Gated under the policy pushed with this run"; `"project_policy"` reads "Gated under the project's legacy web policy"; `"none"` reads "Not gated — no policy was pushed with this run" with a link to the settings card.
-- [ ] Add `fetchers.policyCheck` (wire the already-existing `api.policyCheck`, which today has no non-test caller) and render the one-line source header above the budget table. Budgets keep coming from `api.runBudgets`.
-- [ ] `npm run lint && npm run typecheck && npm test`.
+- [x] Test: when `policyCheck.policy_source === "run_policy"` the tab header reads "Gated under the policy pushed with this run"; `"project_policy"` reads "Gated under the project's legacy web policy"; `"none"` reads "Not gated — no policy was pushed with this run" with a link to the settings card.
+- [x] Add `fetchers.policyCheck` (wire the already-existing `api.policyCheck`, which today has no non-test caller) and render the one-line source header above the budget table. Budgets keep coming from `api.runBudgets`.
+- [x] `npm run lint && npm run typecheck && npm test`.
 
 ### Task 3.4 — Onboarding checklist copy (only if it mentions the policy)
 
-- [ ] `grep -rn "policy" src/pages/app/onboarding src/components/*Checklist*` — if a step says "create a policy in settings", reword to "add `migration_policy` to evalshift.yaml and push".
+- [x] `grep -rn "policy" src/pages/app/onboarding src/components/*Checklist*` — if a step says "create a policy in settings", reword to "add `migration_policy` to evalshift.yaml and push".
+
+### Phase 3 landed — deviations
+
+- **3.1 is not independently green.** Dropping `migration_policy` from `api.updateProject`'s body
+  type breaks its only two callers, which are exactly what 3.2 deletes and rewrites, so 3.1 and
+  3.2 are one commit. `api.policyTemplate` was kept (no caller, like `api.policyCheck` before
+  3.3) since it is the endpoint's only client-side name.
+- **`MigrationPolicy.slices` is now typed** (`Record<string, SliceMigrationPolicy>`, new exported
+  type) rather than `Record<string, unknown>` — `toYaml` needs to walk it.
+- **3.3: `RunFetchers.policyCheck` is optional and absent from `sharedRunFetchers`.** The server
+  mounts `policy-check` under `/runs/{id}` only; there is no `/share/{token}` counterpart, so the
+  share surface would have pointed at a 404. The tab renders no source line there. A failed or
+  in-flight policy check degrades to the budget table alone rather than blanking the tab.
+- **3.4 was a no-op**, verified: no onboarding or checklist copy mentions creating a policy.
+- **Four files outside the task list asserted the old model** and were corrected, since Phase 1/2
+  had already made them false:
+  - `docs/pages/MigrationPolicy.tsx` — documented the Settings create/edit dialog and claimed
+    "editing the policy re-decides *past* runs", which D3 reverses. Rewritten around the yaml →
+    push → snapshot model; `#editor`/`#reeval` replaced by `#source`/`#snapshot`/`#display`/
+    `#legacy` (no inbound referrers); nav blurb at `docs/data/nav.ts` updated with it.
+  - `docs/pages/Verdicts.tsx` — the "server-side enforcement" callout claimed tightening a budget
+    can flip a stored run to FAIL.
+  - `app/permissionCatalog.ts` — `policy:configure` was labelled "Edit the migration policy"; per
+    D8 it now guards `thresholds` only.
+  - `app/help/topics/Baselines.tsx` — the in-app guide drew a `DialogFigure` of the deleted
+    "Create migration policy" dialog, and imports `POLICY_FIELDS`, so widening it to nine silently
+    rendered three blank inputs. The figure is now the `migration_policy:` block itself, rendered
+    by the same `toYaml` the settings card copies; the `policy:configure` `CannotNotice` is gone.
+- **Not touched, deliberately:** `compare/data/langfuse.ts` had one stale claim (corrected); blog
+  posts are dated artifacts and were left alone.
+- Acceptance item 2's open question — whether "the previous run's policy is still shown as
+  current" confuses — is answered by the card naming the run and branch each policy came from.
 
 ---
 
@@ -231,18 +263,54 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 
 **Files:** `scripts/evalshift_action.py`, `tests/test_evalshift_action.py`, `action.yml`, `README.md`
 
-- [ ] Test: `_policy_gating` with `status == "inconclusive"` and `policy_source == "none"` → `should_fail False`, summary `the gate is off — no migration policy was pushed with this run; add migration_policy to evalshift.yaml`, and a `::warning::` line on stdout (workflow annotation). With `policy_source == "run_policy"` no annotation.
-- [ ] Test: new input `require-policy: true` makes that same case `should_fail True`, conclusion `failure`; default `false` keeps today's behaviour.
-- [ ] Implement: read `policy_source` from the payload; add `REQUIRE_POLICY` input plumbing next to `fail-on`; add `require-policy` to `action.yml` (`default: "false"`).
-- [ ] README: in the `policy` mode table add the `none` row, document `require-policy`, and update line ~200 ("the CLI, the web app and this check all enforce one policy") to say the policy comes from `evalshift.yaml` via the pushed run.
-- [ ] `uv run pytest` (or the repo's test command) + the pin-consistency test.
+- [x] Test: `_policy_gating` with `status == "inconclusive"` and `policy_source == "none"` → `should_fail False`, summary `the gate is off — no migration policy was pushed with this run; add migration_policy to evalshift.yaml`, and a `::warning::` line on stdout (workflow annotation). With `policy_source == "run_policy"` no annotation.
+- [x] Test: new input `require-policy: true` makes that same case `should_fail True`, conclusion `failure`; default `false` keeps today's behaviour.
+- [x] Implement: read `policy_source` from the payload; add `REQUIRE_POLICY` input plumbing next to `fail-on`; add `require-policy` to `action.yml` (`default: "false"`).
+- [x] README: in the `policy` mode table add the `none` row, document `require-policy`, and update line ~200 ("the CLI, the web app and this check all enforce one policy") to say the policy comes from `evalshift.yaml` via the pushed run.
+- [x] `uv run pytest` (or the repo's test command) + the pin-consistency test.
 
 ---
 
 ## Phase 5 — cleanup and follow-ups (not blocking release)
 
 - [ ] `[server]` After 90 days with no `policy_source == "project_policy"` answers in logs: drop `projects.migration_policy_json`, `load_policy`, `evaluate_policy`'s legacy path, and `_effective_slice_policy`. Add a structlog counter now so the decision can be made from data.
-- [ ] `[cli]` Fold `thresholds` into `migration_policy` or delete it; today it is free-form and gates nothing (`docs/configuration.md:53`).
+      **Counter done 2026-09-19** (PR #8, branch `chore/p17-phase5-cleanup`): every answer emits
+      `policy_check_answered` with `run_id`, `project_id` and `policy_source`, so the window is a
+      query over one event and the `run_policy`/`none` answers give it a denominator. The drop
+      itself stays open until the window is clear — earliest **2026-12-18**, counting from the
+      day the counter ships, not from the day it was decided.
+- [x] `[cli]` Fold `thresholds` into `migration_policy` or delete it; today it is free-form and gates nothing (`docs/configuration.md:53`).
+      **Done 2026-09-19 — deleted outright** (maintainer's call: not folded, no deprecation
+      period). Branch `chore/remove-thresholds`. The field, the push sync, `_thresholds_from_config`,
+      `_non_empty` and `_warn_threshold_drift` are gone; a config still setting `thresholds:` now
+      fails to load with a message naming the removal. Breaking — the repo is 1.0.1, so this
+      implies 2.0.0. **Two follow-ups this opened:** (a) **resolved 2026-09-19 — the rule was
+      amended, `version:` stays `1`.** The literal marks a config that is still valid but would be
+      read with the wrong meaning; a removal that fails the load while naming the key is the
+      opposite of that, and bumping would have forced an edit on every config, including the
+      majority that never set `thresholds`. `docs/configuration.md`, `DOCS.md`, `llms-full.txt` and
+      the CHANGELOG entry now say so. (b) `[server]` `canonical_thresholds` now has no consumer and
+      `policy:configure` (D8) guards nothing — **scheduled 2026-09-19 as the `[server]` bullet
+      below.**
+- [x] `[server]` Retire the thresholds plumbing the CLI no longer feeds (follow-up (b) above):
+      `canonical_thresholds` on the upload response, `_sync_project_thresholds`, and the
+      `policy:configure` requirement on `POST /runs`. A CLI older than 2.0.0 still sends
+      `thresholds`, so the field keeps being *accepted* — what goes is the sync, the response
+      field, and the permission that gated a write nothing performs any more.
+      **Done 2026-09-19** (PR #8). `RunCreate.thresholds` is marked deprecated and ignored;
+      `PATCH /projects/{id}` is the only writer left. Breaking in contract terms —
+      `canonical_thresholds` is gone from the `POST /runs` response — but CLI ≤ 1.0.1 reads it
+      through `.get` and simply skips its drift warning, and it has no other consumer.
+      **What this opened:** `policy:configure` now guards nothing at all. Deleting the key is a
+      coordinated change across three places — the server catalog (token creation validates
+      scopes against it), the role map served by `GET /orgs/{slug}/permissions`, and the web
+      app's `permissionCatalog.ts` label — so it stays defined, as its own bullet below.
+- [ ] `[server]` + `[client]` Delete the `policy:configure` permission. It guards no route as of
+      PR #8. Three coordinated edits: drop it from `POLICY_PERMISSIONS`/`ALL_PERMISSIONS` and the
+      role map, confirm no stored token scope list is *rejected* for carrying an unknown key (only
+      that it stops matching), and drop the label from the client's `permissionCatalog.ts`. Not
+      urgent — an inert permission is harmless — but it is now the only thing the thresholds
+      removal left behind.
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---

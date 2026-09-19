@@ -316,7 +316,14 @@ suites: {}
 | `migration_policy` | block \| absent | Regression budgets, see [Migration policy](#migration-policy-and-ci-gating) |
 | `suites` | map | Named suites (`{name: {source: captured\|jsonl, path: ..., evaluators: ..., managed: true}}`); the block between the `>>> evalshift suites` markers is managed by `capture sync`. See [Per-suite evaluators](#per-suite-evaluators) |
 | `retention` | block | `max_runs_per_suite` (default 20, `0` disables), `run_ttl_days` (default off) |
-| `thresholds` | map | Reserved; hosted-side thresholds live server-side |
+
+`thresholds` was a top-level field until it was removed. It was free-form and gated nothing — `migration_policy` is the single source of truth for gating — so rather than being silently ignored it is now rejected by name, and a config that still carries it fails to load:
+
+```text
+`thresholds` was removed: it was free-form and gated nothing. Delete it from evalshift.yaml; migration_policy is the single source of truth for gating.
+```
+
+Nothing replaced it. Delete the block; express any gate you meant by it as a `migration_policy` budget.
 
 ### `defaults`
 
@@ -732,7 +739,7 @@ evalshift logout
 
 The full field-by-field data contract lives in [docs/hosted.md — Privacy model](docs/hosted.md#privacy-model--exactly-what-uploads); this is the summary. The CLI has **no telemetry** — no analytics, no crash reporting. Its only network traffic is (1) your configured model providers, with your own keys, during `run`/`evaluate`/`report`, and (2) the hosted API on `login`, `whoami`, and `push`.
 
-**A push uploads**, inside `run_bundle.json.gz`: the manifest (run id, `org/project` slug, model ids, suite name, git SHA/branch/PR number, the local suite file path string, content hashes, timestamp, CLI version); per-example rows — the example's template `inputs` and `expected` output **verbatim**, both models' **full output text**, tool-call traces (tool names and arguments; imported traces also carry capped tool results, retrieval queries/documents and guardrail verdicts), per-evaluator scores and error strings, per-side cost and latency, tags; aggregate/analysis/decision/economics (numbers, not content); methodology notes; the insights narrative (prose that can quote the regressions it summarizes); the evaluator config with every prompt body replaced by a `content_hash` (prompt names, file paths and variable names do ship, and so does each `llm_judge` `criterion_prompt`); and a dataset snapshot holding only metadata plus an `examples_hash`. Request metadata beside the bundle: the bearer token as an auth header to the configured host only, the compressed size, and `thresholds` when set.
+**A push uploads**, inside `run_bundle.json.gz`: the manifest (run id, `org/project` slug, model ids, suite name, git SHA/branch/PR number, the local suite file path string, content hashes, timestamp, CLI version); per-example rows — the example's template `inputs` and `expected` output **verbatim**, both models' **full output text**, tool-call traces (tool names and arguments; imported traces also carry capped tool results, retrieval queries/documents and guardrail verdicts), per-evaluator scores and error strings, per-side cost and latency, tags; aggregate/analysis/decision/economics (numbers, not content); methodology notes; the insights narrative (prose that can quote the regressions it summarizes); the evaluator config with every prompt body replaced by a `content_hash` (prompt names, file paths and variable names do ship, and so does each `llm_judge` `criterion_prompt`); and a dataset snapshot holding only metadata plus an `examples_hash`. Request metadata beside the bundle: the bearer token as an auth header to the configured host only, and the compressed size.
 
 **Never uploads**: provider API keys, the hosted token (never inside a bundle), prompt bodies and system prompts, suite conversation histories, tool definitions/schemas, `raw.jsonl`, the response cache, `.evalshift/captures/`, `state.json`, `report.json`, `report.html`.
 
@@ -780,9 +787,9 @@ The CLI checks for this wherever it writes or validates config — `capture sync
 - **unpinned** — a step has no `evalshift-version`, so the action default applies and may lag. Fix: add the pin.
 - **ahead** — every pin is newer than the local CLI. Fix: `pip install -U evalshift`.
 
-Equal pins, `${{ }}` expressions, unparseable versions, and an editable install without metadata (`0.0.0+unknown`) are silent. The check is advisory: it never edits a workflow and never changes an exit code, and in CI it is a no-op by construction (the running CLI *is* the pin). Config `version: 1` is not bumped for additive fields — see [Configuration](docs/configuration.md#config-version-policy).
+Equal pins, `${{ }}` expressions, unparseable versions, and an editable install without metadata (`0.0.0+unknown`) are silent. The check is advisory: it never edits a workflow and never changes an exit code, and in CI it is a no-op by construction (the running CLI *is* the pin). Config `version: 1` is not bumped for additive fields, nor for a removal that fails the load with a message naming the key — see [Configuration](docs/configuration.md#config-version-policy).
 
-Secrets needed: a provider API key matching your config's models, and `EVALSHIFT_TOKEN` — a service account key from Settings → API tokens → Service accounts, scoped to `run:create` + `run:read`, stored as an encrypted repository or environment secret. Not a personal token, never a literal in the workflow YAML, and never reachable from `pull_request_target`. Rotate by minting the successor first (24h grace), updating the secret, confirming a green run, then letting the old key expire. Two things a scoped key can't do, by design: auto-create the project (`project:create` is owner-only — pre-create it and set `create-project: false`) and rewrite gating thresholds (`policy:configure` is owner-only — keep `thresholds:` out of the config the CI job runs). Full guidance: the action's [README](https://github.com/babaliauskas/evalshift-action#readme).
+Secrets needed: a provider API key matching your config's models, and `EVALSHIFT_TOKEN` — a service account key from Settings → API tokens → Service accounts, scoped to `run:create` + `run:read`, stored as an encrypted repository or environment secret. Not a personal token, never a literal in the workflow YAML, and never reachable from `pull_request_target`. Rotate by minting the successor first (24h grace), updating the secret, confirming a green run, then letting the old key expire. One thing a scoped key can't do, by design: auto-create the project (`project:create` is owner-only — pre-create it and set `create-project: false`). Full guidance: the action's [README](https://github.com/babaliauskas/evalshift-action#readme).
 
 ---
 

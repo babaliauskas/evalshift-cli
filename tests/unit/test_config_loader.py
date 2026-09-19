@@ -215,6 +215,24 @@ class TestLoadConfigSchema:
             load_config(path)
         assert any("mystery_section" in d.location for d in info.value.details)
 
+    def test_removed_thresholds_key_explains_the_removal(self, tmp_path: Path) -> None:
+        path = _write(
+            tmp_path,
+            """
+            prompts:
+              - id: a
+                detection: manual
+                content: hi
+            thresholds:
+              pass_rate_min: 0.9
+            """,
+        )
+        with pytest.raises(ConfigError) as info:
+            load_config(path)
+        rendered = info.value.format_plain()
+        assert "`thresholds` was removed" in rendered
+        assert "migration_policy is the single source of truth" in rendered
+
     def test_multiple_errors_collected(self, tmp_path: Path) -> None:
         path = _write(
             tmp_path,
