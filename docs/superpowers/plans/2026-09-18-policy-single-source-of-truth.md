@@ -283,8 +283,11 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
       **Done 2026-09-19 — deleted outright** (maintainer's call: not folded, no deprecation
       period). Branch `chore/remove-thresholds`. The field, the push sync, `_thresholds_from_config`,
       `_non_empty` and `_warn_threshold_drift` are gone; a config still setting `thresholds:` now
-      fails to load with a message naming the removal. Breaking — the repo is 1.0.1, so this
-      implies 2.0.0. **Two follow-ups this opened:** (a) **resolved 2026-09-19 — the rule was
+      fails to load with a message naming the removal. Breaking by the letter of SemVer, but
+      **released as 1.1.0, not 2.0.0** (maintainer's call 2026-09-19): the key gated nothing and
+      reached no further than a project-settings blob, so a major would have signalled a migration
+      that, for anyone who never wrote `thresholds:`, does not exist. The CHANGELOG says so at the
+      release heading rather than leaving it to look like an oversight. **Two follow-ups this opened:** (a) **resolved 2026-09-19 — the rule was
       amended, `version:` stays `1`.** The literal marks a config that is still valid but would be
       read with the wrong meaning; a removal that fails the load while naming the key is the
       opposite of that, and bumping would have forced an edit on every config, including the
@@ -294,7 +297,7 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
       below.**
 - [x] `[server]` Retire the thresholds plumbing the CLI no longer feeds (follow-up (b) above):
       `canonical_thresholds` on the upload response, `_sync_project_thresholds`, and the
-      `policy:configure` requirement on `POST /runs`. A CLI older than 2.0.0 still sends
+      `policy:configure` requirement on `POST /runs`. A CLI older than 1.1.0 still sends
       `thresholds`, so the field keeps being *accepted* — what goes is the sync, the response
       field, and the permission that gated a write nothing performs any more.
       **Done 2026-09-19** (PR #8). `RunCreate.thresholds` is marked deprecated and ignored;
@@ -305,12 +308,13 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
       coordinated change across three places — the server catalog (token creation validates
       scopes against it), the role map served by `GET /orgs/{slug}/permissions`, and the web
       app's `permissionCatalog.ts` label — so it stays defined, as its own bullet below.
-- [ ] `[server]` + `[client]` Delete the `policy:configure` permission. It guards no route as of
-      PR #8. Three coordinated edits: drop it from `POLICY_PERMISSIONS`/`ALL_PERMISSIONS` and the
-      role map, confirm no stored token scope list is *rejected* for carrying an unknown key (only
-      that it stops matching), and drop the label from the client's `permissionCatalog.ts`. Not
-      urgent — an inert permission is harmless — but it is now the only thing the thresholds
-      removal left behind.
+- [x] `[server]` + `[client]` Delete the `policy:configure` permission. **Done 2026-09-19** —
+      server in PR #8, client in evalshift-client#10 (`permissionCatalog.ts` label, the
+      `MigrationPolicy` docs callout, the `ProjectSettings` role fixture). Verified before
+      deleting: `normalize_scopes` is the only validator and runs once, at mint time
+      (`service_accounts/service.py`), while each request merely intersects — so a token that
+      already carries the key keeps working and the key just stops matching. The one behaviour
+      change is that minting a *new* token naming it is a 422.
 - [ ] `[server]` Org-level policy floor (a minimum a pushed policy cannot go below) if governance becomes a customer ask. Design only after D8's acceptance is revisited.
 
 ---
