@@ -193,35 +193,67 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 
 **Files:** `src/lib/api.ts`, `src/lib/api.test.ts` (if present)
 
-- [ ] Add `ProjectPolicy` type and `api.projectPolicy(projectId)` → `GET /projects/{id}/policy`.
-- [ ] Extend `MigrationPolicy` type with the three optional fields; extend `PolicyCheck.policy_source` union with `"run_policy"`.
-- [ ] Remove `migration_policy` from `api.updateProject`'s body type.
+- [x] Add `ProjectPolicy` type and `api.projectPolicy(projectId)` → `GET /projects/{id}/policy`.
+- [x] Extend `MigrationPolicy` type with the three optional fields; extend `PolicyCheck.policy_source` union with `"run_policy"`.
+- [x] Remove `migration_policy` from `api.updateProject`'s body type.
 
 ### Task 3.2 — Project settings card becomes read-only (D4)
 
 **Files:** `src/pages/app/project/ProjectSettings.tsx`, `src/pages/app/project/policyFields.ts`, delete `src/pages/app/project/EditPolicyDialog.tsx`, `src/pages/app/project/ProjectSettings.test.tsx`
 
-- [ ] Tests (replace the edit/reset/create suites at `ProjectSettings.test.tsx:361-510`):
+- [x] Tests (replace the edit/reset/create suites at `ProjectSettings.test.tsx:361-510`):
   - `source: "run_policy"` renders all nine budgets, the line "From run `<short id>` on `<branch>`, pushed `<date>`" linking to the run, and no Edit/Create/Reset buttons even for an owner.
   - `source: "legacy_project_policy"` renders the six budgets plus a banner "Configured in the web app. Move it into `evalshift.yaml` — editing here is no longer possible." and a "Copy as YAML" button that writes the yaml block to the clipboard (mock `navigator.clipboard`).
   - `source: "none"` renders the empty state with the starter template rendered as a `migration_policy:` YAML block and a copy button; the text says the gate reports `inconclusive` until a run is pushed with a policy.
   - The card no longer depends on `policy:configure`; a member sees the same content as an owner.
-- [ ] `policyFields.ts`: extend `POLICY_FIELDS` to nine (add `max_tool_divergence` percent, `tool_argument_drift_floor` percent, `fail_on_dropped_params` boolean → render "yes/no"); delete `validatePolicy`, `toPolicyValues`, `percentMax`, `helpText` and everything only the dialog used. Add `toYaml(policy)` (small hand-rolled renderer for this flat shape plus one level of `slices`; do not add a YAML dependency).
-- [ ] Delete `EditPolicyDialog.tsx`, the `"policy"` edit target, `onResetPolicy`, `confirmReset`, and the `api.policyTemplate` call (the template now arrives inside `api.projectPolicy`).
-- [ ] Load `api.projectPolicy` on mount and on project change; loading/error states use the page's existing `LoadingState`/`ErrorState`.
-- [ ] `npm run lint && npm run typecheck && npm test`.
+- [x] `policyFields.ts`: extend `POLICY_FIELDS` to nine (add `max_tool_divergence` percent, `tool_argument_drift_floor` percent, `fail_on_dropped_params` boolean → render "yes/no"); delete `validatePolicy`, `toPolicyValues`, `percentMax`, `helpText` and everything only the dialog used. Add `toYaml(policy)` (small hand-rolled renderer for this flat shape plus one level of `slices`; do not add a YAML dependency).
+- [x] Delete `EditPolicyDialog.tsx`, the `"policy"` edit target, `onResetPolicy`, `confirmReset`, and the `api.policyTemplate` call (the template now arrives inside `api.projectPolicy`).
+- [x] Load `api.projectPolicy` on mount and on project change; loading/error states use the page's existing `LoadingState`/`ErrorState`.
+- [x] `npm run lint && npm run typecheck && npm test`.
 
 ### Task 3.3 — Run detail Policy tab shows its policy source
 
 **Files:** `src/pages/app/runs/detail/tabs/PolicyTab.tsx`, `src/pages/app/runs/detail/tabs/PolicyTab.test.tsx`, `src/pages/app/runs/detail/fetchers.ts`
 
-- [ ] Test: when `policyCheck.policy_source === "run_policy"` the tab header reads "Gated under the policy pushed with this run"; `"project_policy"` reads "Gated under the project's legacy web policy"; `"none"` reads "Not gated — no policy was pushed with this run" with a link to the settings card.
-- [ ] Add `fetchers.policyCheck` (wire the already-existing `api.policyCheck`, which today has no non-test caller) and render the one-line source header above the budget table. Budgets keep coming from `api.runBudgets`.
-- [ ] `npm run lint && npm run typecheck && npm test`.
+- [x] Test: when `policyCheck.policy_source === "run_policy"` the tab header reads "Gated under the policy pushed with this run"; `"project_policy"` reads "Gated under the project's legacy web policy"; `"none"` reads "Not gated — no policy was pushed with this run" with a link to the settings card.
+- [x] Add `fetchers.policyCheck` (wire the already-existing `api.policyCheck`, which today has no non-test caller) and render the one-line source header above the budget table. Budgets keep coming from `api.runBudgets`.
+- [x] `npm run lint && npm run typecheck && npm test`.
 
 ### Task 3.4 — Onboarding checklist copy (only if it mentions the policy)
 
-- [ ] `grep -rn "policy" src/pages/app/onboarding src/components/*Checklist*` — if a step says "create a policy in settings", reword to "add `migration_policy` to evalshift.yaml and push".
+- [x] `grep -rn "policy" src/pages/app/onboarding src/components/*Checklist*` — if a step says "create a policy in settings", reword to "add `migration_policy` to evalshift.yaml and push".
+
+### Phase 3 landed — deviations
+
+- **3.1 is not independently green.** Dropping `migration_policy` from `api.updateProject`'s body
+  type breaks its only two callers, which are exactly what 3.2 deletes and rewrites, so 3.1 and
+  3.2 are one commit. `api.policyTemplate` was kept (no caller, like `api.policyCheck` before
+  3.3) since it is the endpoint's only client-side name.
+- **`MigrationPolicy.slices` is now typed** (`Record<string, SliceMigrationPolicy>`, new exported
+  type) rather than `Record<string, unknown>` — `toYaml` needs to walk it.
+- **3.3: `RunFetchers.policyCheck` is optional and absent from `sharedRunFetchers`.** The server
+  mounts `policy-check` under `/runs/{id}` only; there is no `/share/{token}` counterpart, so the
+  share surface would have pointed at a 404. The tab renders no source line there. A failed or
+  in-flight policy check degrades to the budget table alone rather than blanking the tab.
+- **3.4 was a no-op**, verified: no onboarding or checklist copy mentions creating a policy.
+- **Four files outside the task list asserted the old model** and were corrected, since Phase 1/2
+  had already made them false:
+  - `docs/pages/MigrationPolicy.tsx` — documented the Settings create/edit dialog and claimed
+    "editing the policy re-decides *past* runs", which D3 reverses. Rewritten around the yaml →
+    push → snapshot model; `#editor`/`#reeval` replaced by `#source`/`#snapshot`/`#display`/
+    `#legacy` (no inbound referrers); nav blurb at `docs/data/nav.ts` updated with it.
+  - `docs/pages/Verdicts.tsx` — the "server-side enforcement" callout claimed tightening a budget
+    can flip a stored run to FAIL.
+  - `app/permissionCatalog.ts` — `policy:configure` was labelled "Edit the migration policy"; per
+    D8 it now guards `thresholds` only.
+  - `app/help/topics/Baselines.tsx` — the in-app guide drew a `DialogFigure` of the deleted
+    "Create migration policy" dialog, and imports `POLICY_FIELDS`, so widening it to nine silently
+    rendered three blank inputs. The figure is now the `migration_policy:` block itself, rendered
+    by the same `toYaml` the settings card copies; the `policy:configure` `CannotNotice` is gone.
+- **Not touched, deliberately:** `compare/data/langfuse.ts` had one stale claim (corrected); blog
+  posts are dated artifacts and were left alone.
+- Acceptance item 2's open question — whether "the previous run's policy is still shown as
+  current" confuses — is answered by the card naming the run and branch each policy came from.
 
 ---
 
@@ -231,11 +263,11 @@ Served by a new `GET /projects/{id}/policy`. The web card shows it read-only, na
 
 **Files:** `scripts/evalshift_action.py`, `tests/test_evalshift_action.py`, `action.yml`, `README.md`
 
-- [ ] Test: `_policy_gating` with `status == "inconclusive"` and `policy_source == "none"` → `should_fail False`, summary `the gate is off — no migration policy was pushed with this run; add migration_policy to evalshift.yaml`, and a `::warning::` line on stdout (workflow annotation). With `policy_source == "run_policy"` no annotation.
-- [ ] Test: new input `require-policy: true` makes that same case `should_fail True`, conclusion `failure`; default `false` keeps today's behaviour.
-- [ ] Implement: read `policy_source` from the payload; add `REQUIRE_POLICY` input plumbing next to `fail-on`; add `require-policy` to `action.yml` (`default: "false"`).
-- [ ] README: in the `policy` mode table add the `none` row, document `require-policy`, and update line ~200 ("the CLI, the web app and this check all enforce one policy") to say the policy comes from `evalshift.yaml` via the pushed run.
-- [ ] `uv run pytest` (or the repo's test command) + the pin-consistency test.
+- [x] Test: `_policy_gating` with `status == "inconclusive"` and `policy_source == "none"` → `should_fail False`, summary `the gate is off — no migration policy was pushed with this run; add migration_policy to evalshift.yaml`, and a `::warning::` line on stdout (workflow annotation). With `policy_source == "run_policy"` no annotation.
+- [x] Test: new input `require-policy: true` makes that same case `should_fail True`, conclusion `failure`; default `false` keeps today's behaviour.
+- [x] Implement: read `policy_source` from the payload; add `REQUIRE_POLICY` input plumbing next to `fail-on`; add `require-policy` to `action.yml` (`default: "false"`).
+- [x] README: in the `policy` mode table add the `none` row, document `require-policy`, and update line ~200 ("the CLI, the web app and this check all enforce one policy") to say the policy comes from `evalshift.yaml` via the pushed run.
+- [x] `uv run pytest` (or the repo's test command) + the pin-consistency test.
 
 ---
 
