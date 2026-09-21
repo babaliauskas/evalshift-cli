@@ -16,13 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not advertise. Every advertised example now reads
   `evalshift compare --push`; nothing about the CLI changed.
 
-- README.md, docs/index.md, and docs/hosted.md described the LLM providers a
-  run can call as "Anthropic, OpenAI, Google" — read as a compatibility list,
-  when every call actually dispatches through LiteLLM and those three are
-  just the entries with a curated pricing table. `docs/faq.md` already said
-  as much; the other three now name LiteLLM as the boundary too, with
-  Anthropic, OpenAI, and Google called out as the ones that get curated
-  pricing and capability data. Nothing about the CLI changed.
+- README.md, docs/index.md, docs/faq.md, and docs/hosted.md described the LLM
+  providers a run can call as "Anthropic, OpenAI, Google" — read as a
+  compatibility list, when every call actually dispatches through LiteLLM and
+  those three are just the entries with a curated pricing table. A separate
+  FAQ answer in the same `docs/faq.md` ("what models does EvalShift
+  support?") already used the correct framing ("Anything LiteLLM supports.");
+  all four sites now name LiteLLM as the boundary too, with Anthropic,
+  OpenAI, and Google called out as the ones that get curated pricing and
+  capability data. Nothing about the CLI changed.
 
 ## [1.1.0] - 2026-09-19
 

@@ -62,7 +62,27 @@ def test_provider_scope_is_not_capped_at_three(name: str) -> None:
     unregistered id is dispatched with a prefix-inferred provider. Prose that
     lists the three without naming LiteLLM reads as a compatibility list and
     undersells the tool.
+
+    Two assertions, because either alone is insufficient:
+
+    - The presence check (`"LiteLLM" in text`) states the boundary, but
+      `docs/faq.md` already contained the string "LiteLLM" at an unrelated
+      answer (line 50, "what models does EvalShift support?") before this
+      file's other answer (the "send my prompts" one, lines 5-8) was fixed.
+      That means presence alone would stay green even if the lines 5-8 fix
+      were fully reverted -- the test would guard nothing for this file.
+    - The absence check catches exactly that revert: it fails if the
+      three-brand phrasing ("Anthropic, OpenAI, Google") reappears anywhere
+      in the file, whitespace-normalised so it survives the line break in
+      `docs/index.md`. It does not trip on README's "Anthropic, OpenAI and
+      Google ids additionally get a curated..." sentence, which has no comma
+      before "Google".
     """
     text = (REPO_ROOT / name).read_text(encoding="utf-8")
 
     assert "LiteLLM" in text, f"{name} scopes providers without naming LiteLLM"
+
+    normalized = " ".join(text.split())
+    assert "Anthropic, OpenAI, Google" not in normalized, (
+        f"{name} still prints the three-brand list as the compatibility boundary"
+    )
