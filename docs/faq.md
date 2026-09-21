@@ -4,7 +4,7 @@
 
 **Not during local runs.** `doctor`, `run`, `evaluate`, `analyze`, and
 `report` operate locally. Every provider API call goes directly from your
-machine to the LLM provider you configured (Anthropic, OpenAI, Google)
+machine to the LLM provider you configured — any provider LiteLLM supports —
 using your own API keys.
 
 The local SQLite cache at `~/.evalshift/cache.db` only contains
