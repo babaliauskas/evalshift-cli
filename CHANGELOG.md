@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- README.md, DOCS.md, llms-full.txt, and four `docs/` pages advertised
+  `evalshift all --push` as the command to run. `all` has been a hidden alias
+  for `compare` since 1.0.0 — it still works, and always will — but it is
+  hidden from `evalshift --help`, so the docs were teaching a name the CLI
+  does not advertise. Every advertised example now reads
+  `evalshift compare --push`; nothing about the CLI changed.
+
 ## [1.1.0] - 2026-09-19
 
 Shipped as a minor deliberately. The `thresholds` removal below is breaking by

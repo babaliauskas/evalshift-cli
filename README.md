@@ -213,7 +213,7 @@ Credential precedence is explicit CLI flags, then `EVALSHIFT_HOST` /
 
 ### What gets uploaded
 
-Nothing, until you run `push` (or `all --push`) — and the CLI itself has no
+Nothing, until you run `push` (or `compare --push`) — and the CLI itself has no
 telemetry, analytics, or crash reporting. A push uploads one file,
 `run_bundle.json.gz`, whose full field-by-field contract is documented in
 [docs/hosted.md — Privacy model](docs/hosted.md#privacy-model--exactly-what-uploads).
@@ -303,7 +303,7 @@ and `report`. The only outbound calls in local mode are to the LLM providers
 you configure (Anthropic, OpenAI, Google) using your own API keys.
 
 `bundle` packages completed local artifacts into `run_bundle.json.gz` without
-uploading them. `push` and `all --push` upload that bundle to the hosted
+uploading them. `push` and `compare --push` upload that bundle to the hosted
 backend associated with your token.
 
 ## Wiring the agent references into your project

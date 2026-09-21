@@ -67,7 +67,7 @@ project: acme/model-migration
 `evalshift init` scaffolds `project:` **commented out**, with the slug shape and
 a placeholder — uncomment it once you have a hosted project. It is left unset
 because a local run never needs it and nothing uploads without an explicit
-`push` / `all --push`, so a guessed slug would be wrong in the one place it
+`push` / `compare --push`, so a guessed slug would be wrong in the one place it
 matters.
 
 ### `thresholds` was removed

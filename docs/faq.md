@@ -12,7 +12,7 @@ provider responses for *your* prompts and inputs.
 
 Hosted uploads are explicit. `bundle` packages the completed
 local run artifacts into `run_bundle.json.gz` without uploading them. `push`
-and `all --push` upload that bundle to the hosted backend for your project.
+and `compare --push` upload that bundle to the hosted backend for your project.
 
 One local stage does call a provider with your data beyond the run itself:
 `report` generates the run-insights narrative, sending the worst regressions'

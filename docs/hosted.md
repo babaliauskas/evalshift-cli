@@ -250,7 +250,7 @@ both initiated by you:
    inputs and outputs to `defaults.insights_model` unless you pass
    `--no-insights`. This traffic goes to your providers, never to EvalShift.
 2. **Hosted EvalShift** (`https://api.evalshift.dev`, or your `--host`), only
-   when you run `login`, `whoami`, `push`, or `all --push`. The local
+   when you run `login`, `whoami`, `push`, or `compare --push`. The local
    commands — `doctor`, `run`, `evaluate`, `analyze`, `report`, `bundle` —
    send nothing to EvalShift-operated services.
 

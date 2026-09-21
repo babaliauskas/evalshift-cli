@@ -717,7 +717,7 @@ defaults:
 
 ## Hosted EvalShift
 
-The hosted service ([evalshift.dev](https://evalshift.dev), API at `https://api.evalshift.dev`) stores pushed runs, diffs them across branches, and comments on PRs. Strictly opt-in: nothing leaves your machine unless you run `push` (or `all --push`). Provider API keys are never uploaded.
+The hosted service ([evalshift.dev](https://evalshift.dev), API at `https://api.evalshift.dev`) stores pushed runs, diffs them across branches, and comments on PRs. Strictly opt-in: nothing leaves your machine unless you run `push` (or `compare --push`). Provider API keys are never uploaded.
 
 ```bash
 evalshift login                       # device-code browser flow
