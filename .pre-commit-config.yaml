@@ -84,7 +84,7 @@ repos:
         pass_filenames: false
       - id: ci-pytest
         name: "CI mirror: pytest"
-        entry: uv run pytest
+        entry: uv run pytest --cov-fail-under=90
         language: system
         stages: [pre-push]
         always_run: true

@@ -57,4 +57,4 @@ jobs:
       - name: Tests (pytest)
         run: |
           source .venv/bin/activate
-          pytest
+          pytest --cov-fail-under=90

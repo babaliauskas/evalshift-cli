@@ -22,8 +22,14 @@ help:
 # hook runs these too; this target is for running them by hand.
 ci: lint test
 
+# The coverage floor lives here (and on the other two CI entry points) rather
+# than in [tool.coverage.report], so a targeted local run -- `pytest
+# tests/unit/test_x.py` or `pytest -k name` -- isn't failed by a floor tuned
+# for the whole source tree. Measured 94% on 2026-09-21; the floor is set
+# below that deliberately, so an honest refactor doesn't fail CI while a real
+# drop still does.
 test:
-	uv run pytest
+	uv run pytest --cov-fail-under=90
 
 lint:
 	uv run ruff check .

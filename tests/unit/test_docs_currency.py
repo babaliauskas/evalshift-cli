@@ -13,6 +13,7 @@ exact string `all --push`, which only ever appeared as advertised usage.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ PROSE_FILES: tuple[str, ...] = (
     "docs/hosted.md",
     "docs/configuration.md",
     "docs/index.md",
+    "AGENTS.md",
 )
 
 
@@ -49,6 +51,7 @@ PROVIDER_SCOPE_FILES: tuple[str, ...] = (
     "docs/index.md",
     "docs/faq.md",
     "docs/hosted.md",
+    "docs/getting-started.md",
 )
 
 
@@ -72,18 +75,23 @@ def test_provider_scope_is_not_capped_at_three(name: str) -> None:
       That means presence alone would stay green even if the lines 5-8 fix
       were fully reverted -- the test would guard nothing for this file.
     - The absence check catches exactly that revert: it fails if the
-      three-brand phrasing ("Anthropic, OpenAI, Google") reappears anywhere
-      in the file, whitespace-normalised so it survives the line break in
-      `docs/index.md`. It does not trip on README's "Anthropic, OpenAI and
-      Google ids additionally get a curated..." sentence, which has no comma
-      before "Google".
+      three-brand phrasing reappears anywhere in the file,
+      whitespace-normalised so it survives the line break in
+      `docs/index.md`. The regex has two alternatives because the phrasing
+      shows up two ways in the wild: the plain list ("Anthropic, OpenAI,
+      Google") and the Oxford-comma form ("Anthropic, OpenAI, and Google",
+      `docs/getting-started.md`'s old wording). Both require a comma right
+      after "OpenAI", which is what keeps this from tripping on README's
+      "Anthropic, OpenAI and Google ids additionally get a curated..."
+      sentence -- it has no comma before "and Google", only the (correct)
+      word "and".
     """
     text = (REPO_ROOT / name).read_text(encoding="utf-8")
 
     assert "LiteLLM" in text, f"{name} scopes providers without naming LiteLLM"
 
     normalized = " ".join(text.split())
-    assert "Anthropic, OpenAI, Google" not in normalized, (
+    assert not re.search(r"Anthropic, OpenAI, and Google|Anthropic, OpenAI, Google", normalized), (
         f"{name} still prints the three-brand list as the compatibility boundary"
     )
 
