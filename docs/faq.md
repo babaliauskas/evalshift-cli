@@ -4,7 +4,7 @@
 
 **Not during local runs.** `doctor`, `run`, `evaluate`, `analyze`, and
 `report` operate locally. Every provider API call goes directly from your
-machine to the LLM provider you configured (Anthropic, OpenAI, Google)
+machine to the LLM provider you configured — any provider LiteLLM supports —
 using your own API keys.
 
 The local SQLite cache at `~/.evalshift/cache.db` only contains
@@ -12,7 +12,7 @@ provider responses for *your* prompts and inputs.
 
 Hosted uploads are explicit. `bundle` packages the completed
 local run artifacts into `run_bundle.json.gz` without uploading them. `push`
-and `all --push` upload that bundle to the hosted backend for your project.
+and `compare --push` upload that bundle to the hosted backend for your project.
 
 One local stage does call a provider with your data beyond the run itself:
 `report` generates the run-insights narrative, sending the worst regressions'

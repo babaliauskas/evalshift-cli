@@ -243,14 +243,14 @@ The CLI contains **no telemetry**: no analytics, no crash reporting, no
 phone-home of any kind. It opens exactly two kinds of network connections,
 both initiated by you:
 
-1. **Your model providers** (Anthropic, OpenAI, Google — whichever you
-   configure), using your own API keys: `run` sends the rendered prompts and
+1. **Your model providers** (whichever you configure — any provider LiteLLM
+   supports), using your own API keys: `run` sends the rendered prompts and
    conversation histories to both models, `evaluate` sends outputs to the
    embedding and `llm_judge` models, and `report` sends the worst regressions'
    inputs and outputs to `defaults.insights_model` unless you pass
    `--no-insights`. This traffic goes to your providers, never to EvalShift.
 2. **Hosted EvalShift** (`https://api.evalshift.dev`, or your `--host`), only
-   when you run `login`, `whoami`, `push`, or `all --push`. The local
+   when you run `login`, `whoami`, `push`, or `compare --push`. The local
    commands — `doctor`, `run`, `evaluate`, `analyze`, `report`, `bundle` —
    send nothing to EvalShift-operated services.
 

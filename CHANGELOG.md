@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- README.md, DOCS.md, llms-full.txt, four `docs/` pages, and AGENTS.md
+  advertised `evalshift all --push` as the command to run. `all` has been a
+  hidden alias for `compare` since 1.0.0 — it still works, and always will —
+  but it is hidden from `evalshift --help`, so the docs were teaching a name
+  the CLI does not advertise. Every advertised example now reads
+  `evalshift compare --push`; nothing about the CLI changed. `AGENTS.md` is
+  now also guarded by `tests/unit/test_docs_currency.py`.
+
+- README.md, docs/index.md, docs/faq.md, docs/hosted.md, and
+  docs/getting-started.md described the LLM providers a run can call as
+  "Anthropic, OpenAI, Google" (or, in docs/getting-started.md, the
+  Oxford-comma "Anthropic, OpenAI, and Google") — read as a compatibility
+  list, when every call actually dispatches through LiteLLM and those three
+  are just the entries with a curated pricing table. A separate FAQ answer in
+  the same `docs/faq.md` ("what models does EvalShift support?") already used
+  the correct framing ("Anything LiteLLM supports."); all five sites now name
+  LiteLLM as the boundary too, with Anthropic, OpenAI, and Google called out
+  as the ones that get curated pricing and capability data. The
+  `test_docs_currency.py` absence check now matches the Oxford-comma phrasing
+  too, not just the plain three-item list. Nothing about the CLI changed.
+
+- DOCS.md, llms-full.txt, and docs/configuration.md quoted the scaffolded
+  `replay` prompt's content as `"{{input}}"` — the escaped form that appears
+  literally in `init.py`'s `str.format` template, not what ends up on disk.
+  Because the doubled brace is a format escape, the `evalshift.yaml` that
+  `evalshift init` actually writes contains `"{input}"`, as `test_init.py`
+  already asserted. All three sites now quote `"{input}"`, matching the other
+  places in DOCS.md and llms-full.txt that already had it right. Nothing
+  about the CLI changed.
+
+- README.md claimed "the test suite covers 92% of the source," a literal
+  nothing checked; the suite now measures 94%, and nothing enforced either
+  number. Reworded the Status section to say "CI enforces a 90% coverage
+  floor on the source" instead of quoting a point-in-time percentage, and
+  added `--cov-fail-under=90` to the three CI entry points
+  (`.github/workflows/ci.yml`, `Makefile`'s `test` target, and
+  `.pre-commit-config.yaml`'s pre-push mirror) rather than to
+  `[tool.coverage.report]`, so a targeted local run such as
+  `pytest tests/unit/test_init.py` is not failed by a floor meant for the
+  whole source tree. The floor sits below the measured 94% on purpose, so a
+  real regression fails CI while an honest refactor does not.
+
 ## [1.1.0] - 2026-09-19
 
 Shipped as a minor deliberately. The `thresholds` removal below is breaking by

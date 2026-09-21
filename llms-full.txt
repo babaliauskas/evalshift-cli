@@ -447,7 +447,7 @@ version: 1                          # required literal
 project: str|null                   # hosted slug, regex ^[a-z0-9-]+/[a-z0-9-]+$
 prompts:                            # required, >=1, unique ids
   # Template axis (suites = dataset axis); every prompt x every example. Init's
-  # `replay` prompt is a passthrough: content "{{input}}" echoes the promoted capture.
+  # `replay` prompt is a passthrough: content "{input}" echoes the promoted capture.
   - id: str
     detection: manual | python_string
     content: str                    # manual only (required for manual)
@@ -935,7 +935,7 @@ content leaves the machine.
   run/evaluate/report (rendered prompts + histories to both models; outputs to embedding/judge
   models; worst regressions' inputs+outputs to defaults.insights_model unless --no-insights);
   (2) the hosted API (https://api.evalshift.dev or --host) on `login`/`whoami`/`push`/
-  `all --push` ONLY. doctor/run/evaluate/analyze/report/bundle send nothing to EvalShift.
+  `compare --push` ONLY. doctor/run/evaluate/analyze/report/bundle send nothing to EvalShift.
 - `push` sends: run_bundle.json.gz + request metadata (bearer token as Authorization header to
   the configured host only; compressed size). `login` sends a client name containing the
   machine hostname.
@@ -1088,7 +1088,7 @@ content leaves the machine.
   rows a human did check).
 - Registry is advisory; LiteLLM is authoritative; unknown model ids pass through with
   prefix-inferred provider; missing provider key env var fails before a live run.
-- Hosted is opt-in: nothing uploads without push / all --push. Bundle contains manifest,
+- Hosted is opt-in: nothing uploads without push / compare --push. Bundle contains manifest,
   examples, outputs, scores, analysis, decision, economics, methodology_notes and insights —
   never report.html, never provider API keys. Push idempotent on run id. Credential
   precedence: CLI flags > env > ~/.evalshift/credentials (0600).

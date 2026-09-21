@@ -66,7 +66,7 @@ working on:
 ## Status
 
 **Stable and in production use.** Every command in the pipeline is shipped and
-the test suite covers 92% of the source. The CLI is published on PyPI as
+CI enforces a 90% coverage floor on the source. The CLI is published on PyPI as
 `evalshift`, the capture SDK as `evalshift-sdk`, and the hosted service runs at
 `api.evalshift.dev`.
 
@@ -213,7 +213,7 @@ Credential precedence is explicit CLI flags, then `EVALSHIFT_HOST` /
 
 ### What gets uploaded
 
-Nothing, until you run `push` (or `all --push`) — and the CLI itself has no
+Nothing, until you run `push` (or `compare --push`) — and the CLI itself has no
 telemetry, analytics, or crash reporting. A push uploads one file,
 `run_bundle.json.gz`, whose full field-by-field contract is documented in
 [docs/hosted.md — Privacy model](docs/hosted.md#privacy-model--exactly-what-uploads).
@@ -299,11 +299,14 @@ assets, works offline) has:
 ## Why local-first?
 
 Your prompts and suite stay local for `doctor`, `run`, `evaluate`, `analyze`,
-and `report`. The only outbound calls in local mode are to the LLM providers
-you configure (Anthropic, OpenAI, Google) using your own API keys.
+and `report`. The only outbound calls in local mode are to the LLM providers you
+configure — any provider LiteLLM supports, called with your own API keys.
+Anthropic, OpenAI and Google ids additionally get a curated pricing and
+capability entry; everything else is passed through with the provider inferred
+from the id.
 
 `bundle` packages completed local artifacts into `run_bundle.json.gz` without
-uploading them. `push` and `all --push` upload that bundle to the hosted
+uploading them. `push` and `compare --push` upload that bundle to the hosted
 backend associated with your token.
 
 ## Wiring the agent references into your project

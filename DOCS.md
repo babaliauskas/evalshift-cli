@@ -437,7 +437,7 @@ Validators enforced at load: exactly one of `toolset_ref` / `tools` is required 
 
 ## Prompts
 
-`prompts` is the template axis and `suites` the dataset axis: every prompt is rendered with every example of the suite being run, so both are always present. In a capture-first project the `replay` prompt that `init` writes (`content: "{{input}}"`) is a passthrough — a promoted example is `{"input": "<full rendered prompt>"}` — and that is what makes captured inputs replayable.
+`prompts` is the template axis and `suites` the dataset axis: every prompt is rendered with every example of the suite being run, so both are always present. In a capture-first project the `replay` prompt that `init` writes (`content: "{input}"`) is a passthrough — a promoted example is `{"input": "<full rendered prompt>"}` — and that is what makes captured inputs replayable.
 
 Two detection modes tell EvalShift where a prompt's body lives:
 
@@ -717,7 +717,7 @@ defaults:
 
 ## Hosted EvalShift
 
-The hosted service ([evalshift.dev](https://evalshift.dev), API at `https://api.evalshift.dev`) stores pushed runs, diffs them across branches, and comments on PRs. Strictly opt-in: nothing leaves your machine unless you run `push` (or `all --push`). Provider API keys are never uploaded.
+The hosted service ([evalshift.dev](https://evalshift.dev), API at `https://api.evalshift.dev`) stores pushed runs, diffs them across branches, and comments on PRs. Strictly opt-in: nothing leaves your machine unless you run `push` (or `compare --push`). Provider API keys are never uploaded.
 
 ```bash
 evalshift login                       # device-code browser flow

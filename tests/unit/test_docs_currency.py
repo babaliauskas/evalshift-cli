@@ -1,0 +1,114 @@
+"""The docs must advertise the current command name, not a hidden alias.
+
+`evalshift all` became `evalshift compare` in 1.0.0. The old name stays
+registered forever -- scaffolded EVALSHIFT.md files in user repos reference it,
+and removing it would itself be breaking -- but it is `hidden=True` and prints a
+rename notice. Nine doc sites still told readers to type it, so the docs taught
+a name that `evalshift --help` does not list.
+
+Prose that *describes* the alias ("formerly `all`", "`all` -> `compare` in
+1.0.0") is correct and deliberately not matched here: the assertion is on the
+exact string `all --push`, which only ever appeared as advertised usage.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+#: Every file that documents the CLI in prose, relative to the repo root.
+PROSE_FILES: tuple[str, ...] = (
+    "README.md",
+    "DOCS.md",
+    "llms-full.txt",
+    "docs/faq.md",
+    "docs/hosted.md",
+    "docs/configuration.md",
+    "docs/index.md",
+    "AGENTS.md",
+)
+
+
+@pytest.mark.parametrize("name", PROSE_FILES)
+def test_prose_advertises_compare_not_the_hidden_alias(name: str) -> None:
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+
+    assert "all --push" not in text, (
+        f"{name} advertises the hidden `all` alias; write `compare --push`"
+    )
+
+
+#: Files that describe *which providers work*, as opposed to naming three as
+#: examples. Each must name LiteLLM, because LiteLLM is the actual boundary:
+#: `models/registry.py` says so in its module docstring, and `docs/faq.md`
+#: already answers "which models?" with "Anything LiteLLM supports."
+PROVIDER_SCOPE_FILES: tuple[str, ...] = (
+    "README.md",
+    "docs/index.md",
+    "docs/faq.md",
+    "docs/hosted.md",
+    "docs/getting-started.md",
+)
+
+
+@pytest.mark.parametrize("name", PROVIDER_SCOPE_FILES)
+def test_provider_scope_is_not_capped_at_three(name: str) -> None:
+    """The curated registry has three entries; the CLI calls far more than three.
+
+    `Provider` is a Literal of three names plus "other" because those three have
+    pricing tables and env-var mappings worth curating. Every call still goes
+    through `litellm.acompletion`, and `resolve_model` never raises -- an
+    unregistered id is dispatched with a prefix-inferred provider. Prose that
+    lists the three without naming LiteLLM reads as a compatibility list and
+    undersells the tool.
+
+    Two assertions, because either alone is insufficient:
+
+    - The presence check (`"LiteLLM" in text`) states the boundary, but
+      `docs/faq.md` already contained the string "LiteLLM" at an unrelated
+      answer (line 50, "what models does EvalShift support?") before this
+      file's other answer (the "send my prompts" one, lines 5-8) was fixed.
+      That means presence alone would stay green even if the lines 5-8 fix
+      were fully reverted -- the test would guard nothing for this file.
+    - The absence check catches exactly that revert: it fails if the
+      three-brand phrasing reappears anywhere in the file,
+      whitespace-normalised so it survives the line break in
+      `docs/index.md`. The regex has two alternatives because the phrasing
+      shows up two ways in the wild: the plain list ("Anthropic, OpenAI,
+      Google") and the Oxford-comma form ("Anthropic, OpenAI, and Google",
+      `docs/getting-started.md`'s old wording). Both require a comma right
+      after "OpenAI", which is what keeps this from tripping on README's
+      "Anthropic, OpenAI and Google ids additionally get a curated..."
+      sentence -- it has no comma before "and Google", only the (correct)
+      word "and".
+    """
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+
+    assert "LiteLLM" in text, f"{name} scopes providers without naming LiteLLM"
+
+    normalized = " ".join(text.split())
+    assert not re.search(r"Anthropic, OpenAI, and Google|Anthropic, OpenAI, Google", normalized), (
+        f"{name} still prints the three-brand list as the compatibility boundary"
+    )
+
+
+@pytest.mark.parametrize("name", PROSE_FILES)
+def test_prose_quotes_the_rendered_placeholder(name: str) -> None:
+    """Docs must quote the config `init` writes, not the format template.
+
+    `_MINIMAL_YAML_BODY` in `cli/commands/init.py` is passed through
+    `str.format`, so its literal `{{input}}` is a brace escape that renders as
+    `{input}` on disk -- which is what `test_init.py` asserts the loaded config
+    contains. Three doc sites copied the escaped source form verbatim, which
+    reads as instructions to write a placeholder `templating.py` will never
+    expand.
+    """
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+
+    assert "{{input}}" not in text, (
+        f"{name} quotes the escaped `{{{{input}}}}`; `init` writes `{{input}}`"
+    )

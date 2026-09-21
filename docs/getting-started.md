@@ -36,7 +36,7 @@ fastest.
 
 ## 2. Set provider API keys
 
-EvalShift calls Anthropic, OpenAI, and Google directly using your own keys.
+EvalShift calls the provider you configure — any provider LiteLLM supports — directly using your own keys.
 Local runs do not send prompts or outputs to an EvalShift-operated server.
 Provider responses are cached locally in `~/.evalshift/cache.db`.
 

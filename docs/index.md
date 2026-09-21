@@ -84,9 +84,9 @@ evalshift compare --suite-name <suite> --push  # run locally, then push
 ## Local-first by design
 
 For local commands, your prompts and your suite never leave your machine.
-The only outbound calls are to the LLM providers you configure (Anthropic,
-OpenAI, Google) using your own API keys. `bundle` packages artifacts locally;
-hosted upload happens only when you run `push` or `all --push`.
+The only outbound calls are to the LLM providers you configure — any provider
+LiteLLM supports — using your own API keys. `bundle` packages artifacts locally;
+hosted upload happens only when you run `push` or `compare --push`.
 
 ## For AI coding agents
 

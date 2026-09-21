@@ -43,7 +43,7 @@ repos (`evalshift-sdk`, `evalshift-action`); never edit them from here.
   `evalshift/regression` commit status. See [docs/github-action.md](docs/github-action.md).
 - **Hosted server** — API at `https://api.evalshift.dev`, web app at
   `https://evalshift.dev`. Optional and opt-in: nothing leaves the machine
-  unless `push` / `all --push` runs, and the CLI has no telemetry of any kind.
+  unless `push` / `compare --push` runs, and the CLI has no telemetry of any kind.
   Stores run bundles, diffs branches, drives PR comments and gating. The
   field-by-field contract of what a push uploads (and what never leaves the
   machine — prompt bodies, system prompts, conversation histories, provider
