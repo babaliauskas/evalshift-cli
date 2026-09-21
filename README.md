@@ -337,6 +337,13 @@ wires these links into your project automatically: it writes
 * [llms-full.txt](llms-full.txt) — dense single-file reference for AI coding
   tools, hosted at <https://www.evalshift.dev/cli-llms-full.txt>
 
+Further reading on the EvalShift blog:
+
+* [How to test an LLM model migration before you ship it](https://www.evalshift.dev/blog/test-llm-model-migration-before-you-ship)
+* [What actually breaks when you switch LLMs](https://www.evalshift.dev/blog/what-breaks-when-you-switch-llms)
+* [How many eval cases do you need?](https://www.evalshift.dev/blog/how-many-eval-cases-do-you-need)
+* [When to trust an LLM judge](https://www.evalshift.dev/blog/when-to-trust-an-llm-judge)
+
 Runnable projects under [`examples/`](examples/):
 
 | Example | Shows |
