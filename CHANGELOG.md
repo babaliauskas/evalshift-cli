@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenAI, and Google called out as the ones that get curated pricing and
   capability data. Nothing about the CLI changed.
 
+- DOCS.md, llms-full.txt, and docs/configuration.md quoted the scaffolded
+  `replay` prompt's content as `"{{input}}"` — the escaped form that appears
+  literally in `init.py`'s `str.format` template, not what ends up on disk.
+  Because the doubled brace is a format escape, the `evalshift.yaml` that
+  `evalshift init` actually writes contains `"{input}"`, as `test_init.py`
+  already asserted. All three sites now quote `"{input}"`, matching the other
+  places in DOCS.md and llms-full.txt that already had it right. Nothing
+  about the CLI changed.
+
 ## [1.1.0] - 2026-09-19
 
 Shipped as a minor deliberately. The `thresholds` removal below is breaking by

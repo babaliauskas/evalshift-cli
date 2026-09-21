@@ -283,7 +283,7 @@ the upload contract and the notices `push` prints around a policy-less run.
 axis**: a run renders every prompt template with every example of one
 suite, so both are always present, and `prompts` is required even for a
 capture-first project. There the single `replay` prompt that `init` writes
-(`content: "{{input}}"`) is a passthrough — a promoted capture's example is
+(`content: "{input}"`) is a passthrough — a promoted capture's example is
 `{"input": "<full rendered prompt>"}`, and echoing it back verbatim is what
 makes captured inputs replayable against a second model.
 

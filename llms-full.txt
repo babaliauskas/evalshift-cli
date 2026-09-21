@@ -447,7 +447,7 @@ version: 1                          # required literal
 project: str|null                   # hosted slug, regex ^[a-z0-9-]+/[a-z0-9-]+$
 prompts:                            # required, >=1, unique ids
   # Template axis (suites = dataset axis); every prompt x every example. Init's
-  # `replay` prompt is a passthrough: content "{{input}}" echoes the promoted capture.
+  # `replay` prompt is a passthrough: content "{input}" echoes the promoted capture.
   - id: str
     detection: manual | python_string
     content: str                    # manual only (required for manual)

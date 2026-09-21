@@ -86,3 +86,21 @@ def test_provider_scope_is_not_capped_at_three(name: str) -> None:
     assert "Anthropic, OpenAI, Google" not in normalized, (
         f"{name} still prints the three-brand list as the compatibility boundary"
     )
+
+
+@pytest.mark.parametrize("name", PROSE_FILES)
+def test_prose_quotes_the_rendered_placeholder(name: str) -> None:
+    """Docs must quote the config `init` writes, not the format template.
+
+    `_MINIMAL_YAML_BODY` in `cli/commands/init.py` is passed through
+    `str.format`, so its literal `{{input}}` is a brace escape that renders as
+    `{input}` on disk -- which is what `test_init.py` asserts the loaded config
+    contains. Three doc sites copied the escaped source form verbatim, which
+    reads as instructions to write a placeholder `templating.py` will never
+    expand.
+    """
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+
+    assert "{{input}}" not in text, (
+        f"{name} quotes the escaped `{{{{input}}}}`; `init` writes `{{input}}`"
+    )

@@ -437,7 +437,7 @@ Validators enforced at load: exactly one of `toolset_ref` / `tools` is required 
 
 ## Prompts
 
-`prompts` is the template axis and `suites` the dataset axis: every prompt is rendered with every example of the suite being run, so both are always present. In a capture-first project the `replay` prompt that `init` writes (`content: "{{input}}"`) is a passthrough — a promoted example is `{"input": "<full rendered prompt>"}` — and that is what makes captured inputs replayable.
+`prompts` is the template axis and `suites` the dataset axis: every prompt is rendered with every example of the suite being run, so both are always present. In a capture-first project the `replay` prompt that `init` writes (`content: "{input}"`) is a passthrough — a promoted example is `{"input": "<full rendered prompt>"}` — and that is what makes captured inputs replayable.
 
 Two detection modes tell EvalShift where a prompt's body lives:
 
