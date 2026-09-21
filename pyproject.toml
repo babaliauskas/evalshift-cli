@@ -114,6 +114,11 @@ branch = true
 source = ["evalshift_cli"]
 
 [tool.coverage.report]
+# The README quotes this floor rather than a measured percentage, so the claim
+# is enforced instead of hand-maintained. Measured 94% on 2026-09-21; the floor
+# is set below that deliberately, so an honest refactor does not fail CI while
+# a real drop still does. Raise it when the margin gets comfortable.
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

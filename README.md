@@ -66,7 +66,7 @@ working on:
 ## Status
 
 **Stable and in production use.** Every command in the pipeline is shipped and
-the test suite covers 92% of the source. The CLI is published on PyPI as
+CI enforces a 90% coverage floor on the source. The CLI is published on PyPI as
 `evalshift`, the capture SDK as `evalshift-sdk`, and the hosted service runs at
 `api.evalshift.dev`.
 

@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   places in DOCS.md and llms-full.txt that already had it right. Nothing
   about the CLI changed.
 
+- README.md claimed "the test suite covers 92% of the source," a literal
+  nothing checked; the suite now measures 94%, and `[tool.coverage.report]`
+  had no `fail_under` to keep either number honest. Added `fail_under = 90`
+  to `pyproject.toml` and reworded the Status section to say "CI enforces a
+  90% coverage floor on the source" instead of quoting a point-in-time
+  percentage. The floor sits below the measured 94% on purpose, so a real
+  regression fails CI while an honest refactor does not.
+
 ## [1.1.0] - 2026-09-19
 
 Shipped as a minor deliberately. The `thresholds` removal below is breaking by
