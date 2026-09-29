@@ -1231,6 +1231,28 @@ class TestDeepSeekReasoningBackfill:
         assert sent[1]["reasoning_content"] == " "
         assert "reasoning_content" not in sent[0]
 
+    async def test_text_only_history_turn_carries_placeholder_reasoning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Without tools DeepSeek ignores reasoning_content, but the backfill is
+        # applied to every DeepSeek thinking request with messages — including
+        # replayed chat history and judge calls.
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: True)
+        captured = _patch_acompletion(monkeypatch, lambda **_: _FakeResponse("ok"))
+        history: list[dict[str, Any]] = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "Hello! How can I help?"},
+            {"role": "user", "content": "what is your refund policy?"},
+        ]
+        snapshot = [dict(m) for m in history]
+        await ModelClient().complete_messages(model="deepseek-flash", messages=history)
+        sent = captured["kwargs"]["messages"]
+        assert sent[1]["reasoning_content"] == " "
+        assert sent[1]["content"] == "Hello! How can I help?"
+        assert "reasoning_content" not in sent[0]
+        assert "reasoning_content" not in sent[2]
+        assert history == snapshot
+
     async def test_other_providers_are_sent_unchanged(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

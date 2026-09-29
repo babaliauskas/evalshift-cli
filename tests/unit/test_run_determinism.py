@@ -108,3 +108,27 @@ class TestDetectionAtRunStart:
             source="gemini/gemini-3.5-flash-lite",
             target="gemini/gemini-3.5-flash-lite",
         ) == ["gemini/gemini-3.5-flash-lite"]
+
+    def test_deepseek_thinking_arm_is_flagged_without_the_probe_objecting(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DeepSeek thinking mode ignores temperature though LiteLLM lists it.
+
+        The real ``honors_temperature`` runs here: the param probe says both
+        arms support ``temperature``, so only the DeepSeek thinking check can
+        put the source on the list.
+        """
+        import litellm
+
+        from evalshift_cli.runner import orchestrator
+
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: True)
+        monkeypatch.setattr(
+            litellm,
+            "get_supported_openai_params",
+            lambda **_: ["max_tokens", "temperature", "top_p", "tools"],
+        )
+        assert orchestrator.detect_non_deterministic_models(
+            source="deepseek/deepseek-flash",
+            target="gpt-4o",
+        ) == ["deepseek/deepseek-flash"]
