@@ -42,7 +42,7 @@ from evalshift_cli.cli.commands._suites import render_suites_region
 from evalshift_cli.cli.commands.doctor import CONFIG_FILENAME
 from evalshift_cli.utils.ci_pin import check_ci_pin
 
-PROVIDERS: Final = ("gemini", "openai", "anthropic")
+PROVIDERS: Final = ("gemini", "openai", "anthropic", "deepseek")
 
 # Per-provider model ids written into the scaffold. The judge is a strong
 # model from the same provider so a fresh project needs exactly one API key;
@@ -67,6 +67,12 @@ _PROVIDER_MODELS: Final[dict[str, dict[str, str]]] = {
         "judge_model": "claude-opus-4-8",
         "embedding_model": "",  # no Anthropic embedding endpoint
     },
+    "deepseek": {
+        "source_model": "deepseek-flash",
+        "target_hint": "deepseek-v4-pro",
+        "judge_model": "deepseek-v4-pro",
+        "embedding_model": "",  # no DeepSeek embedding endpoint
+    },
 }
 
 _SEMANTIC_BLOCK: Final = """\
@@ -81,7 +87,7 @@ _SEMANTIC_BLOCK: Final = """\
     blocking: false"""
 
 _SEMANTIC_BLOCK_DISABLED: Final = """\
-  # Embedding-based drift score (advisory). Anthropic has no embedding
+  # Embedding-based drift score (advisory). This provider has no embedding
   # endpoint — uncomment and set an OpenAI or Gemini embedding model (and
   # its API key) to enable it.
   # semantic:
@@ -284,6 +290,10 @@ def init(
 
     console.print()
     console.print("[bold]Next steps:[/bold]")
+    console.print(
+        f"  Set [bold]{PROVIDER_API_KEY_ENVS[provider]}[/bold] in your environment —"
+        " [cyan]evalshift doctor[/cyan] checks it before a paid run.",
+    )
     console.print(
         "  1. Instrument your agent with the [cyan]evalshift-sdk[/cyan] and exercise it"
         " to record captures under [cyan].evalshift/captures/[/cyan].",

@@ -111,6 +111,7 @@ PROVIDER_API_KEY_ENVS: Final[dict[str, str]] = {
     "gemini": "GEMINI_API_KEY",
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
 }
 
 # The `__PROVIDER_API_KEY__` / `__EVALSHIFT_VERSION__` sentinels are replaced

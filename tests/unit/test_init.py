@@ -22,15 +22,21 @@ from evalshift_cli.cli.commands._agents import (
     DEFAULT_AGENT_CONTEXT_FILE,
     POINTER_MARKER_BEGIN,
 )
-from evalshift_cli.cli.commands._scaffold import CI_WORKFLOW_PATH, INIT_PROFILE_POLICIES
+from evalshift_cli.cli.commands._scaffold import (
+    CI_WORKFLOW_PATH,
+    INIT_PROFILE_POLICIES,
+    PROVIDER_API_KEY_ENVS,
+)
 from evalshift_cli.cli.commands._suites import (
     SUITE_FILENAME,
     SUITES_MARKER_BEGIN,
     SUITES_MARKER_END,
 )
 from evalshift_cli.cli.commands.doctor import CONFIG_FILENAME
+from evalshift_cli.cli.commands.init import _PROVIDER_MODELS, PROVIDERS
 from evalshift_cli.cli.main import app
 from evalshift_cli.config.loader import load_config
+from evalshift_cli.models.registry import PROVIDER_ENV_VARS, resolve_model
 
 runner = CliRunner()
 
@@ -266,7 +272,7 @@ class TestInitProvider:
         cfg = load_config(in_tmp / CONFIG_FILENAME)
         assert cfg.defaults.source_model == "claude-sonnet-5"
         assert cfg.evaluators.llm_judge[0].judge_model == "claude-opus-4-8"
-        # Anthropic has no embedding endpoint — semantic ships commented out.
+        # No Anthropic embedding endpoint — semantic ships commented out.
         assert cfg.evaluators.semantic is None
         body = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
         assert "# semantic:" in body
@@ -276,7 +282,7 @@ class TestInitProvider:
         assert result.exit_code != 0
 
     def test_every_provider_config_round_trips(self, in_tmp: Path) -> None:
-        for provider in ("gemini", "openai", "anthropic"):
+        for provider in PROVIDERS:
             for f in in_tmp.iterdir():
                 if f.is_file():
                     f.unlink()
@@ -284,6 +290,29 @@ class TestInitProvider:
             assert result.exit_code == 0, f"{provider}: {result.stdout}"
             cfg = load_config(in_tmp / CONFIG_FILENAME)
             assert cfg.prompts[0].id == "replay"
+
+    def test_deepseek_provider_writes_deepseek_ids_and_comments_out_semantic(
+        self, in_tmp: Path
+    ) -> None:
+        result = runner.invoke(app, ["init", "--provider", "deepseek"])
+        assert result.exit_code == 0, result.stdout
+        cfg = load_config(in_tmp / CONFIG_FILENAME)
+        assert cfg.defaults.source_model == "deepseek-flash"
+        assert cfg.evaluators.llm_judge[0].judge_model == "deepseek-v4-pro"
+        # DeepSeek has no embedding endpoint — semantic ships commented out.
+        assert cfg.evaluators.semantic is None
+        body = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
+        assert "# semantic:" in body
+        assert "Anthropic has no embedding" not in body
+        assert "DEEPSEEK_API_KEY" in result.stdout
+
+    def test_every_init_provider_key_is_the_registry_key(self) -> None:
+        # init and the run pre-check must agree on which env var authenticates
+        # a scaffold's models, or `init` tells the user to export the wrong one.
+        for provider in PROVIDERS:
+            source = _PROVIDER_MODELS[provider]["source_model"]
+            registry_provider = resolve_model(source).provider
+            assert PROVIDER_API_KEY_ENVS[provider] == PROVIDER_ENV_VARS[registry_provider][0]
 
 
 class TestInitAgentWiring:
@@ -420,6 +449,11 @@ class TestInitCI:
     def test_provider_key_matches_provider(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp, "--provider", "anthropic")
         assert "ANTHROPIC_API_KEY" in body
+        assert "GEMINI_API_KEY" not in body
+
+    def test_deepseek_workflow_uses_the_deepseek_key(self, in_tmp: Path) -> None:
+        body, _ = self._workflow(in_tmp, "--provider", "deepseek")
+        assert "DEEPSEEK_API_KEY" in body
         assert "GEMINI_API_KEY" not in body
 
     def test_main_baseline_runs_are_never_cancelled(self, in_tmp: Path) -> None:
