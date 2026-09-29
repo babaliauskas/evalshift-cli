@@ -40,6 +40,7 @@ from evalshift_cli.evaluators.tool_parser import (
     detect_provider,
     parse_response_to_trace,
 )
+from evalshift_cli.models.deepseek import backfill_reasoning_content, thinking_by_default
 from evalshift_cli.models.registry import resolve_model
 
 log = logging.getLogger(__name__)
@@ -715,11 +716,21 @@ class ModelClient:
         parameter before dispatch. The adaptation fires at most once per
         call — it requires ``temperature`` in the kwargs and removes it.
 
+        A second, unconditional adaptation: when ``canonical`` is a
+        DeepSeek thinking-by-default model and ``kwargs`` carries
+        ``messages``, every assistant turn missing ``reasoning_content`` is
+        backfilled with a placeholder before dispatch — DeepSeek 400s a
+        tools request otherwise. See :mod:`evalshift_cli.models.deepseek`.
+
         Raises:
             RateLimitError / AuthError / ModelError: mapped provider
                 failure once retries are exhausted (or immediately for
                 auth errors).
         """
+        if "messages" in kwargs and thinking_by_default(canonical):
+            # DeepSeek thinking mode 400s a tools request whose earlier
+            # assistant turns lack reasoning_content; see models/deepseek.py.
+            kwargs["messages"] = backfill_reasoning_content(kwargs["messages"])
         if canonical in self._temperature_rejected:
             kwargs.pop("temperature", None)
         attempt = 0

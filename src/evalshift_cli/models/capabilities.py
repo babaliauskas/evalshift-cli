@@ -36,6 +36,12 @@ value except their default; ``drop_params`` does not cover them (LiteLLM
 special-cases only o-series names). That case is detected from the
 provider's own 400 at dispatch time and adapted per model — see
 ``ModelClient._dispatch_with_retry`` in :mod:`evalshift_cli.models.client`.
+
+* DeepSeek's thinking-by-default models (``deepseek-flash``,
+  ``deepseek-v4-pro``) accept ``temperature`` and silently ignore it — LiteLLM
+  still lists it as supported. :func:`honors_temperature` asks
+  :func:`~evalshift_cli.models.deepseek.thinking_by_default` before trusting
+  LiteLLM's answer. See :mod:`evalshift_cli.models.deepseek`.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ from typing import Final
 import litellm
 
 from evalshift_cli.evaluators.tool_parser import ToolParseError, detect_provider
+from evalshift_cli.models.deepseek import thinking_by_default
 from evalshift_cli.models.registry import resolve_model
 
 log = logging.getLogger(__name__)
@@ -181,7 +188,15 @@ def honors_temperature(model_id: str) -> bool:
 
         Expressed in terms of :func:`unsupported_params` so the two probes
         cannot drift apart: both must treat an uncertain answer as "honoured".
+        One named exception: DeepSeek's thinking-by-default models return
+        ``False`` here even though LiteLLM lists ``temperature`` as
+        supported, because thinking mode accepts and ignores it — see
+        :func:`~evalshift_cli.models.deepseek.thinking_by_default`.
     """
+    if thinking_by_default(model_id):
+        # Accepted and ignored by DeepSeek thinking mode; LiteLLM cannot see
+        # that. See evalshift_cli.models.deepseek.
+        return False
     return not unsupported_params(model_id, ["temperature"])
 
 

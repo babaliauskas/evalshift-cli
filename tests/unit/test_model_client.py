@@ -22,6 +22,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+import litellm
 import pytest
 
 from evalshift_cli.evaluators.tool_models import ToolSpec
@@ -1190,3 +1191,54 @@ class TestLiteLLMTranslatesToolChoice:
         assert mapped["tool_choice"] == "required"
         assert mapped["parallel_tool_calls"] is False
         assert mapped["tools"][0]["function"]["strict"] is True
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek thinking mode
+# ---------------------------------------------------------------------------
+
+_REPLAYED_ROUND: list[dict[str, Any]] = [
+    {"role": "user", "content": "find ACME"},
+    {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "call_r0_0",
+                "type": "function",
+                "function": {"name": "search_db", "arguments": '{"query": "ACME"}'},
+            }
+        ],
+    },
+    {"role": "tool", "tool_call_id": "call_r0_0", "content": '{"rows": []}'},
+]
+
+
+class TestDeepSeekReasoningBackfill:
+    async def test_replayed_assistant_turn_carries_placeholder_reasoning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # DeepSeek 400s a tools request whose earlier assistant turns lack
+        # reasoning_content; a teacher-forced round never has DeepSeek's own.
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: True)
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="deepseek-flash",
+            messages=[dict(m) for m in _REPLAYED_ROUND],
+            tools=[_DEMO_TOOL],
+        )
+        sent = captured["kwargs"]["messages"]
+        assert sent[1]["reasoning_content"] == " "
+        assert "reasoning_content" not in sent[0]
+
+    async def test_other_providers_are_sent_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: True)
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="gpt-4o",
+            messages=[dict(m) for m in _REPLAYED_ROUND],
+            tools=[_DEMO_TOOL],
+        )
+        assert captured["kwargs"]["messages"] == _REPLAYED_ROUND
