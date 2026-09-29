@@ -304,7 +304,6 @@ class TestInitProvider:
         body = (in_tmp / CONFIG_FILENAME).read_text(encoding="utf-8")
         assert "# semantic:" in body
         assert "Anthropic has no embedding" not in body
-        assert "DEEPSEEK_API_KEY" in result.stdout
 
     def test_every_init_provider_key_is_the_registry_key(self) -> None:
         # init and the run pre-check must agree on which env var authenticates

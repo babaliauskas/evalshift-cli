@@ -291,10 +291,6 @@ def init(
     console.print()
     console.print("[bold]Next steps:[/bold]")
     console.print(
-        f"  Set [bold]{PROVIDER_API_KEY_ENVS[provider]}[/bold] in your environment —"
-        " [cyan]evalshift doctor[/cyan] checks it before a paid run.",
-    )
-    console.print(
         "  1. Instrument your agent with the [cyan]evalshift-sdk[/cyan] and exercise it"
         " to record captures under [cyan].evalshift/captures/[/cyan].",
     )
