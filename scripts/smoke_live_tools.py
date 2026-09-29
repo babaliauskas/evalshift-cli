@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from evalshift_cli.evaluators.tool_models import ToolSpec  # noqa: E402
 from evalshift_cli.evaluators.tool_parser import detect_provider  # noqa: E402
 from evalshift_cli.models.client import ModelClient  # noqa: E402
+from evalshift_cli.models.registry import PROVIDER_ENV_VARS, resolve_model  # noqa: E402
 
 FIXTURE_ROOT = ROOT / "tests" / "unit" / "fixtures" / "tool_responses"
 
@@ -74,6 +75,8 @@ PROMPTS: list[tuple[str, str]] = [
 MODELS = [
     "gemini/gemini-2.5-flash",
     "gemini/gemini-3.1-flash-lite-preview",
+    "deepseek-flash",
+    "deepseek-v4-pro",
 ]
 
 
@@ -99,18 +102,44 @@ async def main() -> int:
             except Exception as exc:
                 failures += 1
                 print(f"  FAILED: {exc.__class__.__name__}: {exc}")
+        try:
+            await _multi_round(client, model)
+        except Exception as exc:
+            failures += 1
+            print(f"  round 1 FAILED: {exc.__class__.__name__}: {exc}")
     return 0 if failures == 0 else 1
 
 
 def _provider_or_skip(model: str) -> str | None:
-    """Return the provider name iff the matching env var is set."""
-    provider = detect_provider(model)
-    env = {
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-    }[provider]
-    return provider if os.environ.get(env) else None
+    """Return the fixture directory for ``model`` iff its provider's key is set."""
+    meta = resolve_model(model)
+    keys = PROVIDER_ENV_VARS.get(meta.provider, ())
+    if not any(os.environ.get(k) for k in keys):
+        return None
+    # detect_provider names a response shape; DeepSeek shares OpenAI's, but its
+    # live captures must not overwrite the OpenAI ones.
+    return "deepseek" if meta.provider == "deepseek" else detect_provider(model)
+
+
+async def _multi_round(client: ModelClient, model: str) -> None:
+    """Round 1 of a teacher-forced replay: an assistant turn DeepSeek never wrote."""
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "Look up ACME's Q3 revenue."},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_r0_0",
+                    "type": "function",
+                    "function": {"name": "search_db", "arguments": '{"query": "ACME Q3"}'},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_r0_0", "content": '{"revenue_musd": 12.4}'},
+    ]
+    result = await client.complete_messages_with_tools(model=model, messages=messages, tools=TOOLS)
+    print(f"  round 1: calls={result.trace.tool_names} text={bool(result.trace.final_text)}")
 
 
 def _save_fixture(provider: str, name: str, payload: dict[str, Any]) -> None:
