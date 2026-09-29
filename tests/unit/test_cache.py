@@ -10,14 +10,18 @@ Two layers:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine
 from typer.testing import CliRunner
 
+from evalshift_cli.cache.schema import Base, create_engine
 from evalshift_cli.cache.store import CacheStore, cache_key
 from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.cli.main import app
@@ -618,6 +622,76 @@ class TestCacheStore:
         removed = await store.clear()
         assert removed == 2
         assert await store.count() == 0
+
+
+class TestCacheStoreSingleConnectionPool:
+    """An in-memory SQLite URL gets a single-connection pool (``StaticPool``).
+
+    Every session then shares *one* DBAPI connection, so two overlapping
+    sessions share one transaction: one session's rollback-on-return (the
+    pool's reset when a session closes) discards another session's
+    uncommitted ``INSERT``. SQLAlchemy 2.1 moved aiosqlite onto the generic
+    asyncio cursor adapter (sqlalchemy#10415), which reorders those awaits so
+    the rollback routinely lands inside another put's window — writes were
+    silently lost and every later lookup missed. The store must therefore run
+    at most one session at a time on such an engine.
+    """
+
+    @staticmethod
+    async def _memory_engine() -> AsyncEngine:
+        engine = create_engine(IN_MEMORY_DB)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        return engine
+
+    async def test_concurrent_misses_on_distinct_keys_all_persist(self) -> None:
+        # The orchestrator/evaluator pattern: many tasks miss, then write back.
+        store = CacheStore(await self._memory_engine())
+        keys = [f"k{i}" for i in range(16)]
+
+        async def miss_then_put(key: str) -> None:
+            assert await store.get(key) is None
+            await store.put(key, **_put_kwargs())  # type: ignore[arg-type]
+
+        try:
+            await asyncio.gather(*(miss_then_put(k) for k in keys))
+            assert await store.count() == len(keys)
+            assert all([await store.get(k) is not None for k in keys])
+        finally:
+            await store.close()
+
+    async def test_never_overlaps_sessions_on_the_shared_connection(self) -> None:
+        # Pins the mechanism, independent of driver scheduling: with one
+        # shared DBAPI connection, a second checkout while the first is still
+        # out means two transactions are interleaved on it.
+        engine = await self._memory_engine()
+        store = CacheStore(engine)
+        in_flight = 0
+        peak = 0
+
+        def on_checkout(*_: object) -> None:
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+
+        def on_checkin(*_: object) -> None:
+            nonlocal in_flight
+            in_flight -= 1
+
+        pool = engine.sync_engine.pool
+        event.listen(pool, "checkout", on_checkout)
+        event.listen(pool, "checkin", on_checkin)
+        try:
+            await asyncio.gather(
+                *(store.put(f"k{i}", **_put_kwargs()) for i in range(4)),  # type: ignore[arg-type]
+                *(store.get(f"k{i}") for i in range(4)),
+                store.count(),
+            )
+            assert peak == 1
+        finally:
+            event.remove(pool, "checkout", on_checkout)
+            event.remove(pool, "checkin", on_checkin)
+            await store.close()
 
 
 # ---------------------------------------------------------------------------

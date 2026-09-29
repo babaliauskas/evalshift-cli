@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The response cache could silently drop its own writes under SQLAlchemy
+  2.1, which every fresh install has resolved since 2.1.0 shipped on
+  2026-09-24 (`pyproject.toml` asks only for `sqlalchemy>=2.0`). A
+  `CacheStore` opened on an in-memory database
+  (`sqlite+aiosqlite:///:memory:`) gets SQLAlchemy's single-connection
+  `StaticPool`, so the concurrent lookups and write-backs that the
+  orchestrator and the semantic and judge evaluators issue all ran their
+  sessions on one shared SQLite connection, and therefore in one shared
+  transaction. When one session closed, the pool's rollback-on-return
+  discarded any other session's `INSERT` that had not been committed yet.
+  Under SQLAlchemy 2.0 the awaits happened to line up so the rollback never
+  landed inside another write. SQLAlchemy 2.1 moved aiosqlite onto its
+  generic asyncio cursor adapter (sqlalchemy#10415), which reorders those
+  awaits so that the rollback routinely does land inside one. The write was
+  lost without any error, the next lookup missed, and the call went back to
+  the provider and was billed again. A repeat run that should have been
+  served entirely from cache reported `cached_calls=0`, and two
+  `test_orchestrator.py` cache tests failed on every fresh checkout. The
+  embeddings-cache test in `test_evaluators.py` failed only some of the
+  time, because its two concurrent sessions lose the race about half the
+  time rather than always. `CacheStore` now detects a pool that hands every
+  session the same connection and runs its sessions one at a time on it,
+  with the lock held through each session's close so that the
+  rollback-on-return is covered too. This behaves the same on SQLAlchemy
+  2.0 and 2.1, so the dependency range is unchanged. The default on-disk
+  cache at `~/.evalshift/cache.db` uses a real connection pool, gives each
+  session its own connection, and was not affected. It still runs without
+  the lock. Only code that opens the store on an in-memory database hit
+  this, which includes the test suite. `tests/unit/test_cache.py` now
+  checks both the lost writes and the underlying invariant that no two
+  sessions overlap on the shared connection.
+
 - README.md, DOCS.md, llms-full.txt, four `docs/` pages, and AGENTS.md
   advertised `evalshift all --push` as the command to run. `all` has been a
   hidden alias for `compare` since 1.0.0 — it still works, and always will —
