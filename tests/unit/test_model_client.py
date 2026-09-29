@@ -605,6 +605,21 @@ class TestCompleteWithTools:
             await ModelClient().complete_with_tools(model="gpt-4o", prompt="hi", tools=[_DEMO_TOOL])
         assert attempts["n"] == 1
 
+    async def test_deepseek_bare_id_dispatches_openai_shaped_tools(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        result = await ModelClient().complete_with_tools(
+            model="deepseek-flash",
+            prompt="hi",
+            tools=[_DEMO_TOOL],
+        )
+        assert result.model_id == "deepseek/deepseek-flash"
+        assert result.trace.calls[0].tool_name == "search_db"
+        kwargs = captured["kwargs"]
+        assert kwargs["model"] == "deepseek/deepseek-flash"
+        assert kwargs["tools"][0]["type"] == "function"
+
 
 # ---------------------------------------------------------------------------
 # complete_messages / complete_messages_with_tools
