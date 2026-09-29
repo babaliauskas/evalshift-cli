@@ -55,8 +55,8 @@ Quickstart (recommended, capture-first):
    points: the toolset the agent was offered, or [] if it never calls tools.
    Alternative to hand-written record_model_call (evalshift-sdk 0.4.0+): wrap the provider client
    once — wrap_openai / wrap_anthropic / wrap_genai from evalshift.adapters.<provider>, extras
-   [openai] / [anthropic] / [google-genai]; wrap_openai(OpenAI(base_url=...)) covers Ollama, vLLM,
-   Groq, OpenRouter. Every call (sync/async/stream) records model_id, offered tools,
+   [openai] / [anthropic] / [google-genai]; wrap_openai(OpenAI(base_url=...)) covers DeepSeek,
+   Ollama, vLLM, Groq, OpenRouter. Every call (sync/async/stream) records model_id, offered tools,
    requested_tool_calls, input/output, usage, latency and tool_choice / parallel_tool_calls /
    strict. With record_model_call, pass requested_tool_calls=extract_requested_tool_calls(response)
    on EVERY model call ([] when none) so capture sync scores against the model's requested calls
@@ -624,14 +624,19 @@ DeepSeek: export DEEPSEEK_API_KEY; ids deepseek-flash / deepseek-v4-pro; a bare 
 deepseek/. `init --provider deepseek` scaffolds a DeepSeek project. Differences from other
 providers: (1) both models run in thinking mode by default, which accepts but ignores
 temperature -- EvalShift keeps thinking on (that's what the app runs) and marks DeepSeek arms
-non-deterministic in the report; raise defaults.samples_per_example when the verdict matters;
-(2) replayed tool rounds need the reasoning_content of every earlier assistant turn or DeepSeek
-400s -- a teacher-forced round isn't from DeepSeek, so EvalShift sends the single-space
-placeholder the API accepts; (3) no embedding endpoint, so the semantic evaluator (needs an
+non-deterministic in the report, and a DeepSeek judge too; raise defaults.samples_per_example
+when the verdict matters; (2) every assistant turn replayed from the recording (tool rounds and
+chat history alike) is sent with the single-space reasoning_content placeholder the API accepts
+-- the recording holds no DeepSeek reasoning to pass back; DeepSeek requires the field on any
+request with tools, where an empty chain may degrade multi-turn answer quality, and ignores it
+otherwise; (3) no embedding endpoint, so the semantic evaluator (needs an
 OpenAI/Gemini embedding model + key) ships commented out in the DeepSeek scaffold. DeepSeek
 hosted elsewhere (hosted_vllm/, azure_ai/, bedrock/, ...) uses that host's prefix and env vars;
 tool calls still parse, but the key pre-check and the notes above apply only to the deepseek/
 API. LiteLLM also reads DEEPSEEK_API_BASE to point deepseek/ at a DeepSeek-compatible endpoint.
+A local Ollama model named like deepseek-r1 needs its prefix, ollama/deepseek-r1, when named as
+a run arm; a capture that recorded the bare name is treated as the DeepSeek API, and its
+estimated capture cost uses DeepSeek's API price.
 
 ## Golden suite JSONL schema (one example per line)
 

@@ -943,12 +943,15 @@ DeepSeek project. Three things differ from other providers:
 - **Sampling is not controlled.** Both models run in thinking mode by
   default, which accepts `temperature` and ignores it. EvalShift keeps thinking
   on, because that is what your application runs, so DeepSeek arms are marked
-  non-deterministic in the report. Raise `defaults.samples_per_example` when
-  the verdict matters.
-- **Replayed tool rounds carry an empty reasoning chain.** DeepSeek requires
-  the `reasoning_content` of earlier assistant turns on any request with
-  tools. A teacher-forced round comes from the recording, not from DeepSeek,
-  so EvalShift sends the single-space placeholder the API accepts.
+  non-deterministic in the report. A DeepSeek judge is marked
+  non-deterministic too. Raise `defaults.samples_per_example` when the verdict
+  matters.
+- **Replayed assistant turns carry an empty reasoning chain.** Every assistant
+  turn replayed from the recording, tool rounds and chat history alike, is
+  sent with the single-space `reasoning_content` placeholder the API accepts.
+  The recording holds no DeepSeek reasoning to pass back. DeepSeek requires
+  the field on any request with tools, where an empty chain may degrade
+  multi-turn answer quality, and ignores it otherwise.
 - **No embeddings.** DeepSeek has no embedding endpoint. The `semantic`
   evaluator needs an OpenAI or Gemini embedding model and its key, which is
   why the DeepSeek scaffold ships it commented out.
@@ -958,7 +961,10 @@ of your choice) goes through that host's LiteLLM prefix (`hosted_vllm/`,
 `azure_ai/`, `bedrock/`, ...) and its environment variables. Tool calls parse
 the same way, but the key pre-check and the notes above apply to the
 `deepseek/` API only. LiteLLM also reads `DEEPSEEK_API_BASE` to point the
-`deepseek/` provider at a DeepSeek-compatible endpoint.
+`deepseek/` provider at a DeepSeek-compatible endpoint. A local Ollama model
+named like `deepseek-r1` needs its prefix, `ollama/deepseek-r1`, when you name
+it as a run arm; a capture that recorded the bare name is treated as the
+DeepSeek API, and its estimated capture cost uses DeepSeek's API price.
 
 ### Do I need LangChain / a specific framework?
 

@@ -17,8 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   judge grading a DeepSeek arm gets the judge-family warning; and
   `evalshift init --provider deepseek` scaffolds a DeepSeek project. DeepSeek's
   default thinking mode ignores `temperature`, so DeepSeek arms and a DeepSeek
-  judge carry the report's non-determinism banner, and replayed assistant turns are sent with
-  the placeholder `reasoning_content` DeepSeek requires on tool requests.
+  judge carry the report's non-determinism banner, and every assistant turn
+  replayed from the recording (tool rounds and chat history) is sent with a
+  placeholder `reasoning_content`: DeepSeek requires it on tool requests and
+  ignores it otherwise.
 
 ### Fixed
 

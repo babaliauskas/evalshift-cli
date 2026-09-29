@@ -73,8 +73,8 @@ intercepted call — sync, async and streaming — records one `model_call` with
 the model id, the tools offered, the calls the model **requested**
 (`requested_tool_calls`), input, output, token usage, latency and the tool-use
 generation settings (`tool_choice`, `parallel_tool_calls`, a tool's `strict`
-flag). `wrap_openai` with a `base_url` covers OpenAI-compatible servers (Ollama,
-vLLM, Groq, OpenRouter). If you keep `record_model_call`, pass
+flag). `wrap_openai` with a `base_url` covers OpenAI-compatible servers
+(DeepSeek, Ollama, vLLM, Groq, OpenRouter). If you keep `record_model_call`, pass
 `requested_tool_calls=extract_requested_tool_calls(response)` on every model
 call: `capture sync` then scores against what the model *asked for* rather than
 what the app executed (`promotion_source: requested`), and `run` replays the
