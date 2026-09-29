@@ -41,8 +41,8 @@ The legacy `deepseek-v4-flash` is still accepted and served by Flash. LiteLLM 1.
 3. **EvalShift never switches thinking off.** A capture cannot record `thinking` (it is not in the SDK's `GENERATION_KEYS`), so the app's own setting is unknown. The API default is thinking on. Instead:
    - `honors_temperature` returns `False` for thinking-by-default DeepSeek models, so the report's existing non-determinism banner fires (fixes F7).
    - The client backfills `reasoning_content: " "` on assistant turns that lack it, for those models only (fixes F8). This is the same placeholder LiteLLM uses, done in EvalShift so it doesn't depend on the LiteLLM version or on an explicit `thinking` flag.
-4. **"Thinking by default" means provider `deepseek` and `litellm.supports_reasoning(model=<canonical>)` is `True`.** Any exception or `False` reads as "not thinking". That matches `capabilities.py`'s rule that uncertainty reads as honoured (no false banner).
-5. **Pricing lookup tries the canonical (provider-prefixed) id first.** This fixes F6 and changes nothing for existing ids: `openai/gpt-4o-mini` and `anthropic/claude-*` are not table keys, so they still fall through to the bare/stripped form.
+4. **"Thinking by default" means provider `deepseek` and `litellm.supports_reasoning(model=<canonical>)` is `True`.** Any exception or `False` reads as "not thinking". That matches `capabilities.py`'s rule that uncertainty reads as honoured (no false banner). Caveat (accepted): LiteLLM's reasoning flag is also `True` for DeepSeek models whose thinking is opt-in (e.g. `deepseek/deepseek-v3.2`), so those get a false non-determinism banner and a harmless `reasoning_content` placeholder. The current API ids `deepseek-flash` / `deepseek-v4-pro` think by default.
+5. **Pricing lookup tries the canonical (provider-prefixed) id first.** This fixes F6. Measured effect on existing ids (accepted, ruling R10): identical for every text model — `openai/gpt-4o-mini` and `anthropic/claude-*` are not table keys, so they still fall through to the bare/stripped form. A few niche Gemini keys do change: `gemini-exp-1206` now prices at $0 because its `gemini/` entry has zero prices, and image models' cache-read price and the image-preview >200k-token tiers differ between the prefixed and bare entries.
 6. **`init --provider deepseek`** scaffolds:
    - `deepseek-flash` as the source model
    - `deepseek-v4-pro` as the target hint and judge
@@ -1072,7 +1072,7 @@ git -C /home/lukas/repos/evalshift/evalshift-cli-wt-deepseek commit -m "docs: do
 This task needs `DEEPSEEK_API_KEY`, which the maintainer supplies. It costs a few cents. **Do not open the PR until every check below passes.** If one fails, stop and report the exact error; do not work around it.
 
 **Files:**
-- Modify: `scripts/smoke_live_tools.py:74-77` (`MODELS`), `:105-113` (`_provider_or_skip`), plus a new multi-round check
+- Modify: `scripts/smoke_live_tools.py:74-77` (`MODELS`), `:105-113` (`_provider_or_skip`), plus a new multi-round check and a text-only chat-history check
 
 - [ ] **Step 1: Make the smoke script provider-generic and add a multi-round check**
 
@@ -1125,6 +1125,20 @@ async def _multi_round(client: ModelClient, model: str) -> None:
     print(f"  round 1: calls={result.trace.tool_names} text={bool(result.trace.final_text)}")
 ```
 
+After it, also once per model and counted the same way (`  history FAILED: ...` on exception), add a text-only chat-history check. The backfill puts the placeholder on this assistant turn too, and there are no tools:
+
+```python
+async def _chat_history(client: ModelClient, model: str) -> None:
+    """A text-only replayed history: an assistant turn with no reasoning_content."""
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "Hi, I ordered a kettle last week."},
+        {"role": "assistant", "content": "Thanks! How can I help with your kettle order?"},
+        {"role": "user", "content": "What's your standard refund policy, in one sentence?"},
+    ]
+    result = await client.complete_messages(model=model, messages=messages)
+    print(f"  history: text={bool(result.text)}")
+```
+
 - [ ] **Step 2: Run the smoke script**
 
 Run: `DEEPSEEK_API_KEY=... uv run python scripts/smoke_live_tools.py` (the Gemini models skip when their key is unset)
@@ -1132,6 +1146,7 @@ Expected, for both `deepseek-flash` and `deepseek-v4-pro`:
 - `single_tool` / `parallel` prompts print non-empty `calls:` and a cost above `$0.000000`.
 - `text_only` prints no calls.
 - `round 1:` prints with **no 400**. This is the live proof of F8's fix.
+- `history: text=True` prints with no error. This proves the placeholder is harmless on a text-only request.
 - New files appear under `tests/unit/fixtures/tool_responses/deepseek/*_live.json`.
 
 - [ ] **Step 3: Check the 400 really is what the backfill prevents**
@@ -1144,7 +1159,7 @@ Expected: FAIL without the backfill, PASS with it. If it passes without the back
 Run:
 ```bash
 cd /home/lukas/repos/evalshift/evalshift-cli-wt-deepseek
-DEEPSEEK_API_KEY=... uv run evalshift test-call deepseek-flash
+DEEPSEEK_API_KEY=... uv run evalshift test-call --model deepseek-flash --max-tokens 2048
 cd examples/agent && DEEPSEEK_API_KEY=... GEMINI_API_KEY=... uv run evalshift compare --from deepseek-flash --to deepseek-v4-pro --yes
 ```
 Expected:
@@ -1153,6 +1168,11 @@ Expected:
 - The report shows the non-determinism banner naming both DeepSeek arms.
 - `report.json`'s tool-call scores are populated, not errored.
 - `evalshift doctor` in the same shell shows `DEEPSEEK_API_KEY  set`.
+
+Then check a DeepSeek judge end to end. Copy `examples/agent` to a scratch directory, add an `llm_judge` entry with `judge_model: deepseek-v4-pro` (the judge `init --provider deepseek` scaffolds), and rerun the same `compare`.
+Expected:
+- The judge's verdicts are populated in `report.json`, not errored or unmeasured.
+- The non-determinism banner also names `deepseek/deepseek-v4-pro` as the judge. It must be listed once, even though it is also an arm.
 
 - [ ] **Step 5: Commit the script and the live fixtures**
 
