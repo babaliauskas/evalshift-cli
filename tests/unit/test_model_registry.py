@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from evalshift_cli.models.registry import (
+    PROVIDER_ENV_VARS,
     ModelMetadata,
     UnknownModelError,
     get_model,
@@ -59,7 +60,7 @@ class TestListSupported:
 
     def test_every_provider_represented(self) -> None:
         providers = {m.provider for m in list_supported()}
-        assert providers == {"anthropic", "openai", "google"}
+        assert providers == {"anthropic", "openai", "google", "deepseek"}
 
     def test_returns_fresh_list_each_call(self) -> None:
         # Caller mutation must not poison the registry.
@@ -112,6 +113,43 @@ class TestResolveModel:
         # The whole point: no input value short of `None` should raise.
         for input_id in ("", "x", "/", "vendor/", "weird-vendor/model"):
             assert isinstance(resolve_model(input_id), ModelMetadata)
+
+    def test_bare_deepseek_alias_uses_registry(self) -> None:
+        meta = resolve_model("deepseek-flash")
+        assert meta.id == "deepseek/deepseek-flash"
+        assert meta.provider == "deepseek"
+        assert "(passthrough)" not in meta.display_name
+
+    def test_unknown_deepseek_prefix_inferred(self) -> None:
+        # What a capture records when the app called api.deepseek.com through
+        # the OpenAI client: the bare id, which LiteLLM cannot route alone.
+        meta = resolve_model("deepseek-v5-preview")
+        assert meta.id == "deepseek/deepseek-v5-preview"
+        assert meta.provider == "deepseek"
+        assert meta.display_name.endswith("(passthrough)")
+
+    def test_prefixed_deepseek_id_passes_through(self) -> None:
+        meta = resolve_model("deepseek/deepseek-v5-preview")
+        assert meta.id == "deepseek/deepseek-v5-preview"
+        assert meta.provider == "deepseek"
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "azure_ai/deepseek-v4-pro",
+            "hosted_vllm/deepseek-ai/DeepSeek-V4-Flash",
+            "openrouter/deepseek/deepseek-v4-pro",
+        ],
+    )
+    def test_deepseek_on_another_host_is_not_the_deepseek_provider(self, model_id: str) -> None:
+        # Another host authenticates with its own keys, never DEEPSEEK_API_KEY,
+        # so it must not be attributed to the deepseek provider's key check.
+        assert resolve_model(model_id).provider == "other"
+
+
+class TestProviderEnvVars:
+    def test_deepseek_key(self) -> None:
+        assert PROVIDER_ENV_VARS["deepseek"] == ("DEEPSEEK_API_KEY",)
 
 
 class TestRegistryIntegrity:

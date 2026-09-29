@@ -89,6 +89,7 @@ class TestRunChecksAPIKeys:
         assert _by_name(results, "OPENAI_API_KEY").status == "warn"
         # Google provider is displayed under its primary name, GEMINI_API_KEY.
         assert _by_name(results, "GEMINI_API_KEY").status == "warn"
+        assert _by_name(results, "DEEPSEEK_API_KEY").status == "warn"
 
     def test_google_alias_accepted(self, tmp_path: Path) -> None:
         # Legacy GOOGLE_API_KEY still authenticates; shown under GEMINI_API_KEY.

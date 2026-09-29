@@ -18,8 +18,8 @@ EvalShift release to use it. So we expose two functions:
 * :func:`resolve_model` — never raises. Tries the registry, then falls
   back to inferring the provider from the id's prefix (``gemini-…`` →
   google, ``claude-…`` → anthropic, ``gpt-…`` / ``o1-…`` / ``o3-…`` →
-  openai). Used by everything in the call path so LiteLLM gets the
-  final say.
+  openai, ``deepseek-…`` → deepseek). Used by everything in the call
+  path so LiteLLM gets the final say.
 
 When a synthesised model is returned, :attr:`ModelMetadata.provider`
 will be one of the standard providers (best-effort prefix inference)
@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Final, Literal
 
-Provider = Literal["anthropic", "openai", "google", "other"]
+Provider = Literal["anthropic", "openai", "google", "deepseek", "other"]
 
 # Env vars LiteLLM reads to authenticate each provider, in preference
 # order (primary first; the second entry is an accepted alias).
@@ -41,6 +41,7 @@ PROVIDER_ENV_VARS: Final[dict[Provider, tuple[str, ...]]] = {
     "anthropic": ("ANTHROPIC_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "google": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "deepseek": ("DEEPSEEK_API_KEY",),
 }
 
 
@@ -63,7 +64,7 @@ class ModelMetadata:
     Attributes:
         id: The canonical LiteLLM model identifier (provider-prefixed).
             This is what EvalShift sends to ``litellm.acompletion``.
-        provider: ``"anthropic"`` | ``"openai"`` | ``"google"``.
+        provider: ``"anthropic"`` | ``"openai"`` | ``"google"`` | ``"deepseek"``.
         display_name: Human-friendly name shown in reports.
         aliases: Other strings that resolve to this model. Aliases must
             be globally unique across the registry.
@@ -128,6 +129,21 @@ _MODELS: Final[tuple[ModelMetadata, ...]] = (
         provider="google",
         display_name="Gemini 2.5 Flash",
         aliases=("gemini-2.5-flash",),
+    ),
+    # ---- DeepSeek --------------------------------------------------------
+    # The two ids DeepSeek's API serves as of 2026-09. Both run in thinking
+    # mode by default, which ignores temperature — see models/deepseek.py.
+    ModelMetadata(
+        id="deepseek/deepseek-flash",
+        provider="deepseek",
+        display_name="DeepSeek V4.1 Flash",
+        aliases=("deepseek-flash",),
+    ),
+    ModelMetadata(
+        id="deepseek/deepseek-v4-pro",
+        provider="deepseek",
+        display_name="DeepSeek V4 Pro",
+        aliases=("deepseek-v4-pro",),
     ),
 )
 
@@ -241,6 +257,7 @@ def _infer_provider_and_canonical(id_or_alias: str) -> tuple[str, Provider]:
     * If it starts with ``claude-`` → anthropic, prefix ``anthropic/``.
     * If it starts with ``gpt-``, ``o1-``, or ``o3-`` → openai, prefix
       ``openai/``.
+    * If it starts with ``deepseek-`` → deepseek, prefix ``deepseek/``.
     * Otherwise → provider ``"other"``, id passed through unchanged.
     """
     if "/" in id_or_alias:
@@ -252,6 +269,7 @@ def _infer_provider_and_canonical(id_or_alias: str) -> tuple[str, Provider]:
             "openai": "openai",
             "google": "google",
             "gemini": "google",
+            "deepseek": "deepseek",
         }
         return id_or_alias, prefix_to_provider.get(prefix, "other")
     if id_or_alias.startswith("gemini-"):
@@ -260,6 +278,8 @@ def _infer_provider_and_canonical(id_or_alias: str) -> tuple[str, Provider]:
         return f"anthropic/{id_or_alias}", "anthropic"
     if id_or_alias.startswith(("gpt-", "o1-", "o3-")):
         return f"openai/{id_or_alias}", "openai"
+    if id_or_alias.startswith("deepseek-"):
+        return f"deepseek/{id_or_alias}", "deepseek"
     return id_or_alias, "other"
 
 
