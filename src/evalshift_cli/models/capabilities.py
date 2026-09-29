@@ -25,10 +25,16 @@ Gemini 3 preview ids that prompted this are *passthrough* ids — absent from
 very models it was added for, and would keep missing each new preview id until
 an EvalShift release caught up.
 
-LiteLLM's answer is the authority, with one enumerated exception:
-:func:`silently_unsent_params` lists the handful of parameters LiteLLM
-*claims* to support and then discards inside a provider transformer, which the
-probe cannot see by construction. See :data:`_KNOWN_LITELLM_GAPS`.
+LiteLLM's answer is the authority, with two enumerated exceptions:
+
+* :func:`silently_unsent_params` lists the handful of parameters LiteLLM
+  *claims* to support and then discards inside a provider transformer, which
+  the probe cannot see by construction. See :data:`_KNOWN_LITELLM_GAPS`.
+* DeepSeek's thinking-by-default models (``deepseek-flash``,
+  ``deepseek-v4-pro``) accept ``temperature`` and silently ignore it — LiteLLM
+  still lists it as supported. :func:`honors_temperature` asks
+  :func:`~evalshift_cli.models.deepseek.thinking_by_default` before trusting
+  LiteLLM's answer. See :mod:`evalshift_cli.models.deepseek`.
 
 Note this detects *withdrawal*, not value constraints. Reasoning-tier models
 such as ``gpt-5.6-terra`` advertise ``temperature`` while rejecting every
@@ -36,12 +42,6 @@ value except their default; ``drop_params`` does not cover them (LiteLLM
 special-cases only o-series names). That case is detected from the
 provider's own 400 at dispatch time and adapted per model — see
 ``ModelClient._dispatch_with_retry`` in :mod:`evalshift_cli.models.client`.
-
-* DeepSeek's thinking-by-default models (``deepseek-flash``,
-  ``deepseek-v4-pro``) accept ``temperature`` and silently ignore it — LiteLLM
-  still lists it as supported. :func:`honors_temperature` asks
-  :func:`~evalshift_cli.models.deepseek.thinking_by_default` before trusting
-  LiteLLM's answer. See :mod:`evalshift_cli.models.deepseek`.
 """
 
 from __future__ import annotations
@@ -186,10 +186,10 @@ def honors_temperature(model_id: str) -> bool:
         a signature; a wrong ``True`` costs one missed warning. We take the
         second risk.
 
-        Expressed in terms of :func:`unsupported_params` so the two probes
-        cannot drift apart: both must treat an uncertain answer as "honoured".
-        One named exception: DeepSeek's thinking-by-default models return
-        ``False`` here even though LiteLLM lists ``temperature`` as
+        Expressed in terms of :func:`unsupported_params`, so both probes
+        treat an uncertain answer as "honoured" — except for one named case
+        the param probe cannot see: DeepSeek's thinking-by-default models
+        return ``False`` here even though LiteLLM lists ``temperature`` as
         supported, because thinking mode accepts and ignores it — see
         :func:`~evalshift_cli.models.deepseek.thinking_by_default`.
     """

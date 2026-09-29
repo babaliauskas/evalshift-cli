@@ -472,7 +472,11 @@ class ModelClient:
         user message). ``messages`` is forwarded to
         ``litellm.acompletion`` verbatim — LiteLLM maps role names
         per-provider (e.g. a ``system`` message becomes Gemini's
-        ``systemInstruction``), so no transformation happens here.
+        ``systemInstruction``), so no transformation happens here. The
+        one exception: for a DeepSeek thinking-by-default model, assistant
+        turns without ``reasoning_content`` get a placeholder before
+        dispatch (see :meth:`_dispatch_with_retry`). The caller's list is
+        not mutated.
 
         Args:
             model: A canonical id or alias from
@@ -602,7 +606,10 @@ class ModelClient:
         Unlike :meth:`complete_with_tools`, callers control the full
         messages array (e.g. a multi-turn history prefix followed by the
         current-turn user message). ``messages`` is forwarded to
-        ``litellm.acompletion`` verbatim. The same retry / error-mapping
+        ``litellm.acompletion`` verbatim, except that a DeepSeek
+        thinking-by-default model gets a placeholder ``reasoning_content``
+        on assistant turns lacking one (see :meth:`_dispatch_with_retry`;
+        the caller's list is not mutated). The same retry / error-mapping
         policy as :meth:`complete_messages` applies; on success the
         response is funnelled through :func:`parse_response_to_trace` for
         provider-agnostic normalisation.
@@ -716,11 +723,13 @@ class ModelClient:
         parameter before dispatch. The adaptation fires at most once per
         call — it requires ``temperature`` in the kwargs and removes it.
 
-        A second, unconditional adaptation: when ``canonical`` is a
-        DeepSeek thinking-by-default model and ``kwargs`` carries
-        ``messages``, every assistant turn missing ``reasoning_content`` is
-        backfilled with a placeholder before dispatch — DeepSeek 400s a
-        tools request otherwise. See :mod:`evalshift_cli.models.deepseek`.
+        A second adaptation is applied before dispatch and depends only on
+        the model: when ``canonical`` is a DeepSeek thinking-by-default
+        model and ``kwargs`` carries ``messages``, every assistant turn
+        missing ``reasoning_content`` is backfilled with a placeholder. That
+        covers every replayed assistant turn — tool rounds and plain chat
+        history alike. DeepSeek 400s a tools request without it and ignores
+        it otherwise. See :mod:`evalshift_cli.models.deepseek`.
 
         Raises:
             RateLimitError / AuthError / ModelError: mapped provider
@@ -728,8 +737,10 @@ class ModelClient:
                 auth errors).
         """
         if "messages" in kwargs and thinking_by_default(canonical):
-            # DeepSeek thinking mode 400s a tools request whose earlier
-            # assistant turns lack reasoning_content; see models/deepseek.py.
+            # Every replayed assistant turn (tool rounds and chat history)
+            # gets a placeholder reasoning_content: DeepSeek thinking mode
+            # 400s a tools request without it and ignores it otherwise.
+            # See models/deepseek.py.
             kwargs["messages"] = backfill_reasoning_content(kwargs["messages"])
         if canonical in self._temperature_rejected:
             kwargs.pop("temperature", None)

@@ -19,6 +19,13 @@ two things the replay path depends on:
   (a capture cannot record it); doing it here also keeps the fix independent
   of the installed LiteLLM version.
 
+  The backfill covers every assistant turn replayed from the recording —
+  tool rounds and plain chat history alike — not only requests with
+  ``tools``. Without ``tools`` DeepSeek ignores
+  ``reasoning_content``, so the placeholder is harmless there; LiteLLM's own
+  backfill notes that a blank chain may degrade multi-turn quality, which is
+  the price of replaying turns DeepSeek did not write.
+
 EvalShift never switches thinking off: the application under test runs with
 DeepSeek's default, and replaying a different configuration would measure
 the wrong thing.
@@ -51,6 +58,13 @@ def thinking_by_default(model_id: str) -> bool:
         DeepSeek weights on another host, and every uncertain LiteLLM answer
         return ``False`` — the same "uncertainty reads as honoured" rule as
         :mod:`evalshift_cli.models.capabilities`.
+
+    Caveat: LiteLLM's reasoning flag is also ``True`` for DeepSeek models
+    whose thinking is opt-in (e.g. ``deepseek/deepseek-v3.2``). For those this
+    over-reports — a false non-determinism banner and a harmless
+    ``reasoning_content`` placeholder. The current API ids
+    (``deepseek-flash``, ``deepseek-v4-pro``) think by default, so the answer
+    is right for them.
     """
     meta = resolve_model(model_id)
     if meta.provider != "deepseek":
