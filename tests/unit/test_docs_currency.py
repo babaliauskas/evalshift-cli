@@ -18,6 +18,9 @@ from pathlib import Path
 
 import pytest
 
+from evalshift_cli.cli.commands.init import PROVIDERS
+from evalshift_cli.models.registry import PROVIDER_ENV_VARS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Every file that documents the CLI in prose, relative to the repo root.
@@ -111,4 +114,31 @@ def test_prose_quotes_the_rendered_placeholder(name: str) -> None:
 
     assert "{{input}}" not in text, (
         f"{name} quotes the escaped `{{{{input}}}}`; `init` writes `{{input}}`"
+    )
+
+
+#: Files that tell a user which env var authenticates which provider. A
+#: provider the registry can authenticate but these files never name is a
+#: provider whose users are told nothing — the state DeepSeek support shipped
+#: into on 2026-09-30.
+KEY_TABLE_FILES: tuple[str, ...] = ("DOCS.md", "llms-full.txt", "docs/getting-started.md")
+
+#: Files that spell out `init --provider`'s choices.
+INIT_PROVIDER_FILES: tuple[str, ...] = ("DOCS.md", "llms-full.txt")
+
+
+@pytest.mark.parametrize("name", KEY_TABLE_FILES)
+@pytest.mark.parametrize("env_var", sorted(aliases[0] for aliases in PROVIDER_ENV_VARS.values()))
+def test_key_docs_name_every_registry_provider(name: str, env_var: str) -> None:
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+
+    assert env_var in text, f"{name} never tells users about {env_var}"
+
+
+@pytest.mark.parametrize("name", INIT_PROVIDER_FILES)
+def test_docs_list_every_init_provider(name: str) -> None:
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+
+    assert f"--provider {'|'.join(PROVIDERS)}" in text, (
+        f"{name} lists `init --provider` choices that differ from init.PROVIDERS"
     )

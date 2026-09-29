@@ -301,7 +301,7 @@ assets, works offline) has:
 Your prompts and suite stay local for `doctor`, `run`, `evaluate`, `analyze`,
 and `report`. The only outbound calls in local mode are to the LLM providers you
 configure — any provider LiteLLM supports, called with your own API keys.
-Anthropic, OpenAI and Google ids additionally get a curated pricing and
+Anthropic, DeepSeek, Google and OpenAI ids additionally get a curated pricing and
 capability entry; everything else is passed through with the provider inferred
 from the id.
 

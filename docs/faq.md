@@ -48,12 +48,40 @@ account for them rather than silently dropping examples.
 ## What models does EvalShift support?
 
 Anything LiteLLM supports. The `evalshift_cli.models.registry` provides
-friendly aliases and sane defaults for common models (Claude, GPT,
-Gemini), but **the registry is advisory, not gating**. A model id
+friendly aliases and sane defaults for common models (Claude, DeepSeek,
+Gemini, GPT), but **the registry is advisory, not gating**. A model id
 that isn't in the registry — for example a fresh preview from a
 vendor playground — gets passed through to LiteLLM with a
 prefix-inferred provider. LiteLLM is the source of truth at call
 time.
+
+## Does EvalShift work with DeepSeek?
+
+Yes. Export `DEEPSEEK_API_KEY` and use DeepSeek's API ids, `deepseek-flash`
+or `deepseek-v4-pro`. A bare `deepseek-*` id (what a capture records when your
+app calls `api.deepseek.com` through the OpenAI client) gets the `deepseek/`
+prefix automatically. `evalshift init --provider deepseek` scaffolds a
+DeepSeek project. Three things differ from other providers:
+
+- **Sampling is not controlled.** Both models run in thinking mode by
+  default, which accepts `temperature` and ignores it. EvalShift keeps thinking
+  on, because that is what your application runs, so DeepSeek arms are marked
+  non-deterministic in the report. Raise `defaults.samples_per_example` when
+  the verdict matters.
+- **Replayed tool rounds carry an empty reasoning chain.** DeepSeek requires
+  the `reasoning_content` of earlier assistant turns on any request with
+  tools. A teacher-forced round comes from the recording, not from DeepSeek,
+  so EvalShift sends the single-space placeholder the API accepts.
+- **No embeddings.** DeepSeek has no embedding endpoint. The `semantic`
+  evaluator needs an OpenAI or Gemini embedding model and its key, which is
+  why the DeepSeek scaffold ships it commented out.
+
+DeepSeek served by another host (self-hosted open weights, or a cloud region
+of your choice) goes through that host's LiteLLM prefix (`hosted_vllm/`,
+`azure_ai/`, `bedrock/`, ...) and its environment variables. Tool calls parse
+the same way, but the key pre-check and the notes above apply to the
+`deepseek/` API only. LiteLLM also reads `DEEPSEEK_API_BASE` to point the
+`deepseek/` provider at a DeepSeek-compatible endpoint.
 
 ## Can I resume a run after Ctrl+C / a crash?
 

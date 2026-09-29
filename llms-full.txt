@@ -118,7 +118,7 @@ Scaffolds refuse to overwrite without --force.
 
 evalshift --version
 evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire-agents (default on)]
-    [--provider gemini|openai|anthropic] [--profile PROFILE]
+    [--provider gemini|openai|anthropic|deepseek] [--profile PROFILE]
   Writes ONLY a minimal capture-first evalshift.yaml: passthrough prompt
   (id: replay, detection: manual, content: "{input}", variables: [input]), advisory
   semantic + llm_judge evaluators (blocking: false), empty managed suites: block, migration
@@ -425,6 +425,7 @@ major version. Deprecations warn on stderr, never stdout.
 | GEMINI_API_KEY / GOOGLE_API_KEY | — | Google auth (either alias works) |
 | OPENAI_API_KEY | — | OpenAI auth |
 | ANTHROPIC_API_KEY | — | Anthropic auth |
+| DEEPSEEK_API_KEY | — | DeepSeek auth |
 | EVALSHIFT_NONINTERACTIVE | unset | non-empty -> implied --yes (skip cost prompt); set in scaffolded CI |
 | EVALSHIFT_MAX_RUNS | unset | overrides retention.max_runs_per_suite; 0/none/unlimited/off disables |
 | EVALSHIFT_DIR | .evalshift | base dir for SDK captures read by `capture` commands |
@@ -614,8 +615,23 @@ retention:
 
 Model ids: built-in registry provides aliases/metadata but NEVER gates — LiteLLM is the
 call-time authority; any LiteLLM-supported model works. Unknown ids pass through with provider
-inferred by prefix: gemini-* -> google, claude-* -> anthropic, gpt-*/o1-*/o3-* -> openai, else
-"other". Before a live run the CLI verifies the provider's key env var is set.
+inferred by prefix: gemini-* -> google, claude-* -> anthropic, gpt-*/o1-*/o3-* -> openai,
+deepseek-* -> deepseek, else "other". Before a live run the CLI verifies the provider's key env
+var is set.
+
+DeepSeek: export DEEPSEEK_API_KEY; ids deepseek-flash / deepseek-v4-pro; a bare deepseek-* id
+(what a capture records for api.deepseek.com called via the OpenAI client) is auto-prefixed
+deepseek/. `init --provider deepseek` scaffolds a DeepSeek project. Differences from other
+providers: (1) both models run in thinking mode by default, which accepts but ignores
+temperature -- EvalShift keeps thinking on (that's what the app runs) and marks DeepSeek arms
+non-deterministic in the report; raise defaults.samples_per_example when the verdict matters;
+(2) replayed tool rounds need the reasoning_content of every earlier assistant turn or DeepSeek
+400s -- a teacher-forced round isn't from DeepSeek, so EvalShift sends the single-space
+placeholder the API accepts; (3) no embedding endpoint, so the semantic evaluator (needs an
+OpenAI/Gemini embedding model + key) ships commented out in the DeepSeek scaffold. DeepSeek
+hosted elsewhere (hosted_vllm/, azure_ai/, bedrock/, ...) uses that host's prefix and env vars;
+tool calls still parse, but the key pre-check and the notes above apply only to the deepseek/
+API. LiteLLM also reads DEEPSEEK_API_BASE to point deepseek/ at a DeepSeek-compatible endpoint.
 
 ## Golden suite JSONL schema (one example per line)
 
