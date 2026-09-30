@@ -153,6 +153,25 @@ class TestRunChecksConfig:
         assert thresholds_row.status == slices_row.status == "fail"
         assert slices_row.detail == thresholds_row.detail
 
+    def test_invalid_config_points_at_validate_for_the_details(self, tmp_path: Path) -> None:
+        """The row has room for the summary only; the reasons live in `validate`.
+
+        "1 schema problem found" alone names neither the key nor the fix, so
+        the row says where to get them rather than leaving the user to guess.
+        """
+        (tmp_path / CONFIG_FILENAME).write_text("prompts: []\n", encoding="utf-8")
+        row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), CONFIG_FILENAME)
+        assert row.detail == "1 schema problem found — run `evalshift validate` for details"
+
+    def test_unparseable_yaml_points_at_validate_too(self, tmp_path: Path) -> None:
+        (tmp_path / CONFIG_FILENAME).write_text(
+            "prompts:\n  - id: a\n  detection: manual\n   content: bad-indent\n",
+            encoding="utf-8",
+        )
+        row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), CONFIG_FILENAME)
+        assert row.detail.startswith("failed to parse YAML")
+        assert row.detail.endswith(" — run `evalshift validate` for details")
+
     def test_unparseable_yaml_fails(self, tmp_path: Path) -> None:
         (tmp_path / CONFIG_FILENAME).write_text(
             "prompts:\n  - id: a\n  detection: manual\n   content: bad-indent\n",
@@ -213,8 +232,9 @@ class TestDoctorCLI:
     ) -> None:
         self._isolate(monkeypatch, tmp_path)
         (tmp_path / CONFIG_FILENAME).write_text("prompts: []\n", encoding="utf-8")
-        result = runner.invoke(app, ["doctor"])
+        result = runner.invoke(app, ["doctor"], env={"COLUMNS": "200"})
         assert result.exit_code == 1
+        assert "run `evalshift validate` for details" in result.stdout
 
     def test_doctor_with_set_keys_renders_them_ok(
         self,

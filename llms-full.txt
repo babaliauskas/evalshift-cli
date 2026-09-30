@@ -139,8 +139,9 @@ evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire
     cost-reduction: .02/0/.97/.01/.02/.05/.30 | local-model: .05/0/.90/.02/.05/.00/.50
     quantization: .02/0/.97/.005/.02/.00/.20 | provider-switch: .03/0/.95/.01/.03/.20/.40
 evalshift doctor
-  Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation; missing API
-  keys are soft warnings (exit 0).
+  Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation (the row shows
+  the problem count + "run `evalshift validate` for details"; validate prints each problem);
+  missing API keys are soft warnings (exit 0).
   Row 2 `evalshift-sdk`: ok ("<v> (import name `evalshift`)"); warn (exit 0) when the SDK is
   not installed, fails to import, or the name resolves to something else (an older CLI's
   leftover files, a local evalshift/ directory).

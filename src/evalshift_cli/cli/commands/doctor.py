@@ -229,10 +229,12 @@ def _config_check(cwd: Path) -> CheckResult:
     try:
         cfg = load_config(cfg_path)
     except ConfigError as exc:
+        # The row has room for the summary ("1 schema problem found") but not
+        # the per-field reasons, so point at the command that prints them.
         return CheckResult(
             name=CONFIG_FILENAME,
             status="fail",
-            detail=exc.summary,
+            detail=f"{exc.summary} — run `evalshift validate` for details",
         )
     n = len(cfg.prompts)
     return CheckResult(

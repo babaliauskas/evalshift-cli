@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   placeholder `reasoning_content`: DeepSeek requires it on tool requests and
   ignores it otherwise.
 
+### Changed
+
+- `evalshift doctor`'s `evalshift.yaml` row now ends a failure with "— run
+  `evalshift validate` for details". The row has room for the summary only
+  ("1 schema problem found"), which names neither the offending key nor the
+  fix; `validate` prints both.
+
 ### Removed
 
 - **The top-level `slices:` key is gone from `evalshift.yaml`, and its
@@ -41,11 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `slices` was removed: it never had any effect. Slices come from example `tags` automatically (one per distinct tag, plus `all`). Delete it from evalshift.yaml; per-slice budgets go under migration_policy.slices, keyed by tag.
   ```
 
-  `evalshift validate` prints it; `evalshift doctor` fails its config row.
-  `version:` stays `1`, under the same config version policy. The two
-  shipped example configs that set the block no longer do, and
-  `tests/unit/test_docs_currency.py` now fails if any doc or example shows a
-  top-level `slices:` or `thresholds:` key.
+  `evalshift validate` prints it; `evalshift doctor` fails its config row
+  and points at `validate`. `version:` stays `1`, under the same config
+  version policy. The two shipped example configs that set the block no
+  longer do, and `tests/unit/test_docs_currency.py` now fails if any doc or
+  example shows a top-level `slices:` or `thresholds:` key.
 
   Hosted baselines are unaffected for every config that never set the key
   (or set `slices: []`): the bundle's `evaluator_config` still carries
