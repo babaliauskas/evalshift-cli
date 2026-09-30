@@ -34,6 +34,13 @@ _REMOVED_THRESHOLDS_MESSAGE = (
 )
 """Error text for a config that still carries the removed ``thresholds`` block."""
 
+_REMOVED_SLICES_MESSAGE = (
+    "`slices` was removed: it never had any effect. Slices come from example "
+    "`tags` automatically (one per distinct tag, plus `all`). Delete it from "
+    "evalshift.yaml; per-slice budgets go under migration_policy.slices, keyed by tag."
+)
+"""Error text for a config that still carries the removed top-level ``slices`` block."""
+
 
 class _StrictModel(BaseModel):
     """Base for every config model: forbid extra keys, validate on assignment."""
@@ -412,36 +419,6 @@ class EvaluatorsConfig(_StrictModel):
         )
 
 
-class SliceConfig(_StrictModel):
-    """One entry of the top-level ``slices:`` block.
-
-    The block is validated (the reserved ``overall`` name is rejected) and
-    recorded in the run bundle, but analysis does not read it today: slices
-    come from example ``tags`` -- one per distinct tag, plus ``all`` -- and
-    per-slice budgets are keyed by tag under ``migration_policy.slices``.
-    None of the fields below renames, filters, or scopes anything.
-
-    Attributes:
-        name: Slice name.
-        filter: A literal tag, not an expression.
-        applies_to: Glob list of prompt IDs.
-    """
-
-    name: str = Field(min_length=1)
-    filter: str = Field(min_length=1)
-    applies_to: list[str] = Field(default_factory=lambda: ["*"])
-
-    @model_validator(mode="after")
-    def _reject_reserved_name(self) -> Self:
-        """``overall`` is the run-level scope in the bundle, never a slice."""
-        if self.name == RESERVED_SLICE_NAME:
-            raise ValueError(
-                f"slice name {RESERVED_SLICE_NAME!r} is reserved: it names the run-level "
-                "scope in the run bundle -- pick another name",
-            )
-        return self
-
-
 class SliceMigrationPolicy(_StrictModel):
     """Per-slice migration budget overrides.
 
@@ -678,7 +655,6 @@ class EvalShiftConfig(_StrictModel):
     prompts: list[PromptDefinition] = Field(min_length=1)
     defaults: Defaults = Field(default_factory=Defaults)
     evaluators: EvaluatorsConfig = Field(default_factory=EvaluatorsConfig)
-    slices: list[SliceConfig] = Field(default_factory=list)
     migration_policy: MigrationPolicy | None = None
     # Named suites (e.g. promoted captures) resolvable via `run --suite-name`.
     # Empty by default so every pre-existing config stays valid.
@@ -731,14 +707,24 @@ class EvalShiftConfig(_StrictModel):
     def _reject_removed_fields(cls, data: Any) -> Any:
         """Name the fields that were removed instead of calling them typos.
 
-        ``extra="forbid"`` already rejects ``thresholds``, but it says "Extra
-        inputs are not permitted" — which reads as a misspelling and sends the
-        reader hunting for the correct name of a field that is gone. Runs
-        before validation because a forbidden extra never reaches an
-        ``after`` validator.
+        ``extra="forbid"`` already rejects ``thresholds`` and ``slices``, but
+        it says "Extra inputs are not permitted" — which reads as a
+        misspelling and sends the reader hunting for the correct name of a
+        field that is gone. Runs before validation because a forbidden extra
+        never reaches an ``after`` validator.
         """
-        if isinstance(data, dict) and "thresholds" in data:
-            raise ValueError(_REMOVED_THRESHOLDS_MESSAGE)
+        if isinstance(data, dict):
+            # Both at once, so deleting one does not uncover the other next run.
+            messages = [
+                message
+                for key, message in (
+                    ("thresholds", _REMOVED_THRESHOLDS_MESSAGE),
+                    ("slices", _REMOVED_SLICES_MESSAGE),
+                )
+                if key in data
+            ]
+            if messages:
+                raise ValueError(" ".join(messages))
         return data
 
     @model_validator(mode="after")
@@ -760,7 +746,6 @@ __all__ = [
     "LLMJudgeConfig",
     "PromptDefinition",
     "SemanticEvaluatorConfig",
-    "SliceConfig",
     "StructuralEvaluatorConfig",
     "SuiteEvaluatorsOverride",
     "SuiteSource",

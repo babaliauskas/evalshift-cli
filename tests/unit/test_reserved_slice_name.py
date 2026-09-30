@@ -3,9 +3,9 @@
 `BUNDLE_SPEC.md` has always reserved it — `decision.overall` is the whole-run
 summary and `BudgetResult.scope` defaults to `"overall"` — and the server now
 rejects a bundle whose `decision.slices` carries that key. A slice name reaches
-the bundle from three authoring surfaces, so all three are refused here, where
-the error can point at the line the user wrote rather than at an upload that
-already happened.
+the bundle from two authoring surfaces -- a suite example tag and a
+`migration_policy.slices` key -- so both are refused here, where the error can
+point at the line the user wrote rather than at an upload that already happened.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from evalshift_cli.config.models import MigrationPolicy, SliceConfig
+from evalshift_cli.config.models import MigrationPolicy
 from evalshift_cli.suite.tags import RESERVED_SLICE_NAME
 from tests.unit.suite_examples import suite_example
 
@@ -32,15 +32,6 @@ def test_suite_example_rejects_a_tag_named_overall() -> None:
 
 def test_suite_example_still_accepts_ordinary_tags() -> None:
     assert suite_example(id="ex1", tags=["captured", "refunds"]).tags == ["captured", "refunds"]
-
-
-def test_slice_config_rejects_the_reserved_name() -> None:
-    with pytest.raises(ValidationError, match="overall"):
-        SliceConfig(name="overall", filter="refunds")
-
-
-def test_slice_config_accepts_an_ordinary_name() -> None:
-    assert SliceConfig(name="refunds", filter="refunds").name == "refunds"
 
 
 def test_migration_policy_rejects_a_per_slice_override_keyed_overall() -> None:
@@ -75,9 +66,10 @@ evaluators:
   structural:
     - type: length
       min_chars: 1
-slices:
-  - name: overall
-    filter: refunds
+migration_policy:
+  slices:
+    overall:
+      max_overall_regression_rate: 0.05
 """,
         encoding="utf-8",
     )
@@ -87,7 +79,7 @@ slices:
 
 
 def test_an_ordinary_slice_name_still_loads(tmp_path: Path) -> None:
-    """Sanity: the guard rejects one literal, not the `slices:` block."""
+    """Sanity: the guard rejects one literal, not per-slice budgets."""
     from evalshift_cli.config.loader import load_config
 
     (tmp_path / "evalshift.yaml").write_text(
@@ -106,11 +98,15 @@ evaluators:
   structural:
     - type: length
       min_chars: 1
-slices:
-  - name: refunds
-    filter: refunds
+migration_policy:
+  slices:
+    refunds:
+      max_overall_regression_rate: 0.05
 """,
         encoding="utf-8",
     )
 
-    assert [s.name for s in load_config(tmp_path / "evalshift.yaml").slices] == ["refunds"]
+    policy = load_config(tmp_path / "evalshift.yaml").migration_policy
+
+    assert policy is not None
+    assert set(policy.slices) == {"refunds"}

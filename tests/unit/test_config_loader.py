@@ -88,9 +88,6 @@ class TestLoadConfigHappy:
               llm_judge:
                 - criterion_name: factuality
                   criterion_prompt: Which output preserves more factual detail?
-            slices:
-              - name: long
-                filter: "len(conversation) > 1000"
             """,
         )
         cfg = load_config(path)
@@ -98,7 +95,6 @@ class TestLoadConfigHappy:
         assert cfg.defaults.max_cost_usd == 25.0
         assert cfg.evaluators.semantic is not None
         assert len(cfg.evaluators.llm_judge) == 1
-        assert cfg.slices[0].name == "long"
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +228,25 @@ class TestLoadConfigSchema:
         rendered = info.value.format_plain()
         assert "`thresholds` was removed" in rendered
         assert "migration_policy is the single source of truth" in rendered
+
+    def test_removed_slices_key_explains_the_removal(self, tmp_path: Path) -> None:
+        path = _write(
+            tmp_path,
+            """
+            prompts:
+              - id: a
+                detection: manual
+                content: hi
+            slices:
+              - name: refunds
+                filter: refunds
+            """,
+        )
+        with pytest.raises(ConfigError) as info:
+            load_config(path)
+        rendered = info.value.format_plain()
+        assert "`slices` was removed" in rendered
+        assert "migration_policy.slices" in rendered
 
     def test_multiple_errors_collected(self, tmp_path: Path) -> None:
         path = _write(

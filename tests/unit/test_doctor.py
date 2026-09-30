@@ -135,6 +135,24 @@ class TestRunChecksConfig:
         row = _by_name(run_checks(cwd=tmp_path, env=_empty_env()), CONFIG_FILENAME)
         assert row.status == "fail"
 
+    def test_a_removed_slices_key_fails_like_removed_thresholds(self, tmp_path: Path) -> None:
+        """Both retired keys land on the same failing row; neither loads."""
+        rows = []
+        for name, block in (
+            ("thresholds", "thresholds:\n  pass_rate_min: 0.9\n"),
+            ("slices", "slices:\n  - {name: refunds, filter: refunds}\n"),
+        ):
+            project = tmp_path / name
+            project.mkdir()
+            (project / CONFIG_FILENAME).write_text(
+                "prompts:\n  - {id: a, detection: manual, content: hi}\n" + block,
+                encoding="utf-8",
+            )
+            rows.append(_by_name(run_checks(cwd=project, env=_empty_env()), CONFIG_FILENAME))
+        thresholds_row, slices_row = rows
+        assert thresholds_row.status == slices_row.status == "fail"
+        assert slices_row.detail == thresholds_row.detail
+
     def test_unparseable_yaml_fails(self, tmp_path: Path) -> None:
         (tmp_path / CONFIG_FILENAME).write_text(
             "prompts:\n  - id: a\n  detection: manual\n   content: bad-indent\n",
