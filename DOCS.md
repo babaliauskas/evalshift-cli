@@ -88,12 +88,12 @@ EvalShift is four pieces. Each is released and documented independently; each ow
 
 | Piece | Distribution | What it does | Reference for humans | Reference for AI tools |
 | --- | --- | --- | --- | --- |
-| **CLI** | PyPI `evalshift` (import `evalshift`) | Runs the suite on two models, scores, analyses, reports, bundles, pushes. | this document | <https://www.evalshift.dev/cli-llms-full.txt> |
+| **CLI** | PyPI `evalshift` (import `evalshift_cli`) | Runs the suite on two models, scores, analyses, reports, bundles, pushes. | this document | <https://www.evalshift.dev/cli-llms-full.txt> |
 | **SDK** | PyPI `evalshift-sdk` (import `evalshift`) | In-process capture: records your agent's model/tool calls to `.evalshift/captures/`. | [docs/sdk.md](docs/sdk.md), [SDK repo](https://github.com/babaliauskas/evalshift-sdk) | <https://www.evalshift.dev/sdk-llms-full.txt> |
 | **GitHub Action** | `babaliauskas/evalshift-action@v0` | Runs the pipeline on PRs, pushes the run, maintains one PR comment, sets the `evalshift/regression` status. | [docs/github-action.md](docs/github-action.md), [action repo](https://github.com/babaliauskas/evalshift-action) | <https://www.evalshift.dev/ci-llms-full.txt> |
 | **Hosted server** | service — API `https://api.evalshift.dev`, web app `https://evalshift.dev` | Stores pushed run bundles, diffs runs across branches, serves the web app, drives PR comments and gating. | [docs/hosted.md](docs/hosted.md) | covered by the CLI reference (`push`/`bundle` contract) |
 
-Data flow is one-directional: **SDK captures → CLI runs and bundles → server stores and diffs → web app displays.** The SDK and CLI never call each other — the interface is files under `.evalshift/captures/`. Because both use the top-level import name `evalshift`, install them in **separate virtual environments**.
+Data flow is one-directional: **SDK captures → CLI runs and bundles → server stores and diffs → web app displays.** The SDK and CLI never call each other — the interface is files under `.evalshift/captures/`. The CLI (import `evalshift_cli`) depends on the SDK (import `evalshift`), so one environment holds both.
 
 The CLI reference is generated from [llms-full.txt](llms-full.txt) at this repo's root — edit that file when CLI behaviour changes. The SDK and Action references are owned by their own repos; the copies served from `evalshift.dev` are synced from there.
 
@@ -122,7 +122,7 @@ evalshift capture sync
 evalshift compare --suite-name <suite> --to <candidate-model>
 ```
 
-`evalshift compare` drives the full pipeline — `doctor → run → evaluate → analyze → report` — over one suite under one live progress display, then opens `report.html`: a single-file, offline-capable HTML report with per-prompt/per-slice comparisons, severity badges, effect sizes with 95% CIs, and a migration-policy verdict panel. `run`/`compare` estimate worst-case cost up front and prompt for confirmation above $10 (skip with `--yes`).
+`evalshift compare` drives the full pipeline — `doctor → run → evaluate → analyze → report` — over one suite under one live progress display, then writes `report.html` (add `--open` to open it in your browser): a single-file, offline-capable HTML report with per-prompt/per-slice comparisons, severity badges, effect sizes with 95% CIs, and a migration-policy verdict panel. `run`/`compare` estimate worst-case cost up front and prompt for confirmation above $10 (skip with `--yes`).
 
 See [Project setup](#project-setup) and [Capturing from production](#capturing-from-production). No captures to work from? Write `golden.jsonl` by hand — see [The golden suite](#the-golden-suite).
 
@@ -130,20 +130,22 @@ See [Project setup](#project-setup) and [Capturing from production](#capturing-f
 
 ## Project setup
 
-`evalshift init` is the real-project entry point. Writes **only** a minimal, capture-first `evalshift.yaml`: a passthrough `replay` prompt (`content: "{input}"`), advisory semantic + LLM-judge evaluators, an empty managed `suites:` block for `capture sync` to fill, and a migration policy. The intended flow: instrument your agent with the evalshift-sdk → record captures → `evalshift capture sync` → run against the promoted suite.
+`evalshift init` is the real-project entry point. Writes **only** a minimal, capture-first `evalshift.yaml`: a passthrough `replay` prompt (`content: "{input}"`), advisory LLM-judge and (for Gemini and OpenAI) semantic evaluators, an empty managed `suites:` block for `capture sync` to fill, and a migration policy. The intended flow: instrument your agent with the evalshift-sdk → record captures → `evalshift capture sync` → run against the promoted suite.
 
 `init` options:
 
 - `--provider gemini|openai|anthropic|deepseek` — which provider's model ids the scaffold uses (prompted on a TTY; defaults to `gemini` otherwise). Gemini and OpenAI scaffolds include an embedding-based semantic evaluator; the Anthropic and DeepSeek scaffolds comment it out (no embedding endpoint).
 - `--profile` — pre-tuned migration-policy budgets:
 
-| Profile | regression ≤ | critical ≤ | equivalence ≥ | arg drift ≤ | cost Δ ≤ | latency Δ ≤ |
-|---|---|---|---|---|---|---|
-| `model-upgrade` (default) | 3% | 0 | 95% | 1% | +20% | +30% |
-| `cost-reduction` | 2% | 0 | 97% | 1% | +5% | +30% |
-| `local-model` | 5% | 0 | 90% | 2% | +0% | +50% |
-| `quantization` | 2% | 0 | 97% | 0.5% | +0% | +20% |
-| `provider-switch` | 3% | 0 | 95% | 1% | +20% | +40% |
+| Profile | regression ≤ | critical ≤ | equivalence ≥ | arg drift ≤ | tool divergence ≤ | cost Δ ≤ | latency Δ ≤ |
+|---|---|---|---|---|---|---|---|
+| `model-upgrade` (default) | 30% | 1 | 75% | 20% | 20% | +30% | +30% |
+| `cost-reduction` | 2% | 0 | 97% | 1% | 2% | +5% | +30% |
+| `local-model` | 5% | 0 | 90% | 2% | 5% | +0% | +50% |
+| `quantization` | 2% | 0 | 97% | 0.5% | 2% | +0% | +20% |
+| `provider-switch` | 3% | 0 | 95% | 1% | 3% | +20% | +40% |
+
+The `model-upgrade` row is the loose first-migration starting point — the `migration_policy` field defaults (see [Migration policy and CI gating](#migration-policy-and-ci-gating)); the other four are tighter presets to move to as the suite grows.
 
 - `--ci` — also scaffold `.github/workflows/evalshift.yml` (see [GitHub Action](#github-action)).
 - `--wire-agents` (default on) — write `EVALSHIFT.md`, a guide for AI coding agents, and point existing agent files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.github/copilot-instructions.md`) at it, creating `AGENTS.md` if none exist. Both the guide and the pointer blocks link the three hosted llms.txt references — [cli-llms-full.txt](https://evalshift.dev/cli-llms-full.txt), [sdk-llms-full.txt](https://evalshift.dev/sdk-llms-full.txt), and [ci-llms-full.txt](https://evalshift.dev/ci-llms-full.txt) (GitHub Action). Idempotent; disable with `--no-wire-agents`.
@@ -206,7 +208,7 @@ init          →   doctor   →   run          →   evaluate       →   analy
 ```
 
 - **`doctor`** validates local config and shows which provider keys are visible. Exit 1 only when an existing `evalshift.yaml` fails validation; missing keys are soft warnings. Its second row, `evalshift-sdk`, reports the SDK version the `evalshift` import name resolves to in this environment (`warn` when the SDK is missing or shadowed by an older CLI's leftover files; never a failure). It also reports the toolset each configured suite carries (or the flat `golden.jsonl`) and flags a suite whose examples carry more than one distinct toolset — legal (each example dispatches its own), but also the shape a wiring mistake takes. When a workflow under `.github/workflows/` uses the GitHub Action it adds a `ci pin` row: `ok` (`pinned to <v>`) when CI installs this CLI version, `warn` when the pin is older, absent, or newer than the local CLI (see [Pin drift](#pin-drift)). When the config wires an `llm_judge` evaluator and names both `defaults.source_model` and `target_model`, a `judge family` row warns for every `judge_model` that resolves to the same provider as an arm (self-preference bias; `ok` "from a third family" otherwise, no row when either arm is unset) — advisory, never a failure; `validate` prints the same line and the report repeats it above the verdict (see [`evaluators.llm_judge`](docs/configuration.md#evaluatorsllm_judge)).
-- **`run`** parses prompts, validates every example against every prompt, estimates cost, then dispatches `(prompt × example × {source, target})` calls through an async orchestrator under a concurrency semaphore. Responses are cached; progress is checkpointed every 50 completions.
+- **`run`** parses prompts, validates every example against every prompt, estimates cost, then dispatches `(prompt × example × {source, target})` calls through an async orchestrator under a concurrency semaphore. Responses to tool-less examples are cached (tool-calling examples are always dispatched live — see [Response cache](#response-cache)); progress is checkpointed every 50 completions.
 - **`evaluate`** scores each (source, target) pair with the configured evaluators, one `EvalRecord` per pair × evaluator. Scoring runs under the same `defaults.concurrency` semaphore as `run`, and the embedding/judge calls it makes go through the same response cache.
 - **`analyze`** runs paired statistics per `(prompt, evaluator, slice)`, applies Benjamini–Hochberg FDR correction, classifies severities, and — when a `migration_policy` is configured — computes a pass/fail verdict.
 - **`report`** renders the single-file HTML report (no external assets; works offline and attaches cleanly to a PR or email), and writes the machine-written [run insights](#run-insights) narrative unless `--no-insights` is passed. The page opens on a verdict / advisory-signal / economics panel row and a six-cell run strip (examples, calls, failed-or-truncated, spend, latency Δ, mean score Δ), then the executive summary, the narrative, one section per prompt, and the methodology. Every figure on it is derived from the run's own artefacts; the deltas in the header are the run-level rollup of the per-prompt economics. Top regressions are collapsed cards — expand one for the trace diff, the tool diffs and the conversation context. The report is dark-only.
@@ -218,8 +220,8 @@ Run ids look like `r_20260722_golden_a1b2c3` (`r_<date>_<suite-slug>_<hex>`). Un
 
 | File | Written by | Contents |
 |---|---|---|
-| `state.json` | run | Run status, models, config hash, progress counters, `non_deterministic_models`, `dropped_params`, `evaluator_coverage` — attempted vs recorded per axis, the pairs that produced no row, and the axis's `blocking` flag (atomic write) |
-| `raw.jsonl` | run | One line per model call: rendered prompt, output, tokens, cost, latency, tool trace, error |
+| `state.json` | run | Run status, models, config hash, progress counters, `non_deterministic_models`, `dropped_params`, and — added by `evaluate` — `evaluator_coverage`: attempted vs recorded per axis, the pairs that produced no row, and the axis's `blocking` flag (atomic write) |
+| `raw.jsonl` | run | One line per (prompt, example, role, sample): rendered prompt, output, tokens, cost, latency, tool trace, error. A teacher-forced multi-round replay is one row (tokens, cost and latency summed over its rounds) |
 | `scores.jsonl` | evaluate | One line per (pair × evaluator): source/target scores, delta, explanation |
 | `analysis.json` | analyze | Per-comparison statistics, severities, notes |
 | `migration_decision.json` | analyze | Policy verdict + per-budget detail (only when `migration_policy` set) |
@@ -231,11 +233,11 @@ Run ids look like `r_20260722_golden_a1b2c3` (`r_<date>_<suite-slug>_<hex>`). Un
 
 ### Checkpointing and resume
 
-`state.json` records a `config_hash` (SHA-256 over the canonicalised config plus the suite path). `run --resume` picks up the most recent in-progress run, verifies the hash still matches (aborts if config or suite changed), and skips every `(prompt, example, role)` already present in `raw.jsonl`. Calls that errored are counted as done — they are not retried automatically.
+`state.json` records a `config_hash` (SHA-256 over the canonicalised config plus the suite path). `run --resume` picks up the most recent in-progress run, verifies the hash still matches (aborts if the config or the suite **path** changed — suite *contents* are not hashed, so start a fresh run after editing examples), and skips every `(prompt, example, role, sample)` already present in `raw.jsonl`. Calls that errored are counted as done — they are not retried automatically.
 
 ### Response cache
 
-Live responses are cached in SQLite at `~/.evalshift/cache.db`, keyed by SHA-256 over canonical JSON of `(model, prompt, inputs, temperature, max_tokens[, history])`, with a 7-day TTL. Re-running an identical evaluation is nearly free. Disable per-project with `defaults.cache: false`; wipe with `evalshift cache clear`.
+Live responses to **tool-less** examples are cached in SQLite at `~/.evalshift/cache.db`, keyed by SHA-256 over canonical JSON of `(model, prompt, inputs, temperature, max_tokens[, history])` — plus `generation_config`, the toolset fingerprint, the round index and the sample index when each is set — with a 7-day TTL. Re-running an identical tool-less evaluation costs no run-stage calls. **Examples with a non-empty toolset are not cached:** every `run` of an agent suite dispatches them live, at full price. The evaluate-stage embedding and judge caches below still apply to them. Disable per-project with `defaults.cache: false`; wipe with `evalshift cache clear`.
 
 The cache covers the evaluate stage too: `semantic` embeddings are keyed by `(embedding model, text)`, and `llm_judge` verdicts by `(judge model, criterion, source output, target output)`. The judge key uses a canonical A/B ordering, so the per-call orientation randomization doesn't halve the hit rate — the orientation that was actually used is recorded with the verdict and replayed on a hit, leaving `metadata.target_was_a` faithful.
 
@@ -292,7 +294,6 @@ migration_policy:
   min_equivalence_rate: 0.75
   max_tool_argument_drift: 0.20
   max_tool_divergence: 0.20
-  tool_argument_drift_floor: 0.9
   max_cost_increase: 0.30
   max_latency_increase: 0.30
 
@@ -308,12 +309,12 @@ suites: {}
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `version` | literal `1`, required | Config schema version |
+| `version` | literal `1`, default `1` (optional) | Config schema version |
 | `project` | `str \| None` | Hosted project slug, `org/project` (regex `^[a-z0-9-]+/[a-z0-9-]+$`) |
 | `prompts` | list, required, ≥1 | Prompt definitions (unique ids enforced) |
 | `defaults` | block | Run defaults, below |
 | `evaluators` | block | Evaluator configs, see [Evaluators](#evaluators) |
-| `slices` | list | Named suite subsets, below |
+| `slices` | list | Validated and recorded in the bundle, but **not applied** — slices come from example tags. See below |
 | `migration_policy` | block \| absent | Regression budgets, see [Migration policy](#migration-policy-and-ci-gating) |
 | `suites` | map | Named suites (`{name: {source: captured\|jsonl, path: ..., evaluators: ..., managed: true}}`); the block between the `>>> evalshift suites` markers is managed by `capture sync`. See [Per-suite evaluators](#per-suite-evaluators) |
 | `retention` | block | `max_runs_per_suite` (default 20, `0` disables), `run_ttl_days` (default off) |
@@ -342,14 +343,16 @@ Nothing replaced it. Delete the block; express any gate you meant by it as a `mi
 
 ### `slices`
 
+Slices come from the suite, not from this block: every distinct example `tag` becomes a slice under its own name, alongside the implicit `all` slice. Every configured evaluator is analysed once overall and once per slice. Per-slice budgets go under [`migration_policy.slices`](#migration-policy-and-ci-gating), keyed by the tag.
+
 ```yaml
-slices:
+slices:                       # validated and recorded in the run bundle; NOT applied by analysis
   - name: security
-    filter: security          # matched against each example's tags list
-    applies_to: ["*"]         # optional: restrict to prompt ids
+    filter: security          # a literal tag
+    applies_to: ["*"]         # glob list of prompt ids
 ```
 
-A slice collects the examples whose `tags` contain the `filter` string. Every configured evaluator is analysed once overall and once per slice, and migration-policy budgets can be tightened per slice. `overall` is reserved — it names the run-level scope in the run bundle — and is rejected as a slice `name`, as an example tag, and as a `migration_policy.slices` key.
+The top-level `slices:` block still loads — it is validated and copied into the run bundle's evaluator config — but analysis does not read it today: `name`, `filter` and `applies_to` rename, filter and scope nothing, and a run reports the same slices with or without it. `overall` is reserved — it names the run-level scope in the run bundle — and is rejected as a slice `name`, as an example tag, and as a `migration_policy.slices` key.
 
 Slices holding exactly the same examples are collapsed to one before any test runs — duplicates restate the same numbers as if they were independent findings and skew the Benjamini–Hochberg correction anti-conservatively (extra copies of a p-value shrink every adjusted p-value in the family, so results look more significant than they are). `all` and any slice named under `migration_policy.slices` always survive; otherwise the provenance tag `captured` (written by `capture promote`) loses to an ordinary tag, then alphabetical order decides. Drops are reported on the terminal and as `collapsed_slices` in `analysis.json`. See [docs/methodology.md](docs/methodology.md).
 
@@ -432,7 +435,7 @@ Each entry in `expected_tools`:
 - `match_strategy`: `exact` (arguments must match exactly), `subset` (default; expected keys must be present and equal, extras allowed), `contains_per_field` (per-field containment).
 - `provenance`: `captured` (default, what `capture promote`/`sync` write — transcribed from the source model's own call, unverified) or `reviewed` (a human has confirmed it). Scoring is identical; the flag only decides whether the run discloses that its ground truth is source-derived — see [Agent evaluation → Ground truth](#ground-truth).
 
-Validators enforced at load: exactly one of `toolset_ref` / `tools` is required — neither, or both, fails to load; `expected_no_tools: true` is incompatible with non-empty `expected_tools`, a non-empty `expected_tool_rounds`, or a nonzero `expected_tool_count`; `tool_result_fixtures` requires `expected_tool_rounds`, cannot cover more rounds than it has, and every covered round needs one result per expected call with a matching `tool_name`; `history` may contain at most one `system` message and it must come first; duplicate ids across the suite are rejected. The loader collects **all** schema errors before failing, so you fix a broken suite in one pass.
+Validators enforced at load: exactly one of `toolset_ref` / `tools` is required — neither, or both, fails to load; `expected_no_tools: true` is incompatible with non-empty `expected_tools`, a non-empty `expected_tool_rounds`, or a nonzero `expected_tool_count` — and so is an empty toolset, spelled `tools: []` or a `toolset_ref` naming the empty toolset (a call offered no tools cannot produce a tool call); `tool_result_fixtures` requires `expected_tool_rounds`, cannot cover more rounds than it has, and every covered round needs one result per expected call with a matching `tool_name`; `history` may contain at most one `system` message and it must come first; duplicate ids across the suite are rejected. The loader collects **all** schema errors before failing, so you fix a broken suite in one pass.
 
 ---
 
@@ -476,7 +479,7 @@ Evaluators score each (source, target) output pair. Scores live in `[0, 1]`; the
 - `blocking: true|false` (default `true`) — **blocking** evaluators feed the migration-policy verdict and CI gates; **advisory** (`blocking: false`) evaluators are computed, reported, and summarised separately but can never fail a run on their own. The `init` scaffold ships semantic and judge as advisory deliberately: at small suite sizes their noise would gate the verdict.
 - `applies_to: ["*"]` — restrict to specific prompt ids (where supported).
 
-When an evaluator's own measurement breaks (judge call fails, embedding call fails), the record is stored as **errored and excluded from the statistics** — not silently scored neutral. Upstream failures are different: if a *model call* failed or was truncated, the pair gets a neutral 0.5/0.5 record with the error attached, so the run always completes.
+When an evaluator's own measurement breaks (judge call fails, embedding call fails), the record is stored as **errored and excluded from the statistics** — not silently scored neutral. Upstream failures are recorded the same way: if a *model call* failed or was truncated, the pair gets an errored row (a 0.5/0.5 placeholder with the error attached), kept in `scores.jsonl` and excluded from the statistics. The run always completes.
 
 ### Structural (`evaluators.structural`, list) — free, no API calls
 
@@ -505,13 +508,13 @@ Pairwise A/B comparison per criterion: the judge sees the two outputs anonymised
 
 ### Failure categories
 
-Regressions carry machine-readable labels that the report and hosted diff group by: `FORMAT_FAILURE`, `SEMANTIC_REGRESSION`, `TOOL_SELECTION_DRIFT`, `ARGUMENT_VALUE_DRIFT`, `TOOL_TRACE_STRUCTURE_DRIFT`, `TOOL_ORDER_DRIFT`, `DANGEROUS_ACTION_DRIFT`, `MISSING_VERIFICATION_STEP`, `UNNECESSARY_TOOL_CALL`, and `REFUSAL_REGRESSION`. That is the complete set — every label the evaluators emit is declared in `evaluators/failures.py`. The machine labels live in `scores.jsonl`, `report.json` and the bundle; every rendered surface (the HTML report, decision prose, the run narrative) shows the plain-language display name instead — `TOOL_SELECTION_DRIFT` renders as "Different tools chosen" — with the mapping declared beside the labels in `evaluators/failures.py`.
+Regressions carry machine-readable labels that the report and hosted diff group by: `FORMAT_FAILURE`, `SEMANTIC_REGRESSION`, `TOOL_SELECTION_DRIFT`, `TOOL_GROUND_TRUTH_MISS` (both models missed the same recorded tool ground truth — a broken-harness signal, not a migration finding; see [Migration policy and CI gating](#migration-policy-and-ci-gating)), `ARGUMENT_VALUE_DRIFT`, `TOOL_TRACE_STRUCTURE_DRIFT`, `TOOL_ORDER_DRIFT`, `DANGEROUS_ACTION_DRIFT`, `MISSING_VERIFICATION_STEP`, `UNNECESSARY_TOOL_CALL`, and `REFUSAL_REGRESSION`. That is the complete set — every label the evaluators emit is declared in `evaluators/failures.py`. The machine labels live in `scores.jsonl`, `report.json` and the bundle; every rendered surface (the HTML report, decision prose, the run narrative) shows the plain-language display name instead — `TOOL_SELECTION_DRIFT` renders as "Different tools chosen" — with the mapping declared beside the labels in `evaluators/failures.py`.
 
 `ARGUMENT_VALUE_DRIFT` counts **regressions**: it is stamped only when the target scored below the source. Under `against: expected` both models can miss the same recorded expectation by the same margin — a zero delta, and a fact about your ground truth rather than a migration defect, already reported as such. Policy budgets are unaffected by the label: `max_tool_argument_drift` counts calls whose *target* score fell below `tool_argument_drift_floor`.
 
 ### Cost
 
-Structural and tool-call evaluators are free (pure computation over recorded outputs). Semantic costs one embedding call per output (one per pair when the two outputs are identical); `llm_judge` costs one judge-model call per (pair × criterion) — usually the dominant evaluation cost. Both go through the same cache as everything else, so re-running `evaluate` over an unchanged run costs nothing.
+Structural and tool-call evaluators are free (pure computation over recorded outputs) — except that when an `evaluators.semantic` block exists, `tool_arguments` embeds free-text argument values (under the default `auto` strategy) and `semantic`-strategy fields with its model. Semantic costs one embedding call per output (one per pair when the two outputs are identical); `llm_judge` costs one judge-model call per (pair × criterion) — usually the dominant evaluation cost. Both go through the same cache as everything else, so re-running `evaluate` over an unchanged run costs nothing.
 
 ---
 
@@ -571,6 +574,7 @@ EvalShift evaluates multi-turn agents by **teacher-forced replay**: each turn is
 
 ```jsonl
 {"id": "conv1_t2", "inputs": {"input": "1pm works"}, "conversation_id": "conv_9f2", "turn_index": 2,
+ "tools": [{"name": "get_calendar", "description": "List free slots on a day.", "input_schema": {"type": "object", "properties": {"day": {"type": "string"}}, "required": ["day"]}}],
  "history": [
    {"role": "system", "content": "You are a scheduling assistant."},
    {"role": "user", "content": "Can we move my appointment?"},
@@ -666,7 +670,7 @@ Budgets (fractions, not percents):
 | `max_cost_increase` | 0.30 | Relative avg-cost increase, target vs source |
 | `max_latency_increase` | 0.30 | Relative avg-latency increase |
 | `fail_on_dropped_params` | `false` | Fail when `state.json` → `dropped_params` is non-empty — an arm could not honour a generation constraint the source capture recorded. Top level only: a model either accepts a parameter or does not, which no subset of examples can vary. |
-| `slices` | `{}` | Per-slice overrides (unset fields inherit the top level) |
+| `slices` | `{}` | Per-slice overrides keyed by example tag — each distinct tag is a slice (unset fields inherit the top level) |
 
 These defaults are a first-migration starting point, not a shipping gate: a fresh suite should *report* the regressions it found rather than fail on a couple of reworded tool arguments. `evalshift init` writes exactly these numbers (`--profile` picks a tighter set — `cost-reduction`, `quantization`, `provider-switch`, `local-model`); tighten them as the suite grows and the migration nears merge.
 
@@ -679,14 +683,14 @@ How the verdict is computed:
 - **A cost/latency ratio measured only from zeroes says so.** When the calls exist but every `cost_usd` (or `latency_ms`) is `0` on both models, `analyze` adds a recommendations line beside the `conclusive: false`: `The cost increase budget could not be measured: all 4 error-free calls across both models recorded a cost of 0, so its observed 0.00 is a default, not a measurement.` A run with no calls gets no line — the empty `raw.jsonl` already explains itself. Emitted once per run, since every scope reads the same calls.
 - **Every budget reports its own `denominator`** — the sample `observed` was computed over. Scored records for the regression rate, the equivalence rate and the critical count — counted over *measurements*, so an evaluator scoring two axes contributes two rows per example; `tool_arguments` rows for tool drift; `tool_selection.divergence` rows for tool divergence; the error-free calls behind both averages for the cost and latency ratios. Slices report their own counts. `0` means "counted, and the sample was empty", so `observed` is a default; a *missing* `denominator` means "no sample size reported" and is **not** zero — only bundles written before the field say that, and the hosted gate falls back to `conclusive` for them. It is the same number the `1/n` granularity warning is judged on, and it is orthogonal to `conclusive`: an all-zero cost ratio counted every call it averaged and still measured nothing, so it reports a positive denominator beside `conclusive: false`. The hosted gate derives its own Wilson interval from these denominators, over the same three rate budgets and with the same confidence constant the CLI uses, so a local verdict and a hosted one now agree on whether a breach was confirmed — see [methodology](docs/methodology.md).
 - Any conclusive budget failure, or any blocking critical/high-severity comparison → **`fail`**. Any lower-severity blocking regression → **`conditional_pass`**. Otherwise → **`pass`**.
-- **`migration_policy` is the single source of truth for these budgets.** `migration_decision.json`'s `policy` field is the resolved policy `analyze` computed the verdict under — every top-level budget with its default applied, plus `slices`. `bundle`/`push` do not read `migration_decision.json`; `bundle` re-resolves the verdict from `evalshift.yaml` at bundle time, so the bundle's `decision.policy` (see [Hosted EvalShift](#hosted-evalshift)) is the policy the config held when the bundle was built — editing `migration_policy` between `analyze` and `push` changes what the bundle carries. Either way, that is what lets the hosted gate check a pull request against exactly the budgets the bundle's own verdict used, instead of a separate, web-edited policy. `null` when no `migration_policy` is configured, and on a `migration_decision.json` written before this field existed. `evalshift.yaml` is the source of truth for that policy, and the web app's project policy view is becoming a read-only display of the snapshot each run pushed.
+- **`migration_policy` is the single source of truth for these budgets.** `migration_decision.json`'s `policy` field is the resolved policy `analyze` computed the verdict under — every top-level budget with its default applied, plus `slices`. `bundle`/`push` do not read `migration_decision.json`; `bundle` re-resolves the verdict from `evalshift.yaml` at bundle time, so the bundle's `decision.policy` (see [Hosted EvalShift](#hosted-evalshift)) is the policy the config held when the bundle was built — editing `migration_policy` between `analyze` and `bundle` changes what the bundle carries. `push <run-id>` builds a bundle only when `run_bundle.json.gz` is missing — an existing bundle is uploaded as-is — so re-run `evalshift bundle <run-id>` after a config edit. Either way, that is what lets the hosted gate check a pull request against exactly the budgets the bundle's own verdict used, instead of a separate, web-edited policy. `null` when no `migration_policy` is configured, and on a `migration_decision.json` written before this field existed. `evalshift.yaml` is the source of truth for that policy, and the web app's project policy view is becoming a read-only display of the snapshot each run pushed.
 - **A slice budget gates the run exactly like an overall one.** The budgets under `migration_policy.slices` are evaluated on the same terms as the top-level ones: a conclusively breached slice budget **fails** the run, and an unconfirmed breach makes it `inconclusive` — the same Wilson rule, counted over that slice's own denominator. Since the overall rows can all be green in a run a slice budget fails, `recommendations` names the one that blocked (`The 'security' slice breached its overall regression rate budget (the share of scored comparisons where the target did worse): 20% over n=20 vs the 0% limit.`) and the `inconclusive` `reason` scope-qualifies it the same way. Per-slice verdicts under `slices[*].verdict` are unchanged, and a slice that fails on *comparison severity* rather than a budget still only downgrades an overall `pass` to `conditional_pass`.
 - Semantic drift that stays above `min_similarity` counts as equivalent, not regression.
 
 CI wiring (on `analyze` and `compare`):
 
 - `--gate critical,high` — exit 1 when any comparison at those severities exists (allowed values: `critical`, `high`, `medium`, `low`).
-- `--policy-gate` — exit 1 when the policy verdict is `fail` **or** `conditional_pass`.
+- `--policy-gate` — exit 1 when the policy verdict is `fail` **or** `conditional_pass`, or when no `migration_policy` is configured. `inconclusive` exits 0.
 - When `$GITHUB_STEP_SUMMARY` is set, `analyze` appends a markdown results table to the job summary.
 
 ---
@@ -709,7 +713,7 @@ defaults:
 ```
 
 - **Cost**: one model call per run (a second only when the first generation is rejected). The narrative is cached in `insights.json` and keyed on the run's `config_hash` plus the model id, so re-running `report` or `push` costs nothing; changing either invalidates the cache and regenerates.
-- **Skipped** when `--no-insights` is passed, when no API key is set for the chosen model, and when the run directory has no usable `evalshift.yaml`. Every skip is a warning, never an error.
+- **Skipped** silently when `--no-insights` is passed, and with a warning when no API key is set for the chosen model or the run directory has no usable `evalshift.yaml`. A skip is never an error.
 - **Never fatal.** Any failure inside generation is logged and leaves the narrative empty; a run that already has its statistics is not worth failing over a missing paragraph.
 - **What gets sent to the model**: the pre-rendered figures, plus the **worst 8 regressions'** inputs and both models' outputs (each truncated to 2000 characters). That is the same exposure `llm_judge` already has, but it is real — if your suite carries data you would not send to an LLM judge, run with `--no-insights`.
 - `insights.json` is a cache envelope (`{"config_hash": …, "insight": {…}}`); only the inner `insight` object is uploaded. Do not hand-edit it — an envelope the CLI does not recognise is treated as a cache miss.
@@ -730,19 +734,20 @@ evalshift logout
 ```
 
 - Credentials live in `~/.evalshift/credentials` (owner-only permissions). Precedence: CLI flags (`--host`/`--token`) > env (`EVALSHIFT_HOST`/`EVALSHIFT_TOKEN`) > credentials file. `--no-browser` prints the approval URL for remote shells.
+- Re-running `login` (without `--token`) while the stored token for that host still works reuses it — no new token is minted — and prints `already logged in as <email>`. To switch accounts, run `evalshift logout` first.
 - **`login` issues a personal token — don't use one in CI.** A personal token belongs to you and stops working when your membership does, which is correct on a workstation and fatal in a pipeline. For CI, mint a **service account key** in the web app (Settings → API tokens → Service accounts), scope it to the permissions the job needs, and pass it as `EVALSHIFT_TOKEN` from an encrypted secret instead of running `login` on the runner. Service accounts are org-owned, so the key survives the person who created it leaving.
 - Projects are `org/project` slugs — from `--project`, or the `project:` key in config. Missing projects are auto-created when permissions allow (`--no-create-project` disables; project-scoped tokens can't auto-create).
-- `evalshift bundle <run-id>` builds the upload artefact without uploading; `push --bundle <path>` uploads a prebuilt one. `run_bundle.json.gz` carries the manifest, per-example rows (inputs, both outputs, per-evaluator scores and the cost/latency deltas), each example's `traces` — one stream per model side with the ordered tool calls, arguments, any final text, and round markers (`model_call` input/output payloads are deliberately excluded, and oversized tool results are shortened rather than dropped) — the aggregate, `analysis`, the policy `decision` (whose `policy` field is the resolved `migration_policy` this run's verdict was computed under, or `null` when none is configured — see [Migration policy and CI gating](#migration-policy-and-ci-gating)), a run-level `economics` rollup (per-role calls, tokens, cost, latency), `methodology_notes`, the [insights](#run-insights) narrative, the evaluator config and the dataset snapshot. **`report.html` is not uploaded** — it is still written to the run directory for local viewing, and the hosted app renders the run from the data instead. Bundle bytes are deterministic: the same run always compresses identically. Pushes are idempotent on run id. On GitHub Actions, git metadata (`GITHUB_SHA`, branch refs) is baked into the bundle so the server can pair PR runs with base-branch baselines.
+- `evalshift bundle <run-id>` builds the upload artefact without uploading; `push --bundle <path>` uploads a prebuilt one. `run_bundle.json.gz` carries the manifest, per-example rows (inputs, both outputs, per-evaluator scores and the cost/latency deltas), each example's `traces` — the replay's own tool-call traces, one stream per model side with the ordered tool calls (names, arguments, call ids), round markers, any final text and refusal messages (no `model_call` events and no tool results; a stream over 256 KB keeps its leading events and is flagged `truncated`; imported agent traces from `traces import` stay local and are not uploaded) — the aggregate, `analysis`, the policy `decision` (whose `policy` field is the resolved `migration_policy` this run's verdict was computed under, or `null` when none is configured — see [Migration policy and CI gating](#migration-policy-and-ci-gating)), a run-level `economics` rollup (per-role calls, tokens, cost, latency), `methodology_notes`, the [insights](#run-insights) narrative, the evaluator config and the dataset snapshot. **`report.html` is not uploaded** — it is still written to the run directory for local viewing, and the hosted app renders the run from the data instead. Bundle bytes are deterministic: the same run always compresses identically. Pushes are idempotent on run id. On GitHub Actions, git metadata (`GITHUB_SHA`, branch refs) is baked into the bundle so the server can pair PR runs with base-branch baselines; elsewhere it comes from git, and `bundle` fails with `could not determine a valid 40-character git SHA; run inside git or set GITHUB_SHA` outside a git checkout. `push <run-id>` builds a bundle only when `run_bundle.json.gz` is missing and otherwise uploads the existing one as-is.
 - `push` validates the bundle against the server's own schema **before** it opens a connection, so a stale, hand-edited or foreign bundle fails locally (`✗ bundle failed schema validation: ...`, exit 1) instead of after a full upload. A bundle at or over **50 MB** compressed prints a warning naming the server's **100 MB** hard limit and uploads anyway — the hard limit is configurable server-side, so the CLI quotes it rather than enforcing a stale copy.
-- Two more notices, both before `push` reports success. A bundle with no `decision.policy` — no `migration_policy` configured — still uploads and renders like any gated run, but the hosted gate then has nothing of this run's own to check: unless the project still has an old web-app policy for the server to fall back on, it reports `inconclusive` and never blocks the pull request. `push` says so first, before the network is touched — and so before it can tell the two apart, hence the hedge: `! this run carries no migration policy; unless this project still has an old web-app policy, the hosted gate reports inconclusive and never blocks — add migration_policy to evalshift.yaml`. And once the server's initiate response comes back — before the bundle is uploaded — if the project's only policy lives in the web app and `evalshift.yaml` has no `migration_policy` of its own, `push` prints that policy back as a ready-to-paste block: `! this project has a policy configured in the web app; move it into evalshift.yaml:` followed by a `migration_policy:` YAML block holding only the keys the web app actually set. See [docs/hosted.md](docs/hosted.md#bundle-and-push) for the full example.
+- Two more notices, both before `push` reports success. A bundle with no `decision.policy` — no `migration_policy` configured — still uploads and renders like any gated run, but the hosted gate then has nothing of this run's own to check: unless the project still has an old web-app policy for the server to fall back on, it reports `inconclusive` and never blocks the pull request (unless the GitHub Action runs with `require-policy: true`, which fails the job for such a run). `push` says so first, before the network is touched — and so before it can tell the two apart, hence the hedge: `! this run carries no migration policy; unless this project still has an old web-app policy, the hosted gate reports inconclusive and never blocks — add migration_policy to evalshift.yaml`. And once the server's initiate response comes back — before the bundle is uploaded — if the project's only policy lives in the web app and `evalshift.yaml` has no `migration_policy` of its own, `push` prints that policy back as a ready-to-paste block: `! this project has a policy configured in the web app; move it into evalshift.yaml:` followed by a `migration_policy:` YAML block holding only the keys the web app actually set. See [docs/hosted.md](docs/hosted.md#bundle-and-push) for the full example.
 
 ### What uploads and what stays local
 
 The full field-by-field data contract lives in [docs/hosted.md — Privacy model](docs/hosted.md#privacy-model--exactly-what-uploads); this is the summary. The CLI has **no telemetry** — no analytics, no crash reporting. Its only network traffic is (1) your configured model providers, with your own keys, during `run`/`evaluate`/`report`, and (2) the hosted API on `login`, `whoami`, and `push`.
 
-**A push uploads**, inside `run_bundle.json.gz`: the manifest (run id, `org/project` slug, model ids, suite name, git SHA/branch/PR number, the local suite file path string, content hashes, timestamp, CLI version); per-example rows — the example's template `inputs` and `expected` output **verbatim**, both models' **full output text**, tool-call traces (tool names and arguments; imported traces also carry capped tool results, retrieval queries/documents and guardrail verdicts), per-evaluator scores and error strings, per-side cost and latency, tags; aggregate/analysis/decision/economics (numbers, not content); methodology notes; the insights narrative (prose that can quote the regressions it summarizes); the evaluator config with every prompt body replaced by a `content_hash` (prompt names, file paths and variable names do ship, and so does each `llm_judge` `criterion_prompt`); and a dataset snapshot holding only metadata plus an `examples_hash`. Request metadata beside the bundle: the bearer token as an auth header to the configured host only, and the compressed size.
+**A push uploads**, inside `run_bundle.json.gz`: the manifest (run id, `org/project` slug, model ids, suite name, git SHA/branch/PR number, the local suite file path string, content hashes, timestamp, CLI version); per-example rows — the example's template `inputs` and `expected` output **verbatim**, both models' **full output text**, the replay's tool-call traces (tool names, arguments and call ids, round markers, final text and refusal messages, capped at 256 KB per side; imported agent traces are not uploaded), per-evaluator scores and error strings, per-side cost and latency, tags; aggregate/analysis/decision/economics (numbers, not content); methodology notes; the insights narrative (prose that can quote the regressions it summarizes); the evaluator config with every prompt body replaced by a `content_hash` (prompt names, file paths and variable names do ship, and so does each `llm_judge` `criterion_prompt`); and a dataset snapshot holding only metadata plus an `examples_hash`. Request metadata beside the bundle: the bearer token as an auth header to the configured host only, and the compressed size.
 
-**Never uploads**: provider API keys, the hosted token (never inside a bundle), prompt bodies and system prompts, suite conversation histories, tool definitions/schemas, `raw.jsonl`, the response cache, `.evalshift/captures/`, `state.json`, `report.json`, `report.html`.
+**Never uploads**: provider API keys, the hosted token (never inside a bundle), prompt bodies and system prompts, suite conversation histories, tool definitions/schemas, `raw.jsonl`, imported agent traces (`traces.jsonl`), the response cache, `.evalshift/captures/`, `state.json`, `report.json`, `report.html`.
 
 **Still your responsibility**: `inputs`, `expected`, outputs and traces upload verbatim, so whatever customer data or secrets your suite or your models put in them uploads too. Redact at capture time (SDK redaction boundary) and inspect the exact bytes first: `evalshift bundle <run-id>`, then `gunzip -c .evalshift/runs/<run-id>/run_bundle.json.gz | jq .` — `push --bundle` uploads exactly the file you inspected.
 
@@ -770,13 +775,13 @@ Exit code is 1 and nothing is uploaded. The CLI never decides entitlements itsel
 
 Runs on pushes to main create the base-branch baselines PRs diff against, so the workflow cancels superseded runs on PRs only, never on main.
 
-The action runs the pipeline, pushes the candidate run, finds the latest compatible base-branch run, fetches the hosted diff, maintains a single marked PR comment, and sets the `evalshift/regression` commit status. Inputs: `token` (required), `host`, `config` (default `evalshift.yaml`), `suite-name` (a `suites:` key; preferred) **or** `suite` (a path, default `golden.jsonl`) — mutually exclusive, `fail-on` (`policy` (default — hosted migration-policy verdict, falling back to regression gating when unreachable) | `never` | `regression` | `any-slice-regression`), `evalshift-version` (exact CLI version from PyPI), `create-project` (default `true`), `comment` (default `true`). With no baseline yet, the comment notes the push and gating passes.
+The action runs the pipeline, pushes the candidate run, finds the latest compatible base-branch run, fetches the hosted diff, maintains a single marked PR comment, and sets the `evalshift/regression` commit status. Inputs: `token` (required), `host`, `config` (default `evalshift.yaml`), `suite-name` (a `suites:` key; preferred) **or** `suite` (a path, default `golden.jsonl`) — mutually exclusive, `fail-on` (`policy` (default — hosted migration-policy verdict, falling back to regression gating when unreachable) | `never` | `regression` | `any-slice-regression`), `evalshift-version` (exact CLI version from PyPI), `python-version` (default `3.12`), `require-policy` (default `false`; under `fail-on: policy`, `true` fails the job when the pushed run carries no migration policy — by default such a run is reported as ungated with a workflow warning and passes), `branch` / `base-branch` (candidate and baseline branch overrides, auto-detected when omitted), `create-project` (default `true`), `comment` (default `true`), `github-token` (token for PR comments and the commit status; defaults to the workflow's `github.token`), `repo-private` (defaults to the GitHub context; used for the private-repo CI entitlement check). Under `fail-on: policy`, `pass`, `conditional_pass` and `inconclusive` pass and `fail` fails. With no baseline yet, the comment notes the push; under `regression` / `any-slice-regression` gating passes, while under the default `policy` mode the job still follows the run's policy verdict.
 
 ### Selecting a suite: name, not path
 
 The action takes either `suite-name:` (a key under `suites:` in `evalshift.yaml`) or `suite:` (a path). They load the same rows, but only the **name** resolves that suite's own `evaluators:` block — the one `capture sync` writes for a tool-calling suite (`EvalShiftConfig.evaluators_for` maps a `None` name to the top-level block). Select a wired suite by path and it is silently scored with the top-level `evaluators:` instead; if those are `semantic` + `llm_judge` and the suite's rows are tool calls, nothing scores and the run fails at `analyze` with `scores.jsonl is empty`. There is no warning, because a bare path is a legitimate way to run a suite that has no entry under `suites:`.
 
-A suite wired under `suites:` is therefore selected by name — which is what `init --ci` scaffolds (`suite-name: ${{ matrix.suite }}`, the matrix carrying directory names, which are the keys `capture sync` writes). `suite:` is for a one-off file outside the config. The name form needs an `evalshift-version` pin of `0.14.0` or newer — the release that added `--suite-name`.
+A suite wired under `suites:` is therefore selected by name — which is what `init --ci` scaffolds (`suite-name: ${{ matrix.suite }}`, the matrix carrying directory names, which are the keys `capture sync` writes). `suite:` is for a one-off file outside the config. The name form needs an `evalshift-version` pin of `0.14.0` or newer.
 
 ### Pin drift
 
@@ -865,7 +870,7 @@ EvalShift follows [Semantic Versioning](https://semver.org). From **1.0.0** onwa
 |---|---|
 | `evalshift.yaml` | Every documented field, its type, and its meaning. Unknown keys are rejected (`extra="forbid"`), so the schema is a contract in both directions — a typo fails loudly rather than being ignored. |
 | Command names and flags | Every command in the [Command reference](#command-reference) and its options, including the severities accepted by `--gate` and the verdicts that trip `--policy-gate`. |
-| Exit codes | `0` success · `1` failure, or a gate breach under `--gate` / `--policy-gate`. |
+| Exit codes | `0` success · `1` failure, or a gate breach under `--gate` / `--policy-gate` · `2` usage error (an unknown option or value, e.g. `init --provider <unknown>`). |
 | Documented artifact fields | The `report.json`, `analysis.json`, `scores.jsonl` and `raw.jsonl` keys described in this document. |
 | The run bundle | Shared with the hosted server and versioned in its own right — see [Hosted EvalShift](#hosted-evalshift). |
 
@@ -892,7 +897,7 @@ EvalShift follows [Semantic Versioning](https://semver.org). From **1.0.0** onwa
 | `DEEPSEEK_API_KEY` | — | DeepSeek auth |
 | `EVALSHIFT_NONINTERACTIVE` | unset | Non-empty → skip the cost-confirmation prompt (implied `--yes`); set in scaffolded CI |
 | `EVALSHIFT_MAX_RUNS` | unset | Override `retention.max_runs_per_suite`; `0`/`none`/`unlimited`/`off` disables count pruning |
-| `EVALSHIFT_DIR` | `.evalshift` | Base dir for SDK captures the `capture` commands read |
+| `EVALSHIFT_DIR` | `.evalshift` | Base dir for `<base>/captures` (what the `capture` commands read), `<base>/suites` (where promotion writes) and `<base>/toolsets` (toolset sidecars); `run` looks there first when resolving a `toolset_ref`, then beside the suite file. Does not move `.evalshift/runs/` or the response cache |
 | `EVALSHIFT_HOST` | `https://api.evalshift.dev` | Hosted API base URL |
 | `EVALSHIFT_TOKEN` | unset | Hosted token (beats the credentials file, loses to `--token`) |
 | `EVALSHIFT_CREDENTIALS_PATH` | `~/.evalshift/credentials` | Credentials file override |
@@ -906,15 +911,15 @@ Keys are consumed by LiteLLM at call time; EvalShift itself never stores or tran
 
 ### Will `run` cost me money?
 
-Yes — every `run` calls a real model. Before dispatch you get a worst-case cost estimate (assumes every completion hits the registry `default_max_tokens`, 4096 — actual cost is usually much lower); above $10 it asks for confirmation. The cache makes repeat runs of unchanged calls free. Cheapest iteration loop: small suite first, cache on.
+Yes — every `run` calls a real model. Before dispatch you get a worst-case cost estimate (assumes every completion hits the registry `default_max_tokens`, 4096 — actual cost is usually much lower); above $10 it asks for confirmation. The cache makes repeat runs of unchanged tool-less calls free; tool-calling examples are dispatched live (full price) on every run. Cheapest iteration loop: small suite first, cache on.
 
 ### A model call failed mid-run
 
-The error is recorded on that call in `raw.jsonl`; the run completes. At evaluate time the affected pair is scored neutral (0.5/0.5) with the error attached, so it can't masquerade as a regression or an improvement. Re-running the same command re-uses cached successes and retries only the failures (errored calls in a *resumed* run are not retried — start a fresh run to retry them).
+The error is recorded on that call in `raw.jsonl`; the run completes. At evaluate time the affected pair gets an errored row (a 0.5/0.5 placeholder with the error attached) that is excluded from the statistics, so it can't masquerade as a regression or an improvement. Re-running the same command re-uses cached successes (tool-less examples only — tool-calling examples are all dispatched again) and retries the failures (errored calls in a *resumed* run are not retried — start a fresh run to retry them).
 
 ### `--resume` aborts with a config-hash mismatch
 
-Resume requires the config and suite to be byte-identical to the original run — a changed config would corrupt the pairing. Start a fresh run.
+Resume requires the config and the suite path to match the original run — a changed config would corrupt the pairing. Start a fresh run. The suite's *contents* are not part of the hash, so an edited suite at the same path resumes without this error; start a fresh run after editing examples.
 
 ### Everything comes back severity `none`
 
