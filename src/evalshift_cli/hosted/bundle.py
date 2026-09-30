@@ -365,7 +365,8 @@ def _build_examples(
 
     Delta conventions match ``reports/json.py::_build_example_rows`` exactly —
     target minus source, with latency forced to 0 and flagged as
-    incomparable whenever either side replayed from cache.
+    incomparable whenever either side replayed any round from cache
+    (``Call.latency_replayed``). ``cached_rounds`` itself is not uploaded.
     """
     # One output per (prompt, example, role) — sample 0 on a repeated-sampling
     # run — so a later sample never overwrites the one shown.
@@ -392,7 +393,10 @@ def _build_examples(
         row_score = sum(score_values) / len(score_values) if score_values else None
         worst = min((item.delta for item in scored), default=None)
         latency_comparable = (
-            source is not None and target is not None and not source.cached and not target.cached
+            source is not None
+            and target is not None
+            and not source.latency_replayed
+            and not target.latency_replayed
         )
         delta_latency = (
             target.latency_ms - source.latency_ms

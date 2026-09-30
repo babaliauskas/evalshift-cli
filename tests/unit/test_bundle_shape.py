@@ -784,3 +784,37 @@ def _rewrite_suite_history(suite_path: Path, system_prompt: str) -> None:
     for row in rows:
         row["history"] = [{"role": "system", "content": system_prompt}]
     suite_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+def test_bundle_latency_is_incomparable_when_a_side_replayed_rounds() -> None:
+    from evalshift_cli.hosted.bundle import _build_examples
+
+    def call(role: str, example_id: str, latency: int, cached_rounds: int = 0) -> Call:
+        return Call(
+            run_id="r_20260601_abc123",
+            prompt_id="p",
+            example_id=example_id,
+            model_id="m",
+            role=role,  # type: ignore[arg-type]
+            latency_ms=latency,
+            cached_rounds=cached_rounds,
+        )
+
+    rows = _build_examples(
+        suite=Suite(examples=[]),
+        calls=[
+            call("source", "live", 100),
+            call("target", "live", 130),
+            call("source", "mixed", 100),
+            call("target", "mixed", 130, cached_rounds=2),
+        ],
+        scores=[],
+        tool_evaluator_names=frozenset(),
+    )
+    by_id = {r["example_id"]: r for r in rows}
+    assert by_id["live"]["latency_comparable"] is True
+    assert by_id["live"]["delta_latency_ms"] == 30
+    assert by_id["mixed"]["latency_comparable"] is False
+    assert by_id["mixed"]["delta_latency_ms"] == 0
+    # The count itself stays local: the bundle row schema has no such field.
+    assert "cached_rounds" not in by_id["mixed"]

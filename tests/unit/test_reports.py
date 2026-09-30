@@ -2391,3 +2391,38 @@ class TestSamplesPerExampleInReport:
         html = render_html(build_report_payload(cwd / ".evalshift" / "runs" / run_id))
         assert "Sampling is not controlled" in html
         assert "samples_per_example" not in html
+
+
+def test_example_row_latency_is_incomparable_when_a_side_replayed_rounds() -> None:
+    from evalshift_cli.reports.json import _build_example_rows
+    from evalshift_cli.runner.models import Call
+
+    def call(role: str, example_id: str, latency: int, cached_rounds: int = 0) -> Call:
+        return Call(
+            run_id="r_20260601_abc123",
+            prompt_id="p",
+            example_id=example_id,
+            model_id="m",
+            role=role,  # type: ignore[arg-type]
+            latency_ms=latency,
+            cached_rounds=cached_rounds,
+        )
+
+    rows = _build_example_rows(
+        prompt_id="p",
+        calls=[
+            call("source", "live", 100),
+            call("target", "live", 150),
+            call("source", "mixed", 100, cached_rounds=1),
+            call("target", "mixed", 150),
+        ],
+        records=[],
+        tags_by_example_id={},
+        tool_evaluator_names=frozenset(),
+        examples_by_id={},
+    )
+    by_id = {r.example_id: r for r in rows}
+    assert by_id["live"].latency_comparable
+    assert by_id["live"].delta_latency_ms == 50
+    assert not by_id["mixed"].latency_comparable
+    assert by_id["mixed"].delta_latency_ms == 0

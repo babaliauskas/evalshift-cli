@@ -1269,6 +1269,7 @@ async def _execute(
                 cost_usd=hit.cost_usd,
                 latency_ms=hit.latency_ms,
                 cached=True,
+                cached_rounds=1,
                 finish_reason=hit.finish_reason,
             )
 
@@ -1381,13 +1382,15 @@ async def _execute_with_tools(
     text path: an errored round is not cached (earlier rounds, genuine
     responses to their own requests, stay cached); a truncated round is cached
     and warned about on a hit; ``cache_enabled=False`` neither reads nor
-    writes. The :class:`Call` is ``cached`` only when every round was a hit —
-    a row with any live round spent money on this run.
+    writes. The :class:`Call` records ``cached_rounds`` hits and is
+    ``cached`` only when every round was a hit — a row with any live round
+    spent money on this run, but its summed latency is no longer a fresh
+    measurement (:attr:`Call.latency_replayed`).
     """
     gen_temperature, gen_extra = translate_generation_config(item.example.generation_config)
     rounds = item.example.rounds_to_replay()
     tools_payload = serialize_tools(canonical_id, item.tools)
-    all_cached = True
+    cached_rounds = 0
 
     merged_calls: list[ToolCall] = []
     input_tokens = 0
@@ -1418,8 +1421,9 @@ async def _execute_with_tools(
             sample_index=cache_sample_index,
         )
         result = await _cached_tool_round(cache, key, canonical_id) if cache_enabled else None
-        if result is None:
-            all_cached = False
+        if result is not None:
+            cached_rounds += 1
+        else:
             try:
                 result = await _dispatch_tool_round(
                     client=client,
@@ -1514,7 +1518,8 @@ async def _execute_with_tools(
         output_tokens=output_tokens,
         cost_usd=cost_usd,
         latency_ms=latency_ms,
-        cached=all_cached,
+        cached=cached_rounds == rounds,
+        cached_rounds=cached_rounds,
         trace=trace,
         finish_reason=finish_reason,
     )

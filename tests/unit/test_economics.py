@@ -132,3 +132,21 @@ def test_role_economics_to_dict_is_json_ready() -> None:
         "latency_ms_avg",
         "latency_ms_p95",
     }
+
+
+def test_partly_cached_rows_stay_out_of_live_latency_stats() -> None:
+    # A multi-round row whose earlier rounds were replayed from cache mixes a
+    # fresh latency with an old one: it is not a measurement of this run.
+    from evalshift_cli.reports.economics import role_economics
+
+    econ = role_economics(
+        [
+            _call(latency_ms=100),
+            _call(latency_ms=900, cached_rounds=2),
+            _call(latency_ms=700, cached=True, cached_rounds=3),
+        ],
+    )
+    assert econ.live_calls == 1
+    assert econ.cached_calls == 1
+    assert econ.latency_ms_avg == 100.0
+    assert econ.latency_ms_p95 == 100.0

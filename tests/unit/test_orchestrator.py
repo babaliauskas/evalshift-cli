@@ -296,6 +296,8 @@ class TestOrchestratorHappyPath:
         assert second.cached_calls == 4
         assert second.live_calls == 0
         assert counter["calls"] == 4  # unchanged from before
+        assert all(r.cached_rounds == 1 for r in iter_calls(second.run_dir))
+        assert all(r.cached_rounds == 0 for r in iter_calls(first.run_dir))
 
     async def test_effective_max_tokens_and_finish_reason(
         self,
@@ -2322,7 +2324,7 @@ def _install_tool_fake(
 def _rows(run_dir: Path) -> list[dict[str, Any]]:
     """raw.jsonl rows minus the fields a cache hit is allowed to change."""
     return sorted(
-        (r.model_dump(exclude={"run_id", "cached"}) for r in iter_calls(run_dir)),
+        (r.model_dump(exclude={"run_id", "cached", "cached_rounds"}) for r in iter_calls(run_dir)),
         key=lambda r: (r["example_id"], r["role"], r["sample_index"]),
     )
 
@@ -2377,8 +2379,8 @@ class TestToolPathCache:
         assert (second.live_calls, second.cached_calls) == (0, 4)
         assert second.total_cost_usd == pytest.approx(first.total_cost_usd)
         assert _rows(second.run_dir) == _rows(first.run_dir)
-        assert all(r.cached for r in iter_calls(second.run_dir))
-        assert not any(r.cached for r in iter_calls(first.run_dir))
+        assert all(r.cached and r.cached_rounds == 1 for r in iter_calls(second.run_dir))
+        assert not any(r.cached or r.cached_rounds for r in iter_calls(first.run_dir))
 
     @pytest.mark.parametrize(
         "history",
@@ -2475,6 +2477,8 @@ class TestToolPathCache:
         assert (second.live_calls, second.cached_calls, second.failed_calls) == (2, 0, 0)
         for row in iter_calls(second.run_dir):
             assert not row.cached
+            assert row.cached_rounds == 1  # round 0 replayed; its latency is not fresh
+            assert row.latency_replayed
             assert row.trace is not None
             assert row.trace.round_count == 3
 
@@ -2482,6 +2486,7 @@ class TestToolPathCache:
         assert len(seen) == 4
         assert (third.live_calls, third.cached_calls) == (0, 2)
         assert _rows(third.run_dir) == _rows(second.run_dir)
+        assert all(r.cached and r.cached_rounds == 3 for r in iter_calls(third.run_dir))
 
     async def test_a_truncated_round_is_cached_and_stays_flagged(
         self,
@@ -2699,6 +2704,6 @@ class TestToolPathCache:
         assert (resumed.live_calls, resumed.cached_calls) == (0, 1)
         resumed_target = next(r for r in iter_calls(run_dir) if r.role == "target")
         assert resumed_target.cached
-        assert resumed_target.model_dump(exclude={"run_id", "cached"}) == target_row.model_dump(
-            exclude={"run_id", "cached"}
-        )
+        assert resumed_target.model_dump(
+            exclude={"run_id", "cached", "cached_rounds"}
+        ) == target_row.model_dump(exclude={"run_id", "cached", "cached_rounds"})

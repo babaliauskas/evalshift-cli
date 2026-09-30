@@ -200,7 +200,7 @@ class ExampleRow:
     example_id: str
     tags: list[str]
     delta_latency_ms: int
-    latency_comparable: bool  # False when either side cached (delta forced to 0)
+    latency_comparable: bool  # False when either side replayed a round from cache (delta 0)
     delta_cost_usd: float
     worst_delta_score: float | None
     # Whether the target held every tool measurement the source did — i.e.
@@ -636,8 +636,9 @@ def _build_example_rows(
     """Assemble one ExampleRow per example for a single prompt.
 
     Δ values are target − source. Latency is reported as 0 when either
-    side cached (cached calls carry latency_ms = 0 by convention) so
-    the figure stays meaningful only on live × live pairs.
+    side replayed any round from the cache (`Call.latency_replayed`: its
+    `latency_ms` is the original run's, not this one's) so the figure stays
+    meaningful only on live × live pairs.
     """
     sides_by_example: dict[str, dict[str, Call]] = {}
     for c in calls:
@@ -654,7 +655,7 @@ def _build_example_rows(
         tgt = sides.get("target")
         if src is None or tgt is None:
             continue  # incomplete pair; skip rather than misreport
-        latency_comparable = not (src.cached or tgt.cached)
+        latency_comparable = not (src.latency_replayed or tgt.latency_replayed)
         delta_lat = tgt.latency_ms - src.latency_ms if latency_comparable else 0
         delta_cost = tgt.cost_usd - src.cost_usd
 

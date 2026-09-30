@@ -247,12 +247,21 @@ class Call(_StrictModel):
             over replayed rounds.
         cost_usd: Per-call cost (``litellm.completion_cost``), summed over
             replayed rounds; ``0.0`` when the model isn't priced.
-        latency_ms: Wall time of the live call, summed over replayed
-            rounds. ``0`` for cache hits after the first run (we keep the
-            *original* latency).
+        latency_ms: Wall time of the provider call, summed over replayed
+            rounds. A round served from the cache contributes the latency
+            recorded when it originally ran live, not ``0`` — so whenever
+            :attr:`latency_replayed` is true the figure is not a measurement
+            of this run.
         cached: ``True`` if the response came from the local cache — for a
             multi-round replay, only when every round did (each round is
-            its own cache entry; a row with any live round is live).
+            its own cache entry). ``cached`` means "nothing was spent on this
+            run"; a row with any live round is not cached.
+        cached_rounds: How many of the row's provider rounds were served
+            from the cache: ``0`` for a fully live row (and for every row
+            written before the field existed), the round count for a fully
+            cached one, in between for a multi-round replay that re-sent only
+            some rounds. Anything above ``0`` means ``latency_ms`` mixes in
+            replayed latencies — see :attr:`latency_replayed`.
         error: ``None`` on success; the stringified error on failure. A
             multi-round replay that fails part-way names the round it died
             in (``"round 2/3: <error>"``) and records no ``trace`` — a
@@ -280,6 +289,8 @@ class Call(_StrictModel):
     cost_usd: float = 0.0
     latency_ms: int = 0
     cached: bool = False
+    # Defaulted so pre-existing raw.jsonl lines still validate on resume.
+    cached_rounds: int = Field(default=0, ge=0)
     error: str | None = None
     # v0.2 — populated only for tool-aware calls; ``None`` for plain text
     # ones. The orchestrator switches between ``ModelClient.complete`` and
@@ -301,6 +312,18 @@ class Call(_StrictModel):
     def truncated(self) -> bool:
         """True when the provider cut the output off at the token cap."""
         return self.finish_reason == "length"
+
+    @property
+    def latency_replayed(self) -> bool:
+        """True when any part of ``latency_ms`` was replayed from the cache.
+
+        Such a row's latency is not a measurement of this run, so it stays out
+        of live latency statistics and makes a latency delta incomparable. A
+        partly cached multi-round row is not :attr:`cached` (it spent money)
+        but is latency-replayed. ``cached`` is checked too because rows
+        written before ``cached_rounds`` existed read it back as ``0``.
+        """
+        return self.cached or self.cached_rounds > 0
 
 
 def representative_calls(calls: Iterable[Call]) -> list[Call]:
