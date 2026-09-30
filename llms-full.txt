@@ -205,8 +205,9 @@ evalshift login [--token es_...] [--host URL] [--no-browser] [--timeout SECS=900
   wrong for CI. For CI mint a SERVICE ACCOUNT KEY in the hosted web app (Settings -> API
   tokens -> Service accounts): org-owned machine identity, never owner-equivalent (role is
   `member` or `viewer` only), consumes no seat, survives the employee who created it. Scope it
-  to the permission keys the job needs (`run:create` + `run:read` covers push + diff), store it
-  as an encrypted CI secret, pass it as EVALSHIFT_TOKEN -- do not run `login` on a runner.
+  to the permission keys the job needs (`run:create` + `run:read` + `policy:read` covers push,
+  diff, and the default policy gate), store it as an encrypted CI secret, pass it as
+  EVALSHIFT_TOKEN -- do not run `login` on a runner.
   Rotation is overlapping keys: mint successor, update secret, confirm a green run, let the
   predecessor expire (24h default grace).
 evalshift logout | evalshift whoami [--host] [--token]

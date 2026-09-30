@@ -418,6 +418,15 @@ class TestInitCI:
         assert "fail-on: policy" in body
         assert "fail-on: regression" not in body
 
+    def test_token_scope_names_policy_read(self, in_tmp: Path) -> None:
+        # The scaffolded workflow defaults to `fail-on: policy`, which reads
+        # the hosted policy-check endpoint (`policy:read`). A key scoped to
+        # only `run:create` + `run:read` gets a 403 on that check and the
+        # action silently falls back to `fail-on: regression` -- so the
+        # scaffolded key guidance must name all three scopes together.
+        body, _ = self._workflow(in_tmp)
+        assert "run:create + run:read + policy:read" in body
+
     def test_pins_the_scaffolding_cli_version(self, in_tmp: Path) -> None:
         body, _ = self._workflow(in_tmp)
         assert f'evalshift-version: "{evalshift_cli.__version__}"' in body

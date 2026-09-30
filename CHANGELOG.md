@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The scaffolded CI workflow's key guidance (`evalshift init --ci`) named only
+  `run:create` + `run:read`. That workflow defaults to `fail-on: policy`, which
+  reads the hosted policy-check endpoint (`policy:read`); a key scoped to only
+  `run:create` + `run:read` got a 403 there and the action silently fell back
+  to `fail-on: regression`. The scaffold, `DOCS.md`, `llms-full.txt`,
+  `docs/github-action.md`, and `docs/hosted.md` now name `run:create` +
+  `run:read` + `policy:read` for the CI key.
+
 - Under SQLAlchemy 2.1, which fresh installs resolve (`sqlalchemy>=2.0`), a
   `CacheStore` opened on an in-memory SQLite database could silently lose
   concurrent writes. The default on-disk cache used by CLI runs was not

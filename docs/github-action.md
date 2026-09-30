@@ -64,9 +64,11 @@ your project.
 ## Required secrets
 
 - `EVALSHIFT_TOKEN`: a **service account key** from the web app (Settings → API
-  tokens → Service accounts), scoped to `run:create` + `run:read`. Not a personal
-  token — that one dies with its owner's membership and takes the pipeline with
-  it. A scoped key cannot auto-create the hosted project (`project:create` is
+  tokens → Service accounts), scoped to `run:create` + `run:read` + `policy:read`.
+  Not a personal token — that one dies with its owner's membership and takes the
+  pipeline with it. `policy:read` is what lets the default `fail-on: policy` gate
+  read the hosted verdict; without it the check falls back to `fail-on: regression`
+  silently. A scoped key cannot auto-create the hosted project (`project:create` is
   owner-only), so create the project once in the web app and set
   `create-project: false`.
 - Provider API keys used by the source, target, judge, or embedding models.

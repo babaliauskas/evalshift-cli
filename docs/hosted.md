@@ -44,7 +44,8 @@ For CI, mint a **service account key** instead. In the hosted web app: Settings 
 tokens → Service accounts. A service account is an org-owned machine identity that never
 consumes a seat and can only ever hold the `member` or `viewer` role, so no CI credential is
 owner-equivalent. Scope the key to the permission keys the job actually needs (`run:create`
-plus `run:read` is enough to push a run and read a diff), store it as an encrypted CI
+plus `run:read` plus `policy:read` covers pushing a run, reading a diff, and the default
+`fail-on: policy` gate), store it as an encrypted CI
 secret, and pass it as `EVALSHIFT_TOKEN` — do not run `evalshift login` on a runner.
 
 Keys rotate with an overlap: mint the successor, update the secret, confirm a green run,
