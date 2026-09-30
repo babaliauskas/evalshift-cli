@@ -326,3 +326,29 @@ class TestFormatLoc:
     )
     def test_format(self, loc: tuple[int | str, ...], expected: str) -> None:
         assert _format_loc(loc) == expected
+
+
+_EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
+
+
+class TestLoadConfigCheckedInExamples:
+    """Every ``examples/**/evalshift.yaml`` shipped in this repo must load.
+
+    They are the configs readers copy first. Removing a config key breaks any
+    of them that still sets it, and only two are exercised end to end by other
+    tests -- the sibling ``golden.jsonl`` check lives in ``test_suite_loader``.
+    """
+
+    def test_every_checked_in_evalshift_yaml_loads(self) -> None:
+        configs = sorted(_EXAMPLES_DIR.glob("**/evalshift.yaml"))
+        # Guard the guard: an empty glob means the path is broken.
+        assert len(configs) >= 4, f"expected at least 4 example configs, found {configs}"
+
+        failures: list[str] = []
+        for path in configs:
+            try:
+                load_config(path)
+            except ConfigError as exc:
+                failures.append(f"{path.relative_to(_EXAMPLES_DIR.parent)}: {exc.format_plain()}")
+
+        assert not failures, "example config(s) failed to load:\n" + "\n".join(failures)
