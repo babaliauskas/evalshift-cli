@@ -314,7 +314,6 @@ suites: {}
 | `prompts` | list, required, ≥1 | Prompt definitions (unique ids enforced) |
 | `defaults` | block | Run defaults, below |
 | `evaluators` | block | Evaluator configs, see [Evaluators](#evaluators) |
-| `slices` | list | Validated and recorded in the bundle (and in its `eval_config_hash`), but **not applied** — slices come from example tags. See below |
 | `migration_policy` | block \| absent | Regression budgets, see [Migration policy](#migration-policy-and-ci-gating) |
 | `suites` | map | Named suites (`{name: {source: captured\|jsonl, path: ..., evaluators: ..., managed: true}}`); the block between the `>>> evalshift suites` markers is managed by `capture sync`. See [Per-suite evaluators](#per-suite-evaluators) |
 | `retention` | block | `max_runs_per_suite` (default 20, `0` disables), `run_ttl_days` (default off) |
@@ -326,6 +325,14 @@ suites: {}
 ```
 
 Nothing replaced it. Delete the block; express any gate you meant by it as a `migration_policy` budget.
+
+A top-level `slices` list was removed the same way. It was validated and recorded in the run bundle, but analysis never read it — slices come from example tags (see [Slices](#slices)) — so a config that still carries it fails to load too:
+
+```text
+`slices` was removed: it never had any effect. Slices come from example `tags` automatically (one per distinct tag, plus `all`). Delete it from evalshift.yaml; per-slice budgets go under migration_policy.slices, keyed by tag.
+```
+
+Delete the block; a run reports the same slices without it. Hosted baselines are unaffected for any config that never set it (or set `slices: []`): the bundle's evaluator config still carries an empty `slices` list, so `eval_config_hash` does not move. Deleting a *non-empty* block does change that hash: runs pushed afterwards are not comparable to baselines pushed before, until the base branch pushes a run with the edited config.
 
 ### `defaults`
 
@@ -341,18 +348,18 @@ Nothing replaced it. Delete the block; express any gate you meant by it as a `mi
 | `max_tokens` | `4096` | Completion cap per call (per-prompt `prompts[].max_tokens` overrides). Truncated calls are excluded from the regression statistics |
 | `samples_per_example` | `1` (1–20) | Repeats each (prompt, example) this many times per model. Each sample pair is scored on its own; `scores.jsonl` keeps one row per example holding the mean over samples, with the per-sample scores and `delta_variance` under `metadata.samples`. Paired tests run over examples, so `n` is unchanged. Cost and calls multiply by it; the cache keys on the sample index so every sample is a live call |
 
-### `slices`
+### Slices
 
-Slices come from the suite, not from this block: every distinct example `tag` becomes a slice under its own name, alongside the implicit `all` slice. Every configured evaluator is analysed once overall and once per slice. Per-slice budgets go under [`migration_policy.slices`](#migration-policy-and-ci-gating), keyed by the tag.
+Slices come from the suite; there is nothing to configure. Every distinct example `tag` becomes a slice under its own name, alongside the implicit `all` slice, and every configured evaluator is analysed once overall and once per slice. Per-slice budgets go under [`migration_policy.slices`](#migration-policy-and-ci-gating), keyed by the tag:
 
 ```yaml
-slices:                       # validated and recorded in the run bundle; NOT applied by analysis
-  - name: security
-    filter: security          # a literal tag
-    applies_to: ["*"]         # glob list of prompt ids
+migration_policy:
+  slices:
+    security:                 # the example tag
+      max_overall_regression_rate: 0.0
 ```
 
-The top-level `slices:` block still loads — it is validated and copied into the run bundle's evaluator config — but analysis does not read it today: `name`, `filter` and `applies_to` rename, filter and scope nothing, and a run reports the same slices with or without it. It is, however, part of the bundle's `eval_config_hash`, so editing or removing it breaks hosted baseline compatibility with earlier runs. `overall` is reserved — it names the run-level scope in the run bundle — and is rejected as a slice `name`, as an example tag, and as a `migration_policy.slices` key.
+There is no top-level `slices:` key — it was removed (see [Top-level fields](#top-level-fields)). `overall` is reserved — it names the run-level scope in the run bundle — and is rejected as an example tag and as a `migration_policy.slices` key.
 
 Slices holding exactly the same examples are collapsed to one before any test runs — duplicates restate the same numbers as if they were independent findings and skew the Benjamini–Hochberg correction anti-conservatively (extra copies of a p-value shrink every adjusted p-value in the family, so results look more significant than they are). `all` and any slice named under `migration_policy.slices` always survive; otherwise the provenance tag `captured` (written by `capture promote`) loses to an ordinary tag, then alphabetical order decides. Drops are reported on the terminal and as `collapsed_slices` in `analysis.json`. See [docs/methodology.md](docs/methodology.md).
 
@@ -881,7 +888,7 @@ EvalShift follows [Semantic Versioning](https://semver.org). From **1.0.0** onwa
 - The HTML report's markup, styling, and internal structure. Its *content* is described here; its DOM is not.
 - Console output wording, progress rendering, and log formatting.
 
-**Config schema evolution** has its own rule, and it is deliberately not tied to the CLI's major version: `version:` in `evalshift.yaml` bumps only when a field is renamed, removed, or given a different meaning. Additive fields ride the CLI version instead. See [Config version policy](docs/configuration.md#config-version-policy) for what that requires of your CI pin.
+**Config schema evolution** has its own rule, and it is deliberately not tied to the CLI's major version: `version:` in `evalshift.yaml` bumps only when a field is renamed or given a different meaning. Additive fields ride the CLI version instead, and so do removals that fail the load with a message naming the key. See [Config version policy](docs/configuration.md#config-version-policy) for what that requires of your CI pin.
 
 **Renames keep the old name.** When a command is renamed, the previous name stays registered as a hidden alias that still works — it stops being advertised, not accepted. `evalshift all` became `evalshift compare` in 1.0.0 and `all` still runs. Removing such an alias would itself be a breaking change, so it cannot happen inside a major version.
 

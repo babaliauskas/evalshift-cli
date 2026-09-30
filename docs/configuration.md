@@ -18,7 +18,6 @@ migration_policy: {...}   # optional local migration verdict policy
 prompts: [...]            # required, at least one
 defaults: {...}           # optional
 evaluators: {...}         # optional (but at least one is needed for `evaluate`)
-slices: [...]             # optional; validated but not applied (see below)
 suites: {...}             # optional named suites for `run --suite-name`, each with
                           # its own optional `evaluators:` block
 retention: {...}          # optional run-history pruning policy
@@ -37,9 +36,10 @@ do *not* bump it; they ride on the CLI version instead.
 Nor does removing a field, as long as a config that still sets it **fails to
 load and says why**. The literal exists to catch silent misreadings, and an
 error naming the removed key is the opposite of silent — it cannot be mistaken
-for a config that still works. `thresholds` left in 1.1.0 that way, and
-`version` stayed `1`; bumping it would have forced an edit on every config,
-including the majority that never set the key.
+for a config that still works. `thresholds` left in 1.1.0 that way, and the
+top-level `slices` list after it; `version` stayed `1` both times. Bumping it
+would have forced an edit on every config, including the majority that never
+set the key.
 
 Because unknown keys are rejected, that puts one rule on you: the CLI that
 *reads* a config must be at least as new as the CLI that *wrote* it. In
@@ -89,6 +89,29 @@ A config that still sets the key now **fails to load**:
 
 The fix is to delete the block. If you were using it to express a gate, encode
 that as a `migration_policy` budget instead.
+
+### Top-level `slices` was removed
+
+`evalshift.yaml` also used to accept a top-level `slices:` list (`name`,
+`filter`, `applies_to`). It was validated and recorded in the run bundle, but
+analysis never read it: slices come from example `tags` (see
+[Slices](#slices)), so none of its fields renamed, filtered or scoped anything.
+
+A config that still sets the key now **fails to load**:
+
+```text
+`slices` was removed: it never had any effect. Slices come from example `tags` automatically (one per distinct tag, plus `all`). Delete it from evalshift.yaml; per-slice budgets go under migration_policy.slices, keyed by tag.
+```
+
+The fix is to delete the block; a run reports the same slices without it. For
+per-slice budgets, use [`migration_policy.slices`](#migration_policy), keyed
+by tag.
+
+Hosted baselines are unaffected for any config that never set the key (or set
+`slices: []`): the bundle's evaluator config still carries an empty `slices`
+list, so `eval_config_hash` does not move. Deleting a *non-empty* block does
+change that hash: runs pushed afterwards are not comparable to baselines pushed
+before, until the base branch pushes a run with the edited config.
 
 ## `migration_policy`
 
@@ -616,31 +639,19 @@ bias) and produces strict-JSON `{"winner": "A"|"B"|"tie", "reason":
 error preserved. `blocking` defaults to `true` in the library but `init`
 writes `false` — see [`blocking`](#blocking-every-evaluator) for why.
 
-## `slices`
+## Slices
 
-Slices come from the suite, not from this block: every distinct example
-`tag` becomes a slice under its own name, alongside the implicit `"all"`
-slice, and each is analysed separately. Per-slice budgets go under
-[`migration_policy.slices`](#migration_policy), keyed by the tag.
+Slices come from the suite; there is nothing to configure. Every distinct
+example `tag` becomes a slice under its own name, alongside the implicit
+`"all"` slice, and each is analysed separately. Per-slice budgets go under
+[`migration_policy.slices`](#migration_policy), keyed by the tag. There is no
+top-level `slices:` key — it was
+[removed](#top-level-slices-was-removed).
 
-The top-level `slices:` list is still accepted — it is validated and copied
-into the run bundle's evaluator config — but analysis does not read it today:
-`name`, `filter` and `applies_to` rename, filter and scope nothing, and a run
-reports the same slices with or without it. It is, however, part of the
-bundle's `eval_config_hash`, so editing or removing it breaks hosted baseline
-compatibility with earlier runs.
-
-`overall` is reserved and cannot be used as a slice `name`, as an example tag,
-or as a `migration_policy.slices` key. It names the run-level scope in the run
-bundle, so a slice by that name would shadow the whole-run numbers wherever the
-two are rendered together. All three spellings are rejected when the config or
-suite loads.
-
-| Field         | Type   | Required | Description |
-| ------------- | ------ | -------- | ----------- |
-| `name`        | string | yes      | Slice name. Not applied: reports name each slice after its tag. |
-| `filter`      | string | yes      | A literal tag. Not applied: every tag is already its own slice. |
-| `applies_to`  | list   | optional | Glob list of prompt ids (default `["*"]`). Not applied. |
+`overall` is reserved and cannot be used as an example tag or as a
+`migration_policy.slices` key. It names the run-level scope in the run bundle,
+so a slice by that name would shadow the whole-run numbers wherever the two are
+rendered together. Both spellings are rejected when the config or suite loads.
 
 Slices with identical membership are collapsed to one before analysis, so
 duplicate tags cannot inflate the Benjamini–Hochberg correction. `all` and any

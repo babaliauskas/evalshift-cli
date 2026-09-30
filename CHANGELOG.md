@@ -22,6 +22,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   placeholder `reasoning_content`: DeepSeek requires it on tool requests and
   ignores it otherwise.
 
+### Removed
+
+- **The top-level `slices:` key is gone from `evalshift.yaml`, and its removal
+  is breaking.** The block (`name`, `filter`, `applies_to`) was validated and
+  recorded in the run bundle, but analysis never read it: slices have always
+  come from example `tags`, one per distinct tag plus `all`, so none of its
+  fields renamed, filtered or scoped anything, and a run reports the same
+  slices without it. **Migration: delete the block.** Per-slice budgets, the
+  one thing it looked like it configured, go under `migration_policy.slices`,
+  keyed by tag.
+
+  A config that still sets `slices:` now **fails to load** instead of being
+  quietly ignored, the same way `thresholds` does since 1.1.0, naming what
+  happened and the fix:
+
+  ```text
+  `slices` was removed: it never had any effect. Slices come from example `tags` automatically (one per distinct tag, plus `all`). Delete it from evalshift.yaml; per-slice budgets go under migration_policy.slices, keyed by tag.
+  ```
+
+  `evalshift validate` prints it; `evalshift doctor` fails its config row.
+  `version:` stays `1`, under the same config version policy. The two shipped
+  example configs that set the block no longer do, and
+  `tests/unit/test_docs_currency.py` now fails if any doc or example shows a
+  top-level `slices:` or `thresholds:` key.
+
+  Hosted baselines are unaffected for every config that never set the key
+  (or set `slices: []`): the bundle's `evaluator_config` still carries
+  `"slices": []`, so `eval_config_hash` is byte-identical to what earlier CLIs
+  computed and existing baselines keep matching. Deleting a *non-empty* block
+  does change that hash, so runs pushed afterwards are not comparable to
+  baselines pushed before until the base branch pushes a run with the edited
+  config.
+
 ### Fixed
 
 - Under SQLAlchemy 2.1, which fresh installs resolve (`sqlalchemy>=2.0`), a
@@ -91,9 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the reserved `overall` name is still rejected) and recorded in the run
   bundle, but analysis never reads it. Slices come from example `tags`, one
   per distinct tag plus `all`, and per-slice budgets are keyed by tag under
-  `migration_policy.slices`. The docs now say the block is not applied, and
-  so does the `SliceConfig` docstring, which described `filter` as a Python
-  expression. Imported agent traces (`traces import`) stay local; the bundle
+  `migration_policy.slices`. The docs now say so, and the block itself is
+  removed in this release (see Removed above). Imported agent traces (`traces import`) stay local; the bundle
   carries only the replay's own tool-call trace, without tool results or
   `model_call` events. The response cache serves only tool-less examples,
   so every `run` of an agent suite is live and full price. `--resume`
