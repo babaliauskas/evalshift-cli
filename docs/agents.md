@@ -223,6 +223,13 @@ the results recorded in the same round; a name match never reaches across a
   example as diverged if **any** replayed round diverged.
 * The cost estimate counts one call per replayed round; the progress bar still
   counts examples.
+* Each round is its own response-cache entry, keyed on exactly what that round
+  sends: the prompt, the recorded rounds and fixture results fed back, the
+  toolset (including `strict`), `generation_config` and the round index. A
+  repeat run is served from the cache; editing round *k*'s fixtures re-sends
+  only the rounds after it, and a round that errored is re-sent while the
+  rounds before it are not. The example's row counts as cached only when every
+  round was a hit.
 
 `expected_tools` is `expected_tool_rounds[0]` under both settings. `--rounds
 all` no longer flattens every round into `expected_tools` — that yardstick was

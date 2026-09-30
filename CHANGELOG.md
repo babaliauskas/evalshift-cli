@@ -29,6 +29,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ("1 schema problem found"), which names neither the offending key nor the
   fix; `validate` prints both.
 
+- Repeat runs of agent suites are now served from the response cache. Every
+  example that offers tools used to bypass the cache, a leftover from v0.2
+  when a cache entry could not hold a parsed tool trace, so each `run` of an
+  agent suite paid for every call again, one per replayed round. Each
+  replayed round is now its own entry. It is keyed on the canonical model,
+  the prompt and inputs, the exact message list that round sends (history,
+  current turn, and the recorded rounds and fixture results fed back), the
+  toolset fingerprint (including `strict`), `generation_config` (so
+  `tool_choice` and `parallel_tool_calls`), the effective temperature and
+  `max_tokens`, the round index and the sample index. A hit restores the
+  parsed trace, tokens, cost, latency and finish reason, so the `raw.jsonl`
+  row is identical to the live one apart from `cached`, which is true only
+  when every round hit. Errors are never cached: the next run re-sends a
+  failed round and serves the rounds before it from the cache. Truncated
+  responses are cached and stay flagged, and `defaults.cache: false` still
+  sends everything live. Existing `~/.evalshift/cache.db` files keep working:
+  the new `trace_json` column is added in place on open, and every cached
+  text response still hits.
+
 ### Removed
 
 - **The top-level `slices:` key is gone from `evalshift.yaml`, and its
@@ -142,20 +161,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block itself is removed in this release (see Removed above). Imported
   agent traces (`traces import`) stay local; the bundle carries only the
   replay's own tool-call trace, without tool results or `model_call` events.
-  The response cache serves only tool-less examples, so every `run` of an
-  agent suite is live and full price. `--resume` hashes the suite's path,
-  not its contents. `push <run-id>` uploads an existing bundle as-is instead
-  of rebuilding it, and `bundle` needs a git SHA. `--policy-gate` also fails
-  when no `migration_policy` is configured. The `init` profile table had the
-  wrong `model-upgrade` numbers and no tool-divergence column. The
-  multi-turn suite example failed to load because it had no `tools`. The
-  failure-label list was missing `TOOL_GROUND_TRUTH_MISS`. Upstream
-  model-call failures and evaluator failures are handled the same way, as
-  errored rows excluded from the statistics. The GitHub Action docs gained
-  `require-policy` and the other missing inputs. `record_model_call`
-  examples now pass the required `tools=`. DOCS.md's header said version
-  1.0.1; a new check in `tests/unit/test_docs_currency.py` keeps the version
-  in DOCS.md and llms-full.txt equal to the package's.
+  The response cache served only tool-less examples, so every `run` of an
+  agent suite was live and full price (it now serves them too; see Changed).
+  `--resume` hashes the suite's path, not its contents. `push <run-id>`
+  uploads an existing bundle as-is instead of rebuilding it, and `bundle`
+  needs a git SHA. `--policy-gate` also fails when no `migration_policy` is
+  configured. The `init` profile table had the wrong `model-upgrade` numbers
+  and no tool-divergence column. The multi-turn suite example failed to load
+  because it had no `tools`. The failure-label list was missing
+  `TOOL_GROUND_TRUTH_MISS`. Upstream model-call failures and evaluator
+  failures are handled the same way, as errored rows excluded from the
+  statistics. The GitHub Action docs gained `require-policy` and the other
+  missing inputs. `record_model_call` examples now pass the required
+  `tools=`. DOCS.md's header said version 1.0.1; a new check in
+  `tests/unit/test_docs_currency.py` keeps the version in DOCS.md and
+  llms-full.txt equal to the package's.
 
 ## [1.1.0] - 2026-09-19
 
