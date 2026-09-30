@@ -10,6 +10,7 @@ point at the line the user wrote rather than at an upload that already happened.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,12 @@ from evalshift_cli.config.models import MigrationPolicy
 from evalshift_cli.suite.tags import RESERVED_SLICE_NAME
 from tests.unit.suite_examples import suite_example
 
+# The guards' own wording, not just the literal: a bare "overall" would also
+# match the error's location path (e.g. `migration_policy.slices.overall`),
+# so any failure on that key -- for any reason -- would satisfy it.
+_TAG_RESERVED = re.escape(f"tag {RESERVED_SLICE_NAME!r} is reserved")
+_POLICY_KEY_RESERVED = re.escape(f"migration_policy.slices key {RESERVED_SLICE_NAME!r} is reserved")
+
 
 def test_reserved_name_is_the_scope_the_bundle_spec_names() -> None:
     assert RESERVED_SLICE_NAME == "overall"
@@ -26,7 +33,7 @@ def test_reserved_name_is_the_scope_the_bundle_spec_names() -> None:
 
 def test_suite_example_rejects_a_tag_named_overall() -> None:
     """Tags become slice names directly — see `analysis.slicing._slices_of`."""
-    with pytest.raises(ValidationError, match="overall"):
+    with pytest.raises(ValidationError, match=_TAG_RESERVED):
         suite_example(id="ex1", tags=["captured", "overall"])
 
 
@@ -36,7 +43,7 @@ def test_suite_example_still_accepts_ordinary_tags() -> None:
 
 def test_migration_policy_rejects_a_per_slice_override_keyed_overall() -> None:
     """The override key is the slice name, so the same reservation applies."""
-    with pytest.raises(ValidationError, match="overall"):
+    with pytest.raises(ValidationError, match=_POLICY_KEY_RESERVED):
         MigrationPolicy.model_validate({"slices": {"overall": {}}})
 
 
@@ -74,7 +81,7 @@ migration_policy:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="overall"):
+    with pytest.raises(ConfigError, match=_POLICY_KEY_RESERVED):
         load_config(tmp_path / "evalshift.yaml")
 
 
