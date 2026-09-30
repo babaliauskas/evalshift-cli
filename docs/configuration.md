@@ -4,20 +4,21 @@ Every EvalShift run is driven by a single `evalshift.yaml` file. This
 page documents every field — types, defaults, and what they do.
 
 `evalshift init` writes a minimal, capture-first `evalshift.yaml` —
-a passthrough `replay` prompt, default models, evaluators, and an empty
+a passthrough `replay` prompt, default models for the provider picked with
+`--provider gemini|openai|anthropic|deepseek` (default `gemini`), evaluators, and an empty
 managed `suites:` block you fill in with `evalshift capture sync`. Below is
 the canonical reference.
 
 ## Top-level shape
 
 ```yaml
-version: 1                # required, must be 1
+version: 1                # optional (default 1); must be 1 when set
 project: org/project      # optional, required for hosted push unless passed by flag
 migration_policy: {...}   # optional local migration verdict policy
 prompts: [...]            # required, at least one
 defaults: {...}           # optional
 evaluators: {...}         # optional (but at least one is needed for `evaluate`)
-slices: [...]             # optional
+slices: [...]             # optional; validated but not applied (see below)
 suites: {...}             # optional named suites for `run --suite-name`, each with
                           # its own optional `evaluators:` block
 retention: {...}          # optional run-history pruning policy
@@ -197,7 +198,7 @@ output (cosine ~0.98) that stays within `min_similarity` is treated as
 *equivalent*, not a regression — so the policy gate and the report agree.
 
 Per-slice overrides live under `migration_policy.slices` — a map of
-slice name to a partial policy block; unset fields inherit the top
+slice name (an example tag: every distinct tag is a slice) to a partial policy block; unset fields inherit the top
 level. A slice budget gates the run exactly like a top-level one: a
 conclusively breached slice budget **fails** the run, an unconfirmed
 breach makes it `inconclusive`, and `recommendations` names which slice
@@ -258,8 +259,14 @@ Two behaviours to know:
 Verdicts are `pass`, `conditional_pass`, `fail`, or `inconclusive`.
 When configured, `analyze` writes `migration_decision.json` next to
 `analysis.json`; `report` renders it as the top-level migration verdict.
-Use `--policy-gate` on `analyze` or `compare` to fail CI for `fail` and
-`conditional_pass`.
+CI gating, on `analyze` and `compare`:
+
+- `--policy-gate` exits 1 when the verdict is `fail` or `conditional_pass`,
+  and also when no `migration_policy` is configured. `inconclusive` exits 0.
+- `--gate critical,high` exits 1 when any comparison has one of the listed
+  severities (allowed: `critical`, `high`, `medium`, `low`).
+- When `$GITHUB_STEP_SUMMARY` is set, `analyze` appends a markdown results
+  table to the GitHub Actions job summary.
 
 `evalshift.yaml`'s `migration_policy` is the single source of truth for these
 budgets. `analyze` stamps the resolved policy it computed the verdict under —
@@ -267,8 +274,10 @@ every top-level budget with its default applied, plus `slices` — onto
 `migration_decision.json` as `policy`. `bundle` and `push` do not read that
 file: `bundle` re-resolves the verdict from `evalshift.yaml` at bundle time,
 so the bundle's `decision.policy` is the policy the config held *when the
-bundle was built* — edit `migration_policy` between `analyze` and `push` and
-the bundle carries the new numbers, not the ones `analyze` last wrote. Either
+bundle was built* — edit `migration_policy` between `analyze` and `bundle` and
+the bundle carries the new numbers, not the ones `analyze` last wrote. `push
+<run-id>` builds a bundle only when none exists, so after an edit re-run
+`evalshift bundle <run-id>` before pushing. Either
 way, the hosted gate checks a pull request against exactly the budgets the
 bundle's own verdict used. `evalshift.yaml` is the source of truth for that
 policy; the web app's project policy view is becoming a read-only display of
@@ -330,7 +339,7 @@ A list of prompt definitions. Each entry has:
 | `judge_model`   | string | `gemini-3.1-flash-lite-preview` | Default LLM-as-judge model. |
 | `insights_model`| string | (none)                        | Model that writes the run-insights narrative rendered in `report.html` and uploaded with the bundle. Falls back to `judge_model` when unset — writing analytical prose is a harder task than a pairwise A/B verdict, so it is worth tuning separately. See [Run insights](#run-insights). |
 | `concurrency`   | int    | 10 (1 ≤ x ≤ 64)               | Max in-flight LLM calls during `evalshift run` **and** `evalshift evaluate` (the embedding and judge calls made while scoring). |
-| `cache`         | bool   | `true`                        | Read/write the local SQLite cache at `~/.evalshift/cache.db`. Covers run-stage completions plus `semantic` embeddings and `llm_judge` verdicts. |
+| `cache`         | bool   | `true`                        | Read/write the local SQLite cache at `~/.evalshift/cache.db`. Covers run-stage completions of tool-less examples (examples that offer tools are always dispatched live) plus `semantic` embeddings and `llm_judge` verdicts. |
 | `max_cost_usd`  | float  | 50.0                          | Soft ceiling reserved for future enforcement. The pre-flight cost prompt currently triggers above $10 (skip with `--yes`). |
 | `max_tokens`    | int    | 4096 (`> 0`)                  | Completion length cap sent to every model call. Raise it if outputs are being truncated (the provider returns `finish_reason == "length"`); a `prompts[].max_tokens` entry overrides it per prompt. Truncated calls are detected, surfaced in the report, and **excluded from the regression statistics** so a cut-off output can't manufacture a false regression. |
 | `samples_per_example` | int | 1 (1 ≤ x ≤ 20)           | How many times each `(prompt, example)` is sent to **each** model. Above 1, every sample is its own live call (the cache keys on the sample index), sample *i* of the source is scored against sample *i* of the target, and the example's row in `scores.jsonl` becomes the **mean over samples** with the per-sample scores and the within-example `delta_variance` under `metadata.samples`. The paired tests still run over examples, not samples, so this reduces noise without inflating `n`. Cost and the call count multiply by it; only worth turning on for a model that samples non-deterministically (see the report banner). See [Methodology](methodology.md#limitations-to-be-aware-of). |
@@ -523,7 +532,7 @@ values still scores by its strategy, so a wrong value is still 0.0.
 
 Under `against: expected`, a ground-truth field that **neither** model produced
 is dropped from that call's denominator on both sides and disclosed as
-`unmeasured_fields` in the record's per-call metadata (`scores.json`). It is a
+`unmeasured_fields` in the record's per-call metadata (`scores.jsonl`). It is a
 stale expectation, not a model defect: scored, it would cap the call below 1.0
 for good, since no model change could ever lift it. A field only one side
 omitted is unaffected — that is `optional_fields_scored`' business. A call whose
@@ -605,8 +614,15 @@ writes `false` — see [`blocking`](#blocking-every-evaluator) for why.
 
 ## `slices`
 
-A list of named subsets used for slice-level statistical analysis.
-The implicit `"all"` slice always exists.
+Slices come from the suite, not from this block: every distinct example
+`tag` becomes a slice under its own name, alongside the implicit `"all"`
+slice, and each is analysed separately. Per-slice budgets go under
+[`migration_policy.slices`](#migration_policy), keyed by the tag.
+
+The top-level `slices:` list is still accepted — it is validated and copied
+into the run bundle's evaluator config — but analysis does not read it today:
+`name`, `filter` and `applies_to` rename, filter and scope nothing, and a run
+reports the same slices with or without it.
 
 `overall` is reserved and cannot be used as a slice `name`, as an example tag,
 or as a `migration_policy.slices` key. It names the run-level scope in the run
@@ -616,9 +632,9 @@ suite loads.
 
 | Field         | Type   | Required | Description |
 | ------------- | ------ | -------- | ----------- |
-| `name`        | string | yes      | Slice name surfaced in reports. |
-| `filter`      | string | yes      | A tag string. Currently the filter is a literal tag — examples whose `tags` list contains the value land in this slice. |
-| `applies_to`  | list   | optional | Glob list of prompt ids this slice applies to (default `["*"]`). |
+| `name`        | string | yes      | Slice name. Not applied: reports name each slice after its tag. |
+| `filter`      | string | yes      | A literal tag. Not applied: every tag is already its own slice. |
+| `applies_to`  | list   | optional | Glob list of prompt ids (default `["*"]`). Not applied. |
 
 Slices with identical membership are collapsed to one before analysis, so
 duplicate tags cannot inflate the Benjamini–Hochberg correction. `all` and any
@@ -673,7 +689,7 @@ walkthrough — all optional, additive, single-turn suites parse unchanged):
 
 | Field             | Type                                 | Required | Description |
 | ----------------- | ------------------------------------- | -------- | ----------- |
-| `history`          | list of `{role, content}` or `null`  | optional | Conversation prefix replayed verbatim before the current turn (teacher-forced). `role` is `system`, `user`, or `assistant`; at most one `system` message, and it must come first if present. `null` (the default) means single-turn — no message-mode dispatch. |
+| `history`          | list of `{role, content, tool_calls?, tool_call_id?}` or `null`  | optional | Conversation prefix replayed verbatim before the current turn (teacher-forced). `role` is `system`, `user`, `assistant`, or `tool`; `tool_calls` only on `assistant`; `tool_call_id` required on `tool` and forbidden elsewhere; at most one `system` message, and it must come first if present. `null` (the default) means single-turn — no message-mode dispatch. |
 | `conversation_id`  | string or `null`                     | optional | Id of the recorded conversation this turn came from. Provenance only. |
 | `turn_index`       | integer (`>= 0`) or `null`           | optional | Zero-based position of this turn within its conversation. Shown as a `turn N` badge in the HTML report. |
 | `generation_config` | object or `null`                    | optional | Generation settings recorded by the SDK on the capture's first model call (`temperature`, `response_mime_type`, `response_schema`, `tool_choice`, `parallel_tool_calls`, `tool_config`, ...). Written by `capture promote`/`sync`; the runner translates it at dispatch — `temperature` overrides the model default, `response_mime_type: application/json` (plus an optional `response_schema`) becomes a LiteLLM `response_format`, and `tool_choice` / `tool_config` / `parallel_tool_calls` become an OpenAI-style `tool_choice` + `parallel_tool_calls` that LiteLLM maps per provider — all on both the source and target calls. See [Agents → Tool-choice constraints are replayed too](agents.md#tool-choice-constraints-are-replayed-too). Delete the field to disable the override; keys the runner cannot translate are ignored with a warning. |
@@ -702,8 +718,11 @@ suites:
 | `evaluators` | block  | optional | Evaluators this suite is scored with, replacing the top-level `evaluators:` family by family. Omitted (the default) scores the suite with the top-level block unchanged. |
 | `managed`    | bool   | optional | Whether `capture sync` owns this entry. Default `true`. |
 
-Resolution precedence for `run`: an explicit `--suite <path>` wins, then
-`--suite-name <name>` (looked up here), then the default `golden.jsonl`.
+Resolution precedence for `run` and `compare`: an explicit `--suite <path>`
+wins, then `--suite-name <name>` (looked up here). With neither flag, a config
+that wires exactly one suite uses it; one that wires two or more is an error
+that lists a ready-to-run command per suite; `./golden.jsonl` is the fallback
+only when `suites:` is empty.
 
 ### Per-suite `evaluators`
 
@@ -820,6 +839,11 @@ evalshift capture sync --input-var query        # promote every capture + wire s
 evalshift run --suite-name support_agent --yes  # score a candidate model against it
 evalshift capture clean                         # prune already-promoted captures
 ```
+
+`capture clean [<suite>]` deletes promoted captures by default (`--promoted`);
+`--all` deletes every capture, promoted or not. It never touches promoted
+suites, then offers to sweep toolset sidecars no surviving capture or suite
+references. Each deletion asks first; `--yes`/`-y` skips both prompts.
 
 `evalshift capture sync` is the one-shot path: it promotes **every** capture
 under `.evalshift/captures/` into golden suites at

@@ -46,7 +46,7 @@ row carrying its own `toolset_ref`:
 cd examples/agent
 export GOOGLE_API_KEY=<google-api-key>
 evalshift run --yes --from gemini-2.5-flash --to gemini-3.1-flash-lite-preview
-RUN_ID=$(ls .evalshift/runs/ | head -1)
+RUN_ID=$(ls -t .evalshift/runs/ | head -1)
 evalshift evaluate "$RUN_ID"
 evalshift analyze "$RUN_ID"
 evalshift report "$RUN_ID" --open
@@ -136,7 +136,7 @@ Nothing in `evalshift.yaml` wires a toolset to a prompt — dispatch reads it
 off each golden-suite *example* instead (`toolset_ref` or inline `tools`, see
 [Suite ground truth](#suite-ground-truth) below), so the same prompt can
 legitimately dispatch some examples with tools and others without, in one
-run. `tools.yaml` above is just this project's human-readable record of what
+run. [`examples/agent/tools.yaml`](https://github.com/babaliauskas/evalshift-cli/blob/main/examples/agent/tools.yaml) is just this project's human-readable record of what
 those tools are; it accepts either Anthropic-shape (`name` / `description` /
 `input_schema`) or OpenAI-shape (`{ "type": "function", "function": {...}
 }`) entries — `evalshift run` serialises whatever a toolset resolves to in
@@ -507,9 +507,11 @@ expectation are ignored here. Which keys are compared follows each expectation's
 `match_strategy`: `exact` also flags arguments the ground truth did not record,
 while `subset` (what `capture promote` writes) scores the recorded keys only.
 
-Check `evalshift doctor` first. If it warns about **tool argument shape**, your
-recorded arguments use keys the declared schema does not have, and every
-ground-truth comparison will score 0 for a reason that is not the model's fault.
+If every ground-truth comparison scores 0, check whether your recorded
+arguments use keys the declared schema does not have — a capture of a decorated
+function's parameters rather than the model's own arguments scores 0 for a
+reason that is not the model's fault. See
+[Wrapper arguments are unwrapped](#wrapper-arguments-are-unwrapped-legacy-captures).
 
 A ground-truth field that **neither** model produced is dropped from that call's
 denominator on both sides and disclosed as `unmeasured_fields` in the record's

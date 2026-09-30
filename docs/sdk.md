@@ -47,7 +47,9 @@ def issue_refund(order_id: str) -> dict:
 @capture.agent(suite="support_agent", redact=True, tools=[])
 def handle_ticket(query: str) -> str:
     response = client.messages.create(model="claude-sonnet-5", messages=messages)
-    record_model_call(model_id="claude-sonnet-5", input=messages, output=response.text)
+    record_model_call(
+        model_id="claude-sonnet-5", tools=None, input=messages, output=response.text
+    )  # tools=None inherits the session's toolset
     ...
 ```
 
@@ -63,6 +65,8 @@ value — `None` included — raises `TypeError`. Details:
 
 `tools` is required on the same entry points: the toolset the agent was offered,
 or `[]` if it never calls tools. Omitting it is a `TypeError` too.
+`record_model_call` and `capture.model_call` require `tools=` as well; pass
+`None` to inherit the session's toolset.
 
 **Provider client wrappers (SDK 0.4.0+).** If the agent calls OpenAI, Anthropic
 or Google GenAI directly, wrap the client once instead of calling

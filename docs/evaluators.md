@@ -16,8 +16,10 @@ suite sizes their noise would gate the verdict. See
 When an evaluator's own measurement breaks (judge call fails, embedding
 call fails), the record is stored as **errored and excluded from the
 statistics** — not silently scored neutral. Upstream *model-call*
-failures are different: the pair gets a neutral 0.5/0.5 record with the
-error attached, so the run always completes.
+failures and truncated calls are recorded the same way: an errored row
+(a 0.5/0.5 placeholder with `error` set), kept in `scores.jsonl` for
+inspection and excluded from slicing, the paired tests and the policy
+rates. The run always completes.
 
 EvalShift ships four families (plus `agent_trace` for
 [imported external traces](traces.md)):
@@ -219,7 +221,7 @@ Per (prompt, example) pair, each evaluator means:
 | llm_judge              | 1 judge model completion                |
 | tool_selection         | $0 (compares parsed traces only)        |
 | tool_trace_structure   | $0 (compares parsed traces only)        |
-| tool_arguments         | $0 normally; embedding calls per `semantic`-strategy field if you opt in |
+| tool_arguments         | $0 without an `evaluators.semantic` block (free text uses `difflib`). With one, embedding calls per free-text or `semantic`-strategy field (cached) |
 
 A 100-example suite with 1 prompt and 4 evaluators (2 structural +
 1 semantic + 1 judge) is:
@@ -228,6 +230,7 @@ A 100-example suite with 1 prompt and 4 evaluators (2 structural +
 * Evaluate: 200 embedding calls + 100 judge calls
 
 LiteLLM's pricing data drives the pre-flight estimate; the local
-SQLite cache absorbs identical re-runs, evaluate-stage embedding and
-judge calls included. Evaluate dispatches its calls under
+SQLite cache absorbs identical re-runs of tool-less examples, evaluate-stage
+embedding and judge calls included. Examples that offer tools are dispatched
+live on every run; only their evaluate-stage calls are cached. Evaluate dispatches its calls under
 `defaults.concurrency`, same as the run stage.

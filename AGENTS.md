@@ -60,7 +60,8 @@ Detailed operating rules — commands, repo map, hard rules — live in
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e ".[dev]"
 pytest                        # full suite
-pre-commit run --all-files    # exactly what CI runs
+make ci                       # exactly what CI runs (also the pre-push hook)
+pre-commit run --all-files    # commit-stage hooks only (file hygiene, ruff --fix, format, mypy)
 ```
 
 - Config models use `extra="forbid"`; any new `evalshift.yaml` field needs docs

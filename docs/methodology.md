@@ -377,7 +377,9 @@ bundle reported no drift denominator; once it did, the hosted gate — which has
 always counted drift as a proportion — began confirming breaches the CLI still
 called outright failures, so one run could read `fail` locally and
 `inconclusive` hosted off the CLI's own numbers. Both engines now compute the
-interval over the same three budgets, from the same two-sided 95% quantile
+interval over the same three budgets — regression rate, equivalence rate and
+tool-argument drift; the CLI's fourth, `max_tool_divergence`, has no hosted
+interval yet — from the same two-sided 95% quantile
 (`1.959963984540054`, not the rounded `1.96`), and apply the same asymmetric
 rule, so a local verdict and a hosted one no longer disagree about whether a
 breach was confirmed.

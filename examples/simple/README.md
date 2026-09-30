@@ -9,7 +9,7 @@ cd examples/simple
 export GOOGLE_API_KEY=<google-api-key>
 
 evalshift run --yes --from gemini-2.5-flash --to gemini-2.5-pro
-RUN_ID=$(ls .evalshift/runs/ | head -1)
+RUN_ID=$(ls -t .evalshift/runs/ | head -1)
 evalshift evaluate "$RUN_ID"
 evalshift analyze "$RUN_ID"
 evalshift report "$RUN_ID" --open

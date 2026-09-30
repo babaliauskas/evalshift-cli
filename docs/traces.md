@@ -3,8 +3,9 @@
 EvalShift can compare externally recorded agent timelines. The traces come from
 your own runtime — EvalShift never runs your agent — and are imported into a
 completed local run, after which `evaluate`, `analyze`, and `report` work as
-usual. Import is local, but imported traces are not local-only: they travel to
-hosted EvalShift inside the run bundle if you `push` (see [Hosted](#hosted)).
+usual. Imported traces stay local: `evaluate` scores them and the local report
+shows them, but `push` uploads only the replay's own tool-call trace (see
+[Hosted](#hosted)).
 
 ## Import
 
@@ -121,13 +122,13 @@ evalshift replay case <run-id> <example-id> --model target --trace
 
 ## Hosted
 
-`evalshift bundle` / `evalshift push` carry imported traces into the run bundle
-as one event stream per model side, so the hosted run-detail page renders the
-timeline and not just the text. A new round starts at each `model_call`; events
-before the first one stay in round 0.
+Imported traces are not uploaded. They stay in
+`.evalshift/runs/<run-id>/traces.jsonl`, where `evaluate` (the `agent_trace`
+evaluator), the local report and `diff case` / `inspect case` / `replay case`
+read them.
 
-Not everything travels verbatim. `model_call` `input` and `output` payloads are
-excluded, and oversized content is shortened rather than dropped: a serialized
-`tool_result.result` over 16 KB becomes a truncated preview, and a stream over
-256 KB keeps its leading events and is flagged `truncated`. The full bundle
-contract is in [Hosted EvalShift](hosted.md#bundle-and-push).
+`evalshift bundle` / `evalshift push` carry only the replay's own tool-call
+trace — one stream per model side with the tool calls (names, arguments, call
+ids), round markers, any final text and refusal messages, capped at 256 KB per
+side. The full bundle contract is in
+[Hosted EvalShift](hosted.md#bundle-and-push).

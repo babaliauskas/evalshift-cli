@@ -36,6 +36,9 @@ evaluators:
       divergence: set
       severity_floor: high
 
+# Slices come from each example's `tags` automatically: one per distinct tag,
+# plus `all`. This block is validated but not applied by analysis today --
+# the run reports the same slices without it.
 slices:
   - name: security
     filter: security

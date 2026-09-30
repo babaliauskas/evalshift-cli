@@ -105,13 +105,15 @@ On pull requests, the Action:
 - Sets commit status `evalshift/regression`.
 
 If no compatible baseline exists, the comment explains that the run was pushed
-but there is no baseline yet. Gating passes in that case.
+but there is no baseline yet. Under `regression` / `any-slice-regression`,
+gating passes. Under the default `policy` mode, the job still follows the
+run's policy verdict.
 
 ## `fail-on` modes
 
 | Mode | Behavior |
 | --- | --- |
-| `policy` (default) | Ask hosted EvalShift for the migration-policy verdict — the verdict the run itself computed against the `migration_policy` limits in `evalshift.yaml` and carried in its bundle, returned rather than re-scored. `fail` fails; `pass`/`conditional_pass` pass. If the policy check is unreachable, falls back to `regression` gating and says so. |
+| `policy` (default) | Ask hosted EvalShift for the migration-policy verdict — the verdict the run itself computed against the `migration_policy` limits in `evalshift.yaml` and carried in its bundle, returned rather than re-scored. `fail` fails; `pass`/`conditional_pass`/`inconclusive` pass. A run pushed with no `migration_policy` is reported as ungated with a workflow warning and passes, unless `require-policy: true`. If the policy check is unreachable, falls back to `regression` gating and says so. |
 | `never` | Do not fail the workflow for hosted regressions. |
 | `regression` | Fail when the hosted diff reports one or more regressed examples. |
 | `any-slice-regression` | Fail when any slice pass rate moves down. |
@@ -131,6 +133,7 @@ Common inputs:
 | `suite-name` | — | Name of a suite wired under `suites:` in `evalshift.yaml`. Preferred — see [Selecting a suite](#selecting-a-suite-name-not-path). Needs a CLI pin of `0.14.0` or newer. |
 | `suite` | `golden.jsonl` | Suite path, for a file that is not wired into the config (one suite per invocation). Mutually exclusive with `suite-name`. |
 | `fail-on` | `policy` | Gate mode — see the table above. |
+| `require-policy` | `false` | Fail the job when the pushed run carries no migration policy (`policy` mode only). |
 | `evalshift-version` | action default (may lag) | Exact CLI version installed from PyPI. Always set it: it must be at least as new as the CLI that writes your `evalshift.yaml` (reader ≥ writer). `init --ci` pins it to the scaffolding CLI. |
 | `create-project` | `true` | Allow project auto-create when permissions allow it. |
 | `comment` | `true` | Post or update the PR comment on pull requests. |

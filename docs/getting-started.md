@@ -38,7 +38,8 @@ fastest.
 
 EvalShift calls the provider you configure — any provider LiteLLM supports — directly using your own keys.
 Local runs do not send prompts or outputs to an EvalShift-operated server.
-Provider responses are cached locally in `~/.evalshift/cache.db`.
+Provider responses to tool-less examples are cached locally in `~/.evalshift/cache.db`;
+examples that offer tools are dispatched live on every run.
 
 Set whichever providers you intend to use:
 
@@ -54,8 +55,11 @@ export DEEPSEEK_API_KEY=<deepseek-api-key>
 ```bash
 mkdir my-eval
 cd my-eval
-evalshift init
+evalshift init --provider gemini   # or openai, anthropic, deepseek
 ```
+
+`--provider` picks the model ids the scaffold uses. Omit it and `init` asks on
+a terminal, or defaults to `gemini` when there is no terminal to ask on.
 
 You can also pick a migration profile:
 
@@ -67,8 +71,10 @@ The default `model-upgrade` profile scaffolds a `migration_policy` block
 that powers the verdict in `analyze`, `compare`, and `report`.
 
 This writes a single, minimal, capture-first `evalshift.yaml`: a
-passthrough `replay` prompt, advisory semantic + LLM-judge evaluators, an
-empty managed `suites:` block for `capture sync` to fill, and the migration
+passthrough `replay` prompt, an advisory LLM-judge evaluator and — for the
+Gemini and OpenAI scaffolds — an advisory semantic evaluator (the Anthropic
+and DeepSeek scaffolds write it commented out, since neither provider has an
+embedding endpoint), an empty managed `suites:` block for `capture sync` to fill, and the migration
 policy. `init` refuses to clobber an existing `evalshift.yaml`; pass
 `--force` to overwrite, or `--directory my-eval/` to scaffold into a
 different folder.
@@ -154,7 +160,8 @@ verdict block. Warnings raised along the way (LiteLLM deprecation
 notices, insights retries) are held back and printed as one `⚠` section
 directly under the pipeline block; errors are never deferred.
 `run`/`compare` estimate worst-case cost up front and prompt for
-confirmation above $10 (skip with `--yes`).
+confirmation above $10 (skip with `--yes`, or set `EVALSHIFT_NONINTERACTIVE=1`
+in CI).
 
 If you want to drive each stage by hand (useful when re-running just
 one stage after fixing config, or in CI where you stage artefacts):

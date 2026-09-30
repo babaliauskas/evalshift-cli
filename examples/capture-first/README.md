@@ -177,7 +177,7 @@ evalshift compare --suite-name oncall_triage --to gemini-3.1-pro-preview
 ```
 
 `--suite-name` looks the suite up in the `suites:` block, which is where its
-path *and* its evaluator overrides come from. Step by step instead of `all`:
+path *and* its evaluator overrides come from. Step by step instead of `compare`:
 
 ```bash
 evalshift run --yes --suite-name oncall_triage --to gemini-3.1-pro-preview
