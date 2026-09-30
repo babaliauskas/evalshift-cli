@@ -138,16 +138,19 @@ def _safe_cost_per_call(
 def _price_table_key(model_id: str) -> str | None:
     """The key litellm's price table holds ``model_id`` under, or ``None``.
 
-    Tries the id as recorded, the registry's canonical (provider-prefixed)
-    form, and that form with the prefix stripped — litellm keys most
-    first-party entries bare (``gpt-4o-mini``) and some prefixed
-    (``gemini/gemini-2.5-flash``). A pure dict lookup: ``litellm.model_cost``
-    is the bundled table, so a miss costs nothing and touches nothing.
+    Tries the registry's canonical (provider-prefixed) form first, then the id
+    as recorded, then the canonical form with the prefix stripped. The order
+    matters: litellm keys some providers under both spellings but can only
+    price the prefixed one (``deepseek-flash`` is a key, yet
+    ``cost_per_token`` cannot infer its provider), while most first-party
+    entries exist only bare (``gpt-4o-mini``) and fall through to the second
+    or third candidate. A pure dict lookup: ``litellm.model_cost`` is the
+    bundled table, so a miss costs nothing and touches nothing.
     """
     canonical = resolve_model(model_id).id
     _, _, stripped = canonical.partition("/")
     table = litellm.model_cost
-    for candidate in (model_id, canonical, stripped):
+    for candidate in (canonical, model_id, stripped):
         if candidate and candidate in table:
             return candidate
     return None

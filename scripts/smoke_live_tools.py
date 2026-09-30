@@ -5,17 +5,23 @@ Run by hand with real provider API keys; **not** part of CI.
 Usage:
     python scripts/smoke_live_tools.py
 
-What it does:
-    1. For each (model, prompt) combination, call ModelClient.complete_with_tools.
-    2. Print a one-line summary (tool names + cost).
-    3. Save the raw provider response to
-       ``tests/unit/fixtures/tool_responses/<provider>/<prompt_name>.json``
-       so unit-test fixtures stay current.
-    4. Diff against the existing fixture (if any) and warn if the shape
-       changed — early-warning for LiteLLM upstream drift.
+What it does, for each model whose provider key is set (others are skipped):
+    1. For each prompt, call ModelClient.complete_with_tools and print a
+       one-line summary (tool names + cost).
+    2. Save the raw provider response to
+       ``tests/unit/fixtures/tool_responses/<dir>/<prompt_name>_live.json``
+       (``<dir>`` is the response shape, or ``deepseek`` for DeepSeek) and
+       warn if it differs from the previous capture — early warning for
+       LiteLLM upstream drift.
+    3. Round 1: replay a tool round whose assistant turn the model never
+       wrote (ModelClient.complete_messages_with_tools) — DeepSeek 400s this
+       unless the placeholder ``reasoning_content`` is sent.
+    4. History: replay a text-only chat history (user / assistant / user,
+       no tools) through ModelClient.complete_messages — the placeholder
+       rides on that assistant turn too.
 
-Failures are reported per (model, prompt) and the script keeps going so
-you see the full picture rather than bailing on the first error.
+Failures are reported per check and the script keeps going so you see the
+full picture rather than bailing on the first error.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from evalshift_cli.evaluators.tool_models import ToolSpec  # noqa: E402
 from evalshift_cli.evaluators.tool_parser import detect_provider  # noqa: E402
 from evalshift_cli.models.client import ModelClient  # noqa: E402
+from evalshift_cli.models.registry import PROVIDER_ENV_VARS, resolve_model  # noqa: E402
 
 FIXTURE_ROOT = ROOT / "tests" / "unit" / "fixtures" / "tool_responses"
 
@@ -74,6 +81,8 @@ PROMPTS: list[tuple[str, str]] = [
 MODELS = [
     "gemini/gemini-2.5-flash",
     "gemini/gemini-3.1-flash-lite-preview",
+    "deepseek-flash",
+    "deepseek-v4-pro",
 ]
 
 
@@ -99,18 +108,60 @@ async def main() -> int:
             except Exception as exc:
                 failures += 1
                 print(f"  FAILED: {exc.__class__.__name__}: {exc}")
+        try:
+            await _multi_round(client, model)
+        except Exception as exc:
+            failures += 1
+            print(f"  round 1 FAILED: {exc.__class__.__name__}: {exc}")
+        try:
+            await _chat_history(client, model)
+        except Exception as exc:
+            failures += 1
+            print(f"  history FAILED: {exc.__class__.__name__}: {exc}")
     return 0 if failures == 0 else 1
 
 
 def _provider_or_skip(model: str) -> str | None:
-    """Return the provider name iff the matching env var is set."""
-    provider = detect_provider(model)
-    env = {
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-    }[provider]
-    return provider if os.environ.get(env) else None
+    """Return the fixture directory for ``model`` iff its provider's key is set."""
+    meta = resolve_model(model)
+    keys = PROVIDER_ENV_VARS.get(meta.provider, ())
+    if not any(os.environ.get(k) for k in keys):
+        return None
+    # detect_provider names a response shape; DeepSeek shares OpenAI's, but its
+    # live captures must not overwrite the OpenAI ones.
+    return "deepseek" if meta.provider == "deepseek" else detect_provider(model)
+
+
+async def _multi_round(client: ModelClient, model: str) -> None:
+    """Round 1 of a teacher-forced replay: an assistant turn DeepSeek never wrote."""
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "Look up ACME's Q3 revenue."},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_r0_0",
+                    "type": "function",
+                    "function": {"name": "search_db", "arguments": '{"query": "ACME Q3"}'},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_r0_0", "content": '{"revenue_musd": 12.4}'},
+    ]
+    result = await client.complete_messages_with_tools(model=model, messages=messages, tools=TOOLS)
+    print(f"  round 1: calls={result.trace.tool_names} text={bool(result.trace.final_text)}")
+
+
+async def _chat_history(client: ModelClient, model: str) -> None:
+    """A text-only replayed history: an assistant turn with no reasoning_content."""
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "Hi, I ordered a kettle last week."},
+        {"role": "assistant", "content": "Thanks! How can I help with your kettle order?"},
+        {"role": "user", "content": "What's your standard refund policy, in one sentence?"},
+    ]
+    result = await client.complete_messages(model=model, messages=messages)
+    print(f"  history: text={bool(result.text)}")
 
 
 def _save_fixture(provider: str, name: str, payload: dict[str, Any]) -> None:

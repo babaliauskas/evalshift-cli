@@ -47,6 +47,11 @@ class TestDetectProvider:
             ("o3-mini", "openai"),
             ("gemini/gemini-2.5-pro", "gemini"),
             ("gemini-2.5-flash", "gemini"),
+            ("deepseek/deepseek-flash", "openai"),
+            ("deepseek-v4-pro", "openai"),
+            # Same weights, other hosts: LiteLLM returns OpenAI's shape for all.
+            ("azure_ai/deepseek-v4-pro", "openai"),
+            ("hosted_vllm/deepseek-ai/DeepSeek-V4-Flash", "openai"),
         ],
     )
     def test_known_models(self, model_id: str, expected: str) -> None:
@@ -371,6 +376,24 @@ class TestParseOpenAI:
         trace = parse_response_to_trace(raw, provider="openai", model_id="gpt-4o")
         assert trace.call_count == 1
         assert not trace.raised_refusal
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek (parsed as OpenAI-shaped)
+# ---------------------------------------------------------------------------
+
+
+class TestParseDeepSeek:
+    def test_single_tool_call_ignores_reasoning_content(self) -> None:
+        raw = _load("deepseek", "single_tool_call")
+        model_id = "deepseek/deepseek-flash"
+        trace = parse_response_to_trace(raw, provider=detect_provider(model_id), model_id=model_id)
+        assert trace.call_count == 1
+        assert trace.calls[0].tool_name == "search_db"
+        assert trace.calls[0].arguments == {"query": "ACME Q3"}
+        assert trace.calls[0].call_id == "call_00_synthetic"
+        # The reasoning chain is not the answer.
+        assert not trace.final_text
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- DeepSeek is a supported provider. `deepseek-flash` and `deepseek-v4-pro`
+  are in the model registry; bare `deepseek-*` ids (as recorded by a capture
+  of an app calling `api.deepseek.com` through the OpenAI client) resolve to
+  `deepseek/…`; `DEEPSEEK_API_KEY` is checked before a run and shown by
+  `evalshift doctor`; tool-call evals parse DeepSeek responses; a DeepSeek
+  judge grading a DeepSeek arm gets the judge-family warning; and
+  `evalshift init --provider deepseek` scaffolds a DeepSeek project. DeepSeek's
+  default thinking mode ignores `temperature`, so DeepSeek arms and a DeepSeek
+  judge carry the report's non-determinism banner, and every assistant turn
+  replayed from the recording (tool rounds and chat history) is sent with a
+  placeholder `reasoning_content`: DeepSeek requires it on tool requests and
+  ignores it otherwise.
+
 ### Fixed
 
 - Under SQLAlchemy 2.1, which fresh installs resolve (`sqlalchemy>=2.0`), a
@@ -21,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embeddings-cache test failed intermittently. `CacheStore` now runs its
   sessions one at a time on a single-connection pool. This works the same
   on SQLAlchemy 2.0 and 2.1.
+
+- `capture sync` priced calls recorded under a bare id at $0 when LiteLLM
+  keys the model under both spellings but can only price the provider-prefixed
+  one (DeepSeek). The price lookup now tries the provider-prefixed id first.
 
 - README.md, DOCS.md, llms-full.txt, four `docs/` pages, and AGENTS.md
   advertised `evalshift all --push` as the command to run. `all` has been a

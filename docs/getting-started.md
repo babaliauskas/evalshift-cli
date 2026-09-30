@@ -46,6 +46,7 @@ Set whichever providers you intend to use:
 export ANTHROPIC_API_KEY=<anthropic-api-key>
 export OPENAI_API_KEY=<openai-api-key>
 export GEMINI_API_KEY=<gemini-api-key>
+export DEEPSEEK_API_KEY=<deepseek-api-key>
 ```
 
 ## 3. Scaffold your project

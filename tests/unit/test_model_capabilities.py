@@ -214,3 +214,21 @@ class TestSilentlyUnsentParams:
         """No provider, no table entry — and never an exception out of a probe."""
         _stub_params(monkeypatch, _WITH_TEMPERATURE)
         assert silently_unsent_params("some-model-we-cannot-place", ["parallel_tool_calls"]) == []
+
+
+class TestDeepSeekThinkingMode:
+    """Thinking mode accepts ``temperature`` and ignores it; LiteLLM still lists it."""
+
+    def test_thinking_deepseek_model_does_not_honour_temperature(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_params(monkeypatch, _WITH_TEMPERATURE)
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: True)
+        assert honors_temperature("deepseek-flash") is False
+
+    def test_non_thinking_deepseek_model_falls_back_to_the_probe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_params(monkeypatch, _WITH_TEMPERATURE)
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: False)
+        assert honors_temperature("deepseek/deepseek-chat") is True

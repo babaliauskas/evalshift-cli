@@ -1,0 +1,27 @@
+{
+  "id": "chatcmpl_synthetic_deepseek_single",
+  "object": "chat.completion",
+  "model": "deepseek-flash",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "The user wants ACME's Q3 records; search the database first.",
+        "tool_calls": [
+          {
+            "id": "call_00_synthetic",
+            "type": "function",
+            "function": {
+              "name": "search_db",
+              "arguments": "{\"query\": \"ACME Q3\"}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 60, "completion_tokens": 40, "total_tokens": 100}
+}

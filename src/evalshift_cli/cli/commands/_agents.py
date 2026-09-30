@@ -84,8 +84,8 @@ workflow). Do not fetch them for unrelated work.
 ## Setup
 
 - Requires Python 3.11+ and provider API keys in the environment
-  (e.g. `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) matching the
-  models set in `evalshift.yaml`.
+  (e.g. `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `DEEPSEEK_API_KEY`) matching the models set in `evalshift.yaml`.
 - Config lives in `evalshift.yaml` at the project root. Run `evalshift doctor`
   to validate config + keys before a paid run.
 - Generated data lives under `.evalshift/` and is gitignored — never commit it.

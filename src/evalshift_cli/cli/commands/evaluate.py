@@ -80,7 +80,9 @@ from evalshift_cli.evaluators.tool_arguments import (
 from evalshift_cli.evaluators.tool_models import ToolSpec
 from evalshift_cli.evaluators.tool_selection import ToolSelectionEvaluator
 from evalshift_cli.evaluators.tool_trace_structure import ToolTraceStructureEvaluator
+from evalshift_cli.models.capabilities import honors_temperature
 from evalshift_cli.models.client import ModelClient
+from evalshift_cli.models.registry import resolve_model
 from evalshift_cli.runner.checkpoint import (
     CheckpointError,
     iter_calls,
@@ -248,9 +250,17 @@ def run_evaluate(
     # attempted, so it must outlive this process alongside the scores.
     # Judge calls can discover temperature-rejecting models after the run
     # phase already wrote its state; merge them here so the report banner
-    # covers the judge model too.
+    # covers the judge model too. A judge that ignores temperature without
+    # rejecting it (DeepSeek thinking mode) never shows up at runtime, so
+    # the judges are also checked the same way the run's arms were.
+    ignoring_judges = {
+        resolve_model(e.judge_model).id
+        for e in evaluators
+        if isinstance(e, PairwiseJudgeEvaluator) and not honors_temperature(e.judge_model)
+    }
     runtime_nondet = sorted(
-        set(judge_client.temperature_rejected_models) - set(state.non_deterministic_models)
+        (set(judge_client.temperature_rejected_models) | ignoring_judges)
+        - set(state.non_deterministic_models)
     )
     write_state(
         run_dir,

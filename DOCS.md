@@ -75,6 +75,7 @@ API keys go in the environment, never in config:
 export GEMINI_API_KEY=...        # or GOOGLE_API_KEY
 export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
+export DEEPSEEK_API_KEY=...
 ```
 
 Only the providers your configured models use need a key. `evalshift doctor` shows which keys are visible.
@@ -133,7 +134,7 @@ See [Project setup](#project-setup) and [Capturing from production](#capturing-f
 
 `init` options:
 
-- `--provider gemini|openai|anthropic` — which provider's model ids the scaffold uses (prompted on a TTY; defaults to `gemini` otherwise). Gemini and OpenAI scaffolds include an embedding-based semantic evaluator; the Anthropic scaffold comments it out (no embedding endpoint).
+- `--provider gemini|openai|anthropic|deepseek` — which provider's model ids the scaffold uses (prompted on a TTY; defaults to `gemini` otherwise). Gemini and OpenAI scaffolds include an embedding-based semantic evaluator; the Anthropic and DeepSeek scaffolds comment it out (no embedding endpoint).
 - `--profile` — pre-tuned migration-policy budgets:
 
 | Profile | regression ≤ | critical ≤ | equivalence ≥ | arg drift ≤ | cost Δ ≤ | latency Δ ≤ |
@@ -382,7 +383,7 @@ Derivation, on every `capture sync`: no row offered a toolset → **no block** (
 
 ### Model ids
 
-Model resolution is deliberately permissive: a small built-in registry maps aliases to canonical `provider/model` ids, and anything unknown is passed through with provider inferred from the prefix (`gemini-*` → Google, `claude-*` → Anthropic, `gpt-*`/`o1-*`/`o3-*` → OpenAI). LiteLLM is the call-time authority — **any model LiteLLM supports works**; the registry never gates. Before a live run the CLI checks that the inferred provider's API key env var is set.
+Model resolution is deliberately permissive: a small built-in registry maps aliases to canonical `provider/model` ids, and anything unknown is passed through with provider inferred from the prefix (`gemini-*` → Google, `claude-*` → Anthropic, `gpt-*`/`o1-*`/`o3-*` → OpenAI, `deepseek-*` → DeepSeek). LiteLLM is the call-time authority — **any model LiteLLM supports works**; the registry never gates. Before a live run the CLI checks that the inferred provider's API key env var is set.
 
 ---
 
@@ -800,7 +801,7 @@ Common conventions: `-c/--config` defaults to `./evalshift.yaml`; run artefacts 
 ### Pipeline
 
 **`evalshift init`** — scaffold a minimal capture-first `evalshift.yaml`.
-`-f/--force` · `-d/--directory <dir>` · `--ci` · `--wire-agents/--no-wire-agents` (default on) · `--provider gemini|openai|anthropic` · `--profile model-upgrade|cost-reduction|local-model|quantization|provider-switch` (default `model-upgrade`)
+`-f/--force` · `-d/--directory <dir>` · `--ci` · `--wire-agents/--no-wire-agents` (default on) · `--provider gemini|openai|anthropic|deepseek` · `--profile model-upgrade|cost-reduction|local-model|quantization|provider-switch` (default `model-upgrade`)
 Without `--ci`, warns after writing when an existing workflow under `.github/workflows/` pins an older CLI than this one, or none at all (see [Pin drift](#pin-drift)); `init --ci` writes the pin itself and does not warn about the file it just wrote.
 
 **`evalshift doctor`** — environment/config check. Exit 1 only on an invalid existing config. Row 2, `evalshift-sdk`, confirms `import evalshift` is the SDK (`warn` when missing or shadowed, never a failure). Reports the toolset each configured suite carries and flags a suite whose examples carry more than one distinct toolset. The suite-side checks cover every suite in the config's `suites:` block, falling back to `./golden.jsonl` when none are wired. Adds a `ci pin` row when a workflow uses the GitHub Action (`warn` on pin drift, never a failure) and a `judge family` row when an `llm_judge` judge shares a provider with a configured arm (`warn`, never a failure).
@@ -888,6 +889,7 @@ EvalShift follows [Semantic Versioning](https://semver.org). From **1.0.0** onwa
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Google auth (either works) |
 | `OPENAI_API_KEY` | — | OpenAI auth (also the default semantic embedding model) |
 | `ANTHROPIC_API_KEY` | — | Anthropic auth |
+| `DEEPSEEK_API_KEY` | — | DeepSeek auth |
 | `EVALSHIFT_NONINTERACTIVE` | unset | Non-empty → skip the cost-confirmation prompt (implied `--yes`); set in scaffolded CI |
 | `EVALSHIFT_MAX_RUNS` | unset | Override `retention.max_runs_per_suite`; `0`/`none`/`unlimited`/`off` disables count pruning |
 | `EVALSHIFT_DIR` | `.evalshift` | Base dir for SDK captures the `capture` commands read |
@@ -929,6 +931,40 @@ Yes — one example per turn with a recorded `history` prefix, replayed teacher-
 ### Which models can I use?
 
 Anything LiteLLM supports. The built-in registry only provides aliases and metadata; unknown ids pass through with provider inferred from the id prefix. Verify a model with `evalshift test-call -m <id>`.
+
+### Does EvalShift work with DeepSeek?
+
+Yes. Export `DEEPSEEK_API_KEY` and use DeepSeek's API ids, `deepseek-flash`
+or `deepseek-v4-pro`. A bare `deepseek-*` id (what a capture records when your
+app calls `api.deepseek.com` through the OpenAI client) gets the `deepseek/`
+prefix automatically. `evalshift init --provider deepseek` scaffolds a
+DeepSeek project. Three things differ from other providers:
+
+- **Sampling is not controlled.** Both models run in thinking mode by
+  default, which accepts `temperature` and ignores it. EvalShift keeps thinking
+  on, because that is what your application runs, so DeepSeek arms are marked
+  non-deterministic in the report. A DeepSeek judge is marked
+  non-deterministic too. Raise `defaults.samples_per_example` when the verdict
+  matters.
+- **Replayed assistant turns carry an empty reasoning chain.** Every assistant
+  turn replayed from the recording, tool rounds and chat history alike, is
+  sent with the single-space `reasoning_content` placeholder the API accepts.
+  The recording holds no DeepSeek reasoning to pass back. DeepSeek requires
+  the field on any request with tools, where an empty chain may degrade
+  multi-turn answer quality, and ignores it otherwise.
+- **No embeddings.** DeepSeek has no embedding endpoint. The `semantic`
+  evaluator needs an OpenAI or Gemini embedding model and its key, which is
+  why the DeepSeek scaffold ships it commented out.
+
+DeepSeek served by another host (self-hosted open weights, or a cloud region
+of your choice) goes through that host's LiteLLM prefix (`hosted_vllm/`,
+`azure_ai/`, `bedrock/`, ...) and its environment variables. Tool calls parse
+the same way, but the key pre-check and the notes above apply to the
+`deepseek/` API only. LiteLLM also reads `DEEPSEEK_API_BASE` to point the
+`deepseek/` provider at a DeepSeek-compatible endpoint. A local Ollama model
+named like `deepseek-r1` needs its prefix, `ollama/deepseek-r1`, when you name
+it as a run arm; a capture that recorded the bare name is treated as the
+DeepSeek API, and its estimated capture cost uses DeepSeek's API price.
 
 ### Do I need LangChain / a specific framework?
 

@@ -6,6 +6,11 @@ list of typed blocks (``text`` / ``tool_use`` / ``refusal``). This
 module dispatches on the model id, picks the right parser, and produces
 a uniform :class:`ToolTrace`.
 
+:func:`detect_provider`'s return value names a *response shape*, not a
+vendor: DeepSeek's API is OpenAI-compatible and LiteLLM hands its tool
+calls back in OpenAI's ``tool_calls`` shape wherever it is hosted, so
+any id containing ``"deepseek"`` maps to ``"openai"``.
+
 Errors at this layer are :class:`ToolParseError` and carry the raw
 response so the smoke-test script can dump it for fixture capture.
 """
@@ -42,13 +47,15 @@ def detect_provider(model_id: str) -> Provider:
     Mirrors the prefix-inference logic in
     :func:`evalshift_cli.models.registry._infer_provider_and_canonical` so
     the parser, registry, and report all agree on what counts as
-    ``"anthropic"`` vs. ``"openai"`` vs. ``"gemini"``.
+    ``"anthropic"`` vs. ``"openai"`` vs. ``"gemini"``. The return value
+    names a *response shape*, not a vendor: DeepSeek (registry provider
+    ``"deepseek"``) maps to ``"openai"`` here because LiteLLM returns its
+    tool calls in OpenAI's shape, wherever the model is hosted.
 
     Raises:
         ToolParseError: If the model id can't be mapped to one of the
-            three supported providers. v0.2 doesn't ship parsers for
-            anything else; users get a clear error rather than silent
-            mis-routing.
+            response shapes we parse (Anthropic, OpenAI, Gemini). Users
+            get a clear error rather than silent mis-routing.
     """
     lowered = model_id.lower()
     if model_id.startswith("anthropic/") or "claude" in lowered:
@@ -57,6 +64,11 @@ def detect_provider(model_id: str) -> Provider:
         return "openai"
     if model_id.startswith("gemini/") or "gemini" in lowered:
         return "gemini"
+    if "deepseek" in lowered:
+        # DeepSeek's API is OpenAI-compatible, and LiteLLM hands its tool calls
+        # back in OpenAI's ``tool_calls`` shape wherever the model is hosted
+        # (deepseek/, azure_ai/, bedrock/, hosted_vllm/, openrouter/ ...).
+        return "openai"
     raise ToolParseError(
         provider="unknown",
         reason=f"cannot detect provider for model id: {model_id!r}",

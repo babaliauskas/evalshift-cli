@@ -65,15 +65,17 @@ class _SpyEvaluator:
         return PairedScore(source_score=1.0, target_score=1.0)
 
 
-def _write_config(tmp_path: Path, with_judge: bool = False) -> Path:
+def _write_config(
+    tmp_path: Path, with_judge: bool = False, judge_model: str = "gemini-2.5-flash"
+) -> Path:
     judge_block = ""
     if with_judge:
         # Indented to sit alongside `structural:` under `evaluators:`.
-        judge_block = """
+        judge_block = f"""
           llm_judge:
             - criterion_name: brevity
               criterion_prompt: which is more concise?
-              judge_model: gemini-2.5-flash"""
+              judge_model: {judge_model}"""
     cfg_yaml = f"""
         version: 1
         prompts:
@@ -1114,6 +1116,55 @@ class TestJudgeClientSharingAndReporting:
         assert "gemini/gemini-2.5-flash" in state.non_deterministic_models
         # Both updates land in the same write.
         assert state.evaluator_coverage is not None
+
+    def _evaluate_with_accepting_judge(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, judge_model: str
+    ) -> RunState:
+        """Score a run whose judge accepts ``temperature`` without complaint."""
+        import litellm
+
+        from evalshift_cli.models import client as client_module
+
+        monkeypatch.setattr(
+            "evalshift_cli.cache.schema.DEFAULT_CACHE_PATH",
+            tmp_path / "cache.db",
+        )
+        # Pin LiteLLM's reasoning flag: DeepSeek ids think by default, and the
+        # answer must not depend on the installed LiteLLM's model map.
+        monkeypatch.setattr(litellm, "supports_reasoning", lambda **_: True)
+        _write_config(tmp_path, with_judge=True, judge_model=judge_model)
+        run_id = _scaffold_run(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        async def fake_acompletion(**kwargs: Any) -> Any:
+            return _judge_response('{"winner": "A"}')
+
+        monkeypatch.setattr(client_module.litellm, "acompletion", fake_acompletion)
+        monkeypatch.setattr(
+            client_module.litellm,
+            "completion_cost",
+            lambda completion_response=None, **_: 0.0,
+        )
+
+        result = runner.invoke(app, ["evaluate", run_id])
+        assert result.exit_code == 0, result.stdout
+        return read_state(tmp_path / ".evalshift" / "runs" / run_id)
+
+    def test_temperature_ignoring_judge_joins_state(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # DeepSeek thinking mode accepts temperature and ignores it, so the
+        # client never sees a rejection; the judge is flagged from the model
+        # id instead, under its canonical id and exactly once.
+        state = self._evaluate_with_accepting_judge(monkeypatch, tmp_path, "deepseek-v4-pro")
+        assert state.non_deterministic_models.count("deepseek/deepseek-v4-pro") == 1
+        assert state.evaluator_coverage is not None
+
+    def test_temperature_honouring_judge_stays_off_state(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        state = self._evaluate_with_accepting_judge(monkeypatch, tmp_path, "gemini-2.5-flash")
+        assert "gemini/gemini-2.5-flash" not in state.non_deterministic_models
 
 
 class TestPerSuiteEvaluators:

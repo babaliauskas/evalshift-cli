@@ -57,6 +57,14 @@ class TestSharedJudgeFamily:
         )
         assert roles == ["target"]
 
+    def test_deepseek_judge_on_a_deepseek_arm_is_one_family(self) -> None:
+        roles = shared_judge_family(
+            judge_model="deepseek-v4-pro",
+            source_model="gpt-5.4-mini",
+            target_model="deepseek-flash",
+        )
+        assert roles == ["target"]
+
 
 class TestJudgeFamilyOverlaps:
     def test_dedupes_judges_and_keeps_first_seen_order(self) -> None:

@@ -358,6 +358,30 @@ class TestEstimateCallCost:
 
         assert cost_module.estimate_call_cost("gpt-4o-mini", 10, 10) == 0.0
 
+    def test_bare_id_is_priced_under_its_provider_prefixed_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # litellm's table holds DeepSeek under both the bare and the prefixed
+        # key, but cost_per_token can only infer a provider from the prefixed
+        # one — asked about the bare id it raises, which used to price a
+        # DeepSeek capture at $0.
+        monkeypatch.setattr(
+            cost_module.litellm,
+            "model_cost",
+            {"deepseek-flash": {}, "deepseek/deepseek-flash": {}},
+        )
+
+        def priced(
+            *, model: str, prompt_tokens: int, completion_tokens: int
+        ) -> tuple[float, float]:
+            if model != "deepseek/deepseek-flash":
+                raise ValueError(f"LLM Provider NOT provided: {model}")
+            return prompt_tokens * 0.001, completion_tokens * 0.002
+
+        monkeypatch.setattr(cost_module.litellm, "cost_per_token", priced)
+
+        assert cost_module.estimate_call_cost("deepseek-flash", 1000, 100) == pytest.approx(1.2)
+
 
 class TestSamplesPerExample:
     def test_default_and_one_agree_exactly(self) -> None:

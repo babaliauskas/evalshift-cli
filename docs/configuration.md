@@ -593,7 +593,7 @@ row and `evalshift validate` a matching `⚠` line — never a failure, because
 API key. The report repeats the note above the verdict whenever a judge that
 actually contributed `llm_judge` rows shares a family with an arm, and
 `report.json` carries it as `judge_family_overlap`. "Family" is the provider
-the model id resolves to (`anthropic`, `openai`, `google`); ids the registry
+the model id resolves to (`anthropic`, `deepseek`, `google`, `openai`); ids the registry
 cannot place never match.
 
 The judge sees both outputs (with random A/B order to defang positional

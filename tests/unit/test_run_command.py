@@ -260,6 +260,7 @@ class TestRunApiKeyPrecheck:
             "OPENAI_API_KEY",
             "GOOGLE_API_KEY",
             "GEMINI_API_KEY",
+            "DEEPSEEK_API_KEY",
         ):
             monkeypatch.delenv(key, raising=False)
 
@@ -290,3 +291,17 @@ class TestRunApiKeyPrecheck:
 
         result = runner.invoke(app, ["run", "--yes"])
         assert result.exit_code == 0, result.stdout
+
+    def test_deepseek_arm_without_key_is_caught_before_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _scaffold(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        self._clear_keys(monkeypatch)
+
+        result = runner.invoke(
+            app, ["run", "--from", "deepseek-flash", "--to", "deepseek-v4-pro", "--yes"]
+        )
+        assert result.exit_code == 1
+        assert "missing API key" in result.stdout
+        assert "DEEPSEEK_API_KEY" in result.stdout
