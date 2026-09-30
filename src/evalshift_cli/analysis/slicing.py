@@ -1,8 +1,10 @@
 """Group evaluation records into slices for analysis.
 
-A *slice* is a named subset of suite examples — typically defined by a
-tag in ``evalshift.yaml``'s ``slices:`` block. The implicit ``"all"``
-slice always exists and contains every example.
+A *slice* is a named subset of suite examples: one per distinct example
+tag, named after the tag. The implicit ``"all"`` slice always exists and
+contains every example. There is nothing to configure — ``evalshift.yaml``
+has no slice definitions; per-slice budgets are keyed by tag under
+``migration_policy.slices``.
 
 The output of :func:`build_slices` is a mapping from slice name to a
 list of ``(prompt_id, evaluator_name, kind, example_id, source_score,
@@ -82,7 +84,6 @@ def build_slices(
     *,
     records: list[EvalRecord],
     suite: Suite,
-    tag_to_slice: dict[str, str] | None = None,
     coverage: Sequence[EvaluatorCoverage] = (),
 ) -> dict[str, list[SlicedScore]]:
     """Group evaluation records into slices keyed by slice name.
@@ -90,10 +91,6 @@ def build_slices(
     Args:
         records: Every :class:`EvalRecord` from ``scores.jsonl``.
         suite: The loaded suite, used to look up an example's ``tags``.
-        tag_to_slice: Mapping from a configured slice's tag (the value
-            of ``filter`` in MVP, simplified to a literal tag) to the
-            slice name surfaced in reports. ``None`` falls back to a
-            tag-name == slice-name identity mapping.
         coverage: The run's per-evaluator coverage. Only its unmeasured
             pairs are read, and only to *seed* slice names: a slice whose
             every row was a non-measurement still has to exist here, or it
@@ -121,12 +118,12 @@ def build_slices(
             delta=rec.delta,
             kind=rec.kind,
         )
-        for slice_name in _slices_of(rec.example_id, by_id, tag_to_slice):
+        for slice_name in _slices_of(rec.example_id, by_id):
             out[slice_name].append(sliced)
 
     for entry in coverage:
         for pair in entry.unmeasured:
-            for slice_name in _slices_of(pair.example_id, by_id, tag_to_slice):
+            for slice_name in _slices_of(pair.example_id, by_id):
                 out.setdefault(slice_name, [])
 
     return dict(out)
@@ -136,7 +133,6 @@ def build_unmeasured(
     *,
     coverage: Sequence[EvaluatorCoverage],
     suite: Suite,
-    tag_to_slice: dict[str, str] | None = None,
 ) -> UnmeasuredCounts:
     """Count, per slice and evaluator, the pairs that produced no row.
 
@@ -148,7 +144,6 @@ def build_unmeasured(
     Args:
         coverage: The run's per-evaluator coverage, from ``state.json``.
         suite: The loaded suite, used to look up an example's ``tags``.
-        tag_to_slice: As :func:`build_slices`.
 
     Returns:
         ``{slice_name: {ComparisonKey: count}}``, empty when every
@@ -162,26 +157,21 @@ def build_unmeasured(
     for entry in coverage:
         for pair in entry.unmeasured:
             key = (pair.prompt_id, entry.evaluator_name, entry.kind)
-            for slice_name in _slices_of(pair.example_id, by_id, tag_to_slice):
+            for slice_name in _slices_of(pair.example_id, by_id):
                 out[slice_name][key] += 1
     return {name: dict(counts) for name, counts in out.items()}
 
 
-def _slices_of(
-    example_id: str,
-    by_id: dict[str, SuiteExample],
-    tag_to_slice: dict[str, str] | None,
-) -> list[str]:
-    """Every slice an example belongs to, ``"all"`` first.
+def _slices_of(example_id: str, by_id: dict[str, SuiteExample]) -> list[str]:
+    """Every slice an example belongs to, ``"all"`` first, then one per tag.
 
-    An example the suite no longer carries lands in ``"all"`` only — the
-    same fate a record for it already had.
+    A tag *is* its slice's name. An example the suite no longer carries lands
+    in ``"all"`` only — the same fate a record for it already had.
     """
     names = [ALL_SLICE]
     example = by_id.get(example_id)
     if example is not None:
-        for tag in example.tags:
-            names.append(tag_to_slice.get(tag, tag) if tag_to_slice else tag)
+        names.extend(example.tags)
     return names
 
 
