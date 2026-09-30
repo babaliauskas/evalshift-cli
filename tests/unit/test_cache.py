@@ -1008,8 +1008,37 @@ class TestConcurrentSchemaSetup:
         from evalshift_cli.cache import store as store_module
 
         monkeypatch.setattr(store_module, "_ADDITIVE_COLUMNS", (("broken", "INTEGER DEFAULT ("),))
+        disposed = self._spy_on_dispose(monkeypatch)
         with pytest.raises(OperationalError):
             await CacheStore.open(database_url=f"sqlite+aiosqlite:///{tmp_path / 'c.db'}")
+        assert disposed == [True]
+
+    async def test_other_errors_while_creating_the_table_still_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sqlalchemy.exc import OperationalError
+
+        def failing_create_all(_bind: Any, **_kw: Any) -> None:
+            raise OperationalError("CREATE TABLE cached_calls", {}, Exception("disk I/O error"))
+
+        monkeypatch.setattr(Base.metadata, "create_all", failing_create_all)
+        disposed = self._spy_on_dispose(monkeypatch)
+        with pytest.raises(OperationalError, match="disk I/O error"):
+            await CacheStore.open(database_url=f"sqlite+aiosqlite:///{tmp_path / 'c.db'}")
+        assert disposed == [True]
+
+    @staticmethod
+    def _spy_on_dispose(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+        """Record every ``AsyncEngine.dispose`` so a failed open can be checked for leaks."""
+        calls: list[bool] = []
+        real_dispose = AsyncEngine.dispose
+
+        async def spy(self: AsyncEngine, close: bool = True) -> None:
+            calls.append(True)
+            await real_dispose(self, close)
+
+        monkeypatch.setattr(AsyncEngine, "dispose", spy)
+        return calls
 
     async def test_stores_opened_together_on_a_legacy_file_all_succeed(
         self, tmp_path: Path

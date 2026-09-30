@@ -192,7 +192,12 @@ class CacheStore:
         """
         url = database_url or default_database_url(path)
         engine = create_engine(url)
-        await _ensure_schema(engine)
+        try:
+            await _ensure_schema(engine)
+        except BaseException:
+            # No store owns the engine yet, so nothing else would close it.
+            await engine.dispose()
+            raise
         return cls(engine, ttl=ttl)
 
     async def close(self) -> None:
