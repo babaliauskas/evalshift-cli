@@ -226,9 +226,10 @@ The short version:
   statistics, the analysis, the migration decision, economics, and the
   machine-written insights narrative.
 * **Never uploads**: provider API keys, prompt bodies and system prompts,
-  suite conversation histories, tool definitions/schemas, `raw.jsonl`, the
-  response cache, captures, and `report.html`. Prompt and dataset content is
-  replaced by SHA-256 hashes so diffs still align across runs.
+  suite conversation histories, tool definitions/schemas, `raw.jsonl`,
+  imported agent traces, the response cache, captures, and `report.html`.
+  Prompt and dataset content is replaced by SHA-256 hashes so diffs still
+  align across runs.
 * **Can still be sensitive**: inputs, expected outputs, model outputs, and
   traces carry whatever content your suite or your models put in them. Redact
   at capture time (see the SDK's redaction boundary) and inspect before

@@ -41,9 +41,10 @@ itself when no API key is configured. Disable it with
 ## What happens if a single LLM call fails?
 
 The orchestrator records the error in `raw.jsonl` (with `error="..."`)
-and moves on. The run still completes; failed calls are recorded with
-a neutral 0.5/0.5 score in the evaluation phase so the analysis can
-account for them rather than silently dropping examples.
+and moves on. The run still completes. In the evaluation phase the pair
+gets an errored row (a 0.5/0.5 placeholder with `error` set): it stays in
+`scores.jsonl` for inspection and is excluded from the statistics, so a
+failed call can't masquerade as a regression or an improvement.
 
 ## What models does EvalShift support?
 
@@ -92,12 +93,13 @@ DeepSeek API, and its estimated capture cost uses DeepSeek's API price.
 ## Can I resume a run after Ctrl+C / a crash?
 
 Yes. `evalshift run --resume` finds the latest in-progress run for
-the project, validates that the config + suite haven't changed since,
-and continues from where it left off. Already-completed calls
+the project, validates that the config and the suite path haven't changed
+since, and continues from where it left off. Already-completed calls
 (including ones that errored at the LLM layer) are skipped.
 
-A config or suite change between attempts aborts the resume — start
-a fresh run instead.
+A config change or a different suite path between attempts aborts the
+resume — start a fresh run instead. The suite's *contents* are not checked,
+so after editing examples, start a fresh run yourself.
 
 ## How do I push a run to hosted EvalShift?
 
@@ -135,7 +137,10 @@ you see `≤ $0.17` and the run actually cost $0.03, that's expected.
 ## How do I lower the cost of a run?
 
 * **Set the SQLite cache to be on** (it's the default). A re-run of
-  the exact same configuration is free.
+  the exact same configuration makes no run-stage calls for tool-less
+  examples. Examples that offer tools are not cached: an agent suite's
+  run stage is live, at full price, every time. Evaluate-stage embedding
+  and judge calls are cached either way.
 * **Use cheaper models.** The model registry assigns sensible
   defaults but you can drop everything to flash/mini/haiku tier.
 * **Skip the LLM judge.** Structural and semantic evaluators are

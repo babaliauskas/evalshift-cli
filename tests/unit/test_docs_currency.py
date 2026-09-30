@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+import evalshift_cli
 from evalshift_cli.cli.commands.init import PROVIDERS
 from evalshift_cli.models.registry import PROVIDER_ENV_VARS
 
@@ -141,4 +142,26 @@ def test_docs_list_every_init_provider(name: str) -> None:
 
     assert f"--provider {'|'.join(PROVIDERS)}" in text, (
         f"{name} lists `init --provider` choices that differ from init.PROVIDERS"
+    )
+
+
+#: The two reference files that print the CLI version in their header.
+#: `DOCS.md` writes `**version:** X`, `llms-full.txt` writes `version: X`.
+VERSION_HEADER_FILES: tuple[str, ...] = ("DOCS.md", "llms-full.txt")
+
+
+@pytest.mark.parametrize("name", VERSION_HEADER_FILES)
+def test_reference_header_version_matches_the_package(name: str) -> None:
+    """The documented version is the released one, not the one before it.
+
+    `evalshift_cli.__version__` is the installed metadata of `pyproject.toml`'s
+    `version`. The two headers drifted apart once already: `llms-full.txt` said
+    1.1.0 while `DOCS.md` still said 1.0.1.
+    """
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+    match = re.search(r"version:(?:\*\*)? (\S+)", text)
+
+    assert match is not None, f"{name} has no `version:` line in its header"
+    assert match.group(1) == evalshift_cli.__version__, (
+        f"{name} says version {match.group(1)}; the package is {evalshift_cli.__version__}"
     )

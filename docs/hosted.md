@@ -19,6 +19,11 @@ evalshift whoami
 approve the CLI login, then stores the returned API token in
 `~/.evalshift/credentials` with owner-only file permissions. Use
 `--no-browser` on remote shells where the browser cannot open automatically.
+`--timeout <seconds>` (default 900) bounds how long it waits for the approval.
+
+Re-running `login` while the stored token for that host still works reuses it
+instead of minting a new one, and prints `already logged in as <email>`. To
+switch accounts, run `evalshift logout` first, then `evalshift login`.
 
 You can still paste an existing hosted API token manually:
 
@@ -97,10 +102,12 @@ The output is `.evalshift/runs/<run-id>/run_bundle.json.gz`. It carries:
   record it),
 - one row per example: inputs, both models' outputs, per-evaluator scores, and
   the cost/latency deltas,
-- each example's `traces` — one stream per model side, holding the ordered
-  tool calls with their arguments, any final text, and round markers.
-  `model_call` input and output payloads are deliberately excluded, and
-  oversized tool results are shortened rather than dropped,
+- each example's `traces` — the replay's own tool-call traces, one stream per
+  model side: the ordered tool calls with their names, arguments and call ids,
+  any final text, refusal messages and round markers. No `model_call` events
+  or tool results are included. A stream over 256 KB keeps its leading events
+  and is flagged `truncated`. Imported agent traces (`traces import`) stay
+  local and are not uploaded,
 - the aggregate, `analysis`, and the policy `decision`,
 - `economics` — a run-level per-role rollup of calls, tokens, cost and latency,
 - `methodology_notes` and the evaluator config and dataset snapshot,
@@ -123,6 +130,19 @@ Push a local run:
 ```bash
 evalshift push <run-id>
 ```
+
+`push <run-id>` builds `run_bundle.json.gz` only when the run directory has
+none; an existing bundle is uploaded as-is. After editing `evalshift.yaml`
+(a `migration_policy` budget, say), re-run `evalshift bundle <run-id>` before
+pushing, or the upload carries the numbers from when the bundle was built.
+
+`bundle` — and `push <run-id>` when it has to build one — records git
+metadata and needs a commit to point at: it fails with `could not determine a
+valid 40-character git SHA; run inside git or set GITHUB_SHA` outside a git
+checkout unless `GITHUB_SHA` is set. The branch comes from `GITHUB_HEAD_REF`,
+then `GITHUB_REF_NAME`, then git, falling back to `local`; the pull request
+number from `GITHUB_REF` (`refs/pull/<n>/…`) or the event payload at
+`GITHUB_EVENT_PATH`.
 
 Push a prebuilt bundle:
 
@@ -159,8 +179,9 @@ Two more notices can appear before `push` reports success. A bundle with no
 `migration_policy` configured carries no `decision.policy`, so the hosted gate
 has nothing of this run's own to check: unless the project still has an old
 web-app policy for the server to fall back on, the gate reports `inconclusive`
-and the pull request it belongs to is never blocked — a silence that reads
-exactly like a passing gate unless `push` says so. The warning prints before
+and the pull request it belongs to is never blocked (unless the GitHub Action
+runs with `require-policy: true`, which fails the job for such a run) — a
+silence that reads exactly like a passing gate unless `push` says so. The warning prints before
 the network is touched, so it cannot yet know which of the two this project is;
 it hedges accordingly, and prints once:
 
@@ -267,11 +288,11 @@ The bundle itself contains:
 | Block | What is inside |
 | --- | --- |
 | `manifest` | Run id, `org/project` slug, source and target model ids, suite name, git commit SHA, branch name, PR number, the **local suite file path** as a string (it can reveal directory or user names), two content hashes, the run timestamp, and the CLI version. |
-| `examples[]` — one row per prompt × example | The example's template variables (`inputs`) **verbatim**; its `expected` reference output **verbatim**; both models' **full output text**; tool-call traces (tool names and arguments; for imported agent traces also tool results capped at 16 KB each, retrieval queries and documents, and guardrail verdicts; plus any final text and refusal/error messages, the whole stream capped at 256 KB per side); per-evaluator scores and error strings; per-side cost and latency; tags and slice names. |
+| `examples[]` — one row per prompt × example | The example's template variables (`inputs`) **verbatim**; its `expected` reference output **verbatim**; both models' **full output text**; tool-call traces from the replay: each side's tool calls (names, arguments, call ids) with round markers, any final text and refusal messages, capped at 256 KB per side. Imported agent traces (`traces import`) are not uploaded; per-evaluator scores and error strings; per-side cost and latency; tags and slice names. |
 | `aggregate`, `analysis`, `decision`, `economics` | Pass/fail counts, statistical comparisons, the migration verdict, and per-role token/cost/latency rollups. Numbers and verdict labels, not content. `decision.policy` is the resolved `migration_policy` this run's verdict was computed under — every top-level budget with its default applied, plus `slices` — or `null` when no `migration_policy` is configured. It is what lets the hosted gate check a pull request against the exact budgets the verdict used, instead of a separate policy configured elsewhere. |
 | `methodology_notes` | The model ids and the statistical-contract sentences shown in every report. |
 | `insights` | The machine-written run narrative, when one was generated. It is prose *about* your run and can paraphrase or quote the regressions it summarizes. |
-| `evaluator_config` | Config version; the prompt list **metadata only** — prompt names, file paths, and variable names, with every prompt body replaced by a `content_hash`; `defaults` (model ids, concurrency, cache flag, cost ceiling, max_tokens); slice definitions; and the full evaluators block — which includes each `llm_judge` entry's `criterion_prompt` text, so keep judge criteria free of secrets. |
+| `evaluator_config` | Config version; the prompt list **metadata only** — prompt names, file paths, and variable names, with every prompt body replaced by a `content_hash`; the whole `defaults` block (model ids, concurrency, cache flag, cost ceiling, max_tokens, samples_per_example); slice definitions (recorded, not applied); and the full evaluators block — which includes each `llm_judge` entry's `criterion_prompt` text, so keep judge criteria free of secrets. |
 | `dataset_snapshot` | Suite path, example count, slice names, and one `examples_hash`. **No example content.** |
 
 ### What never leaves your machine
@@ -288,8 +309,8 @@ The bundle itself contains:
   in the bundle; only the calls a model actually made at run time appear, in
   the traces.
 - **Local artefacts**: `raw.jsonl` (the raw provider requests and responses),
-  the SQLite response cache, `.evalshift/captures/`, `state.json`,
-  `report.json`, and `report.html`.
+  imported agent traces (`traces.jsonl`), the SQLite response cache,
+  `.evalshift/captures/`, `state.json`, `report.json`, and `report.html`.
 
 The content hashes that replace this data (`dataset_hash`, `examples_hash`,
 `prompts[].content_hash`) are SHA-256 digests, so hosted diffs and baselines
@@ -318,7 +339,7 @@ report included, works without an account.
 Run insights are a separate exposure from the hosted upload: generating them
 sends the worst regressions' inputs and outputs to `defaults.insights_model`,
 the same way an `llm_judge` criterion sends outputs to its judge. Disable with
-`evalshift report --no-insights` (or `all --no-insights`).
+`evalshift report --no-insights` (or `compare --no-insights`).
 
 Do not put hosted API tokens or provider API keys in config files. Use the
 credential file locally and repository secrets in CI.
@@ -330,7 +351,8 @@ credential file locally and repository secrets in CI.
 | `missing hosted token` | No flag, env var, or credentials file token is available. | Run `evalshift login --host <hosted-api-url>`, paste a token with `evalshift login --token <hosted-api-token> --host <hosted-api-url>`, or set `EVALSHIFT_TOKEN`. |
 | `host uses plain http` warning | The host is non-local HTTP. | Use HTTPS for non-local hosts. |
 | `hosted project is required` | No `project` in config and no `--project` flag. | Add `project: org/project` or pass `--project`. |
+| `could not determine a valid 40-character git SHA` | `bundle` (or `push <run-id>` building a bundle) ran outside a git checkout, or in one with no commits, and `GITHUB_SHA` is unset. | Run inside a git repository with at least one commit, or set `GITHUB_SHA`. |
 | `project was not found` | The project does not exist and auto-create is disabled or not allowed. | Ask an owner to create it, use an org-scoped owner token, or enable auto-create. |
 | `cannot auto-create <slug> at <host>` | The message names the host it talked to and the server's status. Most often the host is not the one you meant: with no `--host` and no `EVALSHIFT_HOST`, an unset credentials file falls back to `https://api.evalshift.dev`, where your org does not exist. | Run `evalshift whoami` and check the host it prints. If it is wrong, `evalshift login --host <hosted-api-url>`. If the host is right and the status is 403, the token lacks org access — see [Project auto-create](#project-auto-create). |
 | `this run needs a paid plan` | The org's plan does not cover this push, or the subscription has stopped paying. | Open the upgrade URL printed with the message, or wait for the monthly reset and push the same run id again. See [Plan limits](#plan-limits). |
-| `this run carries no migration policy` warning | No `migration_policy` is configured in `evalshift.yaml`, so the bundle has no `decision.policy`. | Add `migration_policy` to `evalshift.yaml` (see [Configuration](configuration.md#migration_policy)). Until then the gate has only whatever old web-app policy the project still has; with none, it reports `inconclusive` and never blocks the pull request. |
+| `this run carries no migration policy` warning | No `migration_policy` is configured in `evalshift.yaml`, so the bundle has no `decision.policy`. | Add `migration_policy` to `evalshift.yaml` (see [Configuration](configuration.md#migration_policy)). Until then the gate has only whatever old web-app policy the project still has; with none, it reports `inconclusive` and never blocks the pull request unless the GitHub Action sets `require-policy: true`. |

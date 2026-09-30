@@ -413,16 +413,18 @@ class EvaluatorsConfig(_StrictModel):
 
 
 class SliceConfig(_StrictModel):
-    """A named slice — a subset of suite examples to analyse separately.
+    """One entry of the top-level ``slices:`` block.
+
+    The block is validated (the reserved ``overall`` name is rejected) and
+    recorded in the run bundle, but analysis does not read it today: slices
+    come from example ``tags`` -- one per distinct tag, plus ``all`` -- and
+    per-slice budgets are keyed by tag under ``migration_policy.slices``.
+    None of the fields below renames, filters, or scopes anything.
 
     Attributes:
-        name: Human-readable slice name surfaced in reports.
-        filter: A Python expression evaluated against each example's inputs.
-            Examples in the slice are those for which the expression is truthy.
-            (Evaluation safety is the responsibility of the runtime; for the
-            MVP we will document that ``evalshift.yaml`` is treated as
-            trusted, like any project config file.)
-        applies_to: Glob list of prompt IDs this slice applies to.
+        name: Slice name.
+        filter: A literal tag, not an expression.
+        applies_to: Glob list of prompt IDs.
     """
 
     name: str = Field(min_length=1)

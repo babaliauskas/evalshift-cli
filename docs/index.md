@@ -68,8 +68,12 @@ Each stage writes its artefact under `.evalshift/runs/<run-id>/`:
 | ---------- | ---------------- |
 | `run`      | `raw.jsonl`      |
 | `evaluate` | `scores.jsonl`   |
-| `analyze`  | `analysis.json`  |
+| `analyze`  | `analysis.json` (+ `migration_decision.json` with a `migration_policy`) |
 | `report`   | `report.html` + `report.json` (+ `insights.json`) |
+
+Optional steps add their own: `traces import` writes `traces.jsonl`,
+`bundle`/`push` write `run_bundle.json.gz`, and `push` keeps a
+`push_state.json` only while an upload is in flight.
 
 Hosted commands add optional sharing and CI workflows:
 
@@ -79,6 +83,15 @@ evalshift whoami      # show hosted identity and org roles
 evalshift bundle      # package a completed local run
 evalshift push        # upload a bundle to hosted EvalShift
 evalshift compare --suite-name <suite> --push  # run locally, then push
+```
+
+Housekeeping:
+
+```
+evalshift inspect <run-id> [--failed]   # per-row deltas (--failed: negative or errored only)
+evalshift bundle <run-id> -o out.json.gz   # write the bundle somewhere else
+evalshift cache clear                   # wipe the local response cache
+evalshift runs clean                    # prune old runs (--keep, --older-than, --dry-run)
 ```
 
 ## Local-first by design

@@ -34,7 +34,7 @@ with capture.agent_session(
     turn_index=2,
     parent_capture_id="cap_prev_turn_id",
 ):
-    record_model_call(model_id="claude-opus-4-8", input=messages, output=reply)
+    record_model_call(model_id="claude-opus-4-8", tools=None, input=messages, output=reply)
 ```
 
 (`capture.agent_session_async(...)` is the `async with` equivalent, for async
