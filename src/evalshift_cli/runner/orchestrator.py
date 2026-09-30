@@ -1225,6 +1225,8 @@ async def _execute(
             prompt_text=prompt_text,
             canonical_id=meta.id,
             messages=messages,
+            gen_temperature=gen_temperature,
+            gen_extra=gen_extra,
             key_temperature=effective_temperature,
             key_max_tokens=effective_max_tokens,
             cache_enabled=cache_enabled,
@@ -1341,6 +1343,8 @@ async def _execute_with_tools(
     item: WorkItem,
     prompt_text: str,
     canonical_id: str,
+    gen_temperature: float | None,
+    gen_extra: dict[str, Any] | None,
     key_temperature: float,
     key_max_tokens: int,
     cache_enabled: bool,
@@ -1375,7 +1379,9 @@ async def _execute_with_tools(
     tools array exactly as sent (:func:`serialize_tools`, in order), the
     generation config, the effective temperature and
     token cap (``key_temperature`` / ``key_max_tokens``, as the text path keys
-    them), the round index and ``cache_sample_index``. A hit restores the
+    them), the round index and ``cache_sample_index``. ``gen_temperature`` /
+    ``gen_extra`` are :func:`translate_generation_config`'s output, computed
+    once by :func:`_execute` so its warnings fire once per call. A hit restores the
     round's :class:`ToolCompletionResult` (trace, tokens, cost, latency,
     finish reason) and feeds the same merge a live round does, so the
     :class:`Call` is identical apart from ``cached``. Policies follow the
@@ -1387,7 +1393,6 @@ async def _execute_with_tools(
     spent money on this run, but its summed latency is no longer a fresh
     measurement (:attr:`Call.latency_replayed`).
     """
-    gen_temperature, gen_extra = translate_generation_config(item.example.generation_config)
     rounds = item.example.rounds_to_replay()
     tools_payload = serialize_tools(canonical_id, item.tools)
     cached_rounds = 0

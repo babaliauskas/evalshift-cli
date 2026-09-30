@@ -2573,6 +2573,27 @@ class TestToolPathCache:
         await run_orchestrator(**self._kwargs(tmp_path, cache, changed))
         assert len(seen) == 6 + 2 * expected_rounds
 
+    async def test_a_generation_config_warning_fires_once_per_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # The config is translated once per work item and reused for the key
+        # and the dispatch; translating it twice doubled every warning.
+        _install_tool_fake(monkeypatch)
+        example = suite_example(
+            id="ex0",
+            inputs={"name": "A"},
+            tools=[_ROUND_TOOL],
+            generation_config={"tool_choice": 42},
+        )
+        with caplog.at_level("WARNING", logger="evalshift_cli.runner.generation"):
+            await run_orchestrator(**self._kwargs(tmp_path, cache, Suite(examples=[example])))
+        warnings = [r for r in caplog.records if "tool_choice not understood" in r.getMessage()]
+        assert len(warnings) == 2  # one per role
+
     async def test_a_max_tokens_override_is_a_miss(
         self,
         monkeypatch: pytest.MonkeyPatch,
