@@ -314,7 +314,7 @@ suites: {}
 | `prompts` | list, required, ≥1 | Prompt definitions (unique ids enforced) |
 | `defaults` | block | Run defaults, below |
 | `evaluators` | block | Evaluator configs, see [Evaluators](#evaluators) |
-| `slices` | list | Validated and recorded in the bundle, but **not applied** — slices come from example tags. See below |
+| `slices` | list | Validated and recorded in the bundle (and in its `eval_config_hash`), but **not applied** — slices come from example tags. See below |
 | `migration_policy` | block \| absent | Regression budgets, see [Migration policy](#migration-policy-and-ci-gating) |
 | `suites` | map | Named suites (`{name: {source: captured\|jsonl, path: ..., evaluators: ..., managed: true}}`); the block between the `>>> evalshift suites` markers is managed by `capture sync`. See [Per-suite evaluators](#per-suite-evaluators) |
 | `retention` | block | `max_runs_per_suite` (default 20, `0` disables), `run_ttl_days` (default off) |
@@ -352,7 +352,7 @@ slices:                       # validated and recorded in the run bundle; NOT ap
     applies_to: ["*"]         # glob list of prompt ids
 ```
 
-The top-level `slices:` block still loads — it is validated and copied into the run bundle's evaluator config — but analysis does not read it today: `name`, `filter` and `applies_to` rename, filter and scope nothing, and a run reports the same slices with or without it. `overall` is reserved — it names the run-level scope in the run bundle — and is rejected as a slice `name`, as an example tag, and as a `migration_policy.slices` key.
+The top-level `slices:` block still loads — it is validated and copied into the run bundle's evaluator config — but analysis does not read it today: `name`, `filter` and `applies_to` rename, filter and scope nothing, and a run reports the same slices with or without it. It is, however, part of the bundle's `eval_config_hash`, so editing or removing it breaks hosted baseline compatibility with earlier runs. `overall` is reserved — it names the run-level scope in the run bundle — and is rejected as a slice `name`, as an example tag, and as a `migration_policy.slices` key.
 
 Slices holding exactly the same examples are collapsed to one before any test runs — duplicates restate the same numbers as if they were independent findings and skew the Benjamini–Hochberg correction anti-conservatively (extra copies of a p-value shrink every adjusted p-value in the family, so results look more significant than they are). `all` and any slice named under `migration_policy.slices` always survive; otherwise the provenance tag `captured` (written by `capture promote`) loses to an ordinary tag, then alphabetical order decides. Drops are reported on the terminal and as `collapsed_slices` in `analysis.json`. See [docs/methodology.md](docs/methodology.md).
 

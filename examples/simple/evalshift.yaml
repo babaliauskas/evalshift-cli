@@ -36,7 +36,9 @@ evaluators:
 
 # Slices come from each example's `tags` automatically: one per distinct tag,
 # plus `all`. This block is validated but not applied by analysis today --
-# the run reports the same slices without it.
+# the run reports the same slices without it. It is still part of the hosted
+# bundle's eval_config_hash, so editing it breaks baseline compatibility with
+# earlier hosted runs.
 slices:
   - name: formal
     filter: formal
