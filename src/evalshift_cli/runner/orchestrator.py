@@ -1377,21 +1377,21 @@ async def _execute_with_tools(
     candidate's earlier rounds — so a round is keyed on exactly what it sends:
     the dispatched message list (``None`` for a plain-prompt round 0), the
     tools array exactly as sent (:func:`serialize_tools`, in order), the
-    generation config, the effective temperature and
-    token cap (``key_temperature`` / ``key_max_tokens``, as the text path keys
-    them), the round index and ``cache_sample_index``. ``gen_temperature`` /
-    ``gen_extra`` are :func:`translate_generation_config`'s output, computed
-    once by :func:`_execute` so its warnings fire once per call. A hit restores the
-    round's :class:`ToolCompletionResult` (trace, tokens, cost, latency,
-    finish reason) and feeds the same merge a live round does, so the
-    :class:`Call` is identical apart from ``cached``. Policies follow the
+    generation config, the effective temperature and token cap
+    (``key_temperature`` / ``key_max_tokens``, as the text path keys them), the
+    round index and ``cache_sample_index``. ``gen_temperature`` / ``gen_extra``
+    are :func:`translate_generation_config`'s output, computed once by
+    :func:`_execute` so its warnings fire once per call. A hit restores the
+    round's :class:`ToolCompletionResult` (trace, tokens, cost, latency, finish
+    reason) and feeds the same merge a live round does, so the :class:`Call` is
+    identical apart from ``cached`` and ``cached_rounds``. Policies follow the
     text path: an errored round is not cached (earlier rounds, genuine
     responses to their own requests, stay cached); a truncated round is cached
     and warned about on a hit; ``cache_enabled=False`` neither reads nor
-    writes. The :class:`Call` records ``cached_rounds`` hits and is
-    ``cached`` only when every round was a hit — a row with any live round
-    spent money on this run, but its summed latency is no longer a fresh
-    measurement (:attr:`Call.latency_replayed`).
+    writes. The :class:`Call` records ``cached_rounds`` hits and is ``cached``
+    only when every round was a hit — a row with any live round spent money on
+    this run, but its summed latency is no longer a fresh measurement
+    (:attr:`Call.latency_replayed`).
     """
     rounds = item.example.rounds_to_replay()
     tools_payload = serialize_tools(canonical_id, item.tools)

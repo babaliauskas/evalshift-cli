@@ -739,7 +739,8 @@ def _tool_put_kwargs(trace: ToolTrace) -> dict[str, object]:
 class TestCacheStoreToolTrace:
     async def test_round_trip_preserves_the_trace_exactly(self, store: CacheStore) -> None:
         trace = _rich_trace()
-        await store.put("k", **_tool_put_kwargs(trace), finish_reason="tool_calls", trace=trace)  # type: ignore[arg-type]
+        kw = _tool_put_kwargs(trace)
+        await store.put("k", **kw, finish_reason="tool_calls", trace=trace)  # type: ignore[arg-type]
         got = await store.get("k")
         assert got is not None
         assert got.trace == trace

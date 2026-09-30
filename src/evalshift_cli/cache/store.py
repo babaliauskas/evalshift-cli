@@ -86,12 +86,11 @@ def cache_key(
             ahead of ``prompt_text``); the tool path passes the round's whole
             dispatched message list here instead (history, current turn and the
             teacher-forced recorded rounds), so every byte the provider sees is
-            keyed. Included in the hashed payload only
-            when not ``None``, so single-turn calls (``history=None``)
-            produce byte-identical keys to before this parameter existed —
-            existing cache entries stay valid. An empty list is still
-            included (and hashes differently from ``None``) since it marks
-            the call as message-mode.
+            keyed. Included in the hashed payload only when not ``None``, so
+            single-turn calls (``history=None``) produce byte-identical keys to
+            before this parameter existed — existing cache entries stay valid.
+            An empty list is still included (and hashes differently from
+            ``None``) since it marks the call as message-mode.
         generation_config: Recorded per-example generation config applied at
             dispatch. Same inclusion rule as ``history``: hashed only when not
             ``None``, so config-less calls keep their pre-existing keys.

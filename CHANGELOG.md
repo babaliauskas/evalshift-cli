@@ -32,25 +32,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repeat runs of agent suites are now served from the response cache. Every
   example that offers tools used to bypass the cache, a leftover from v0.2
   when a cache entry could not hold a parsed tool trace, so each `run` of an
-  agent suite paid for every call again, one per replayed round. Each
-  replayed round is now its own entry. It is keyed on the canonical model,
-  the prompt and inputs, the exact message list that round sends (history,
-  current turn, and the recorded rounds and fixture results fed back), the
-  tool list exactly as sent and in order (including `strict`),
-  `generation_config` (so
+  agent suite paid for every call again, one per replayed round. Each replayed
+  round is now its own entry. It is keyed on the canonical model, the prompt
+  and inputs, the exact message list that round sends (history, current turn,
+  and the recorded rounds and fixture results fed back), the tool list exactly
+  as sent and in order (including `strict`), `generation_config` (so
   `tool_choice` and `parallel_tool_calls`), the effective temperature and
   `max_tokens`, the round index and the sample index. A hit restores the
   parsed trace, tokens, cost, latency and finish reason, so the `raw.jsonl`
   row is identical to the live one apart from `cached`, which is true only
   when every round hit, and the new `cached_rounds` count. A row with any
-  round served from the cache carries latency from an earlier run, so it
-  stays out of the report's live latency figures and its latency delta is
-  marked not comparable, in `report.json` and in the bundle alike. Errors are never cached: the next run re-sends a
-  failed round and serves the rounds before it from the cache. Truncated
-  responses are cached and stay flagged, and `defaults.cache: false` still
-  sends everything live. Existing `~/.evalshift/cache.db` files keep working:
-  the new `trace_json` column is added in place on open, and every cached
-  text response still hits.
+  round served from the cache carries latency from an earlier run, so it stays
+  out of the report's live latency figures and its latency delta is marked not
+  comparable, in `report.json` and in the bundle alike. Errors are never
+  cached: the next run re-sends a failed round and serves the rounds before it
+  from the cache. Truncated responses are cached and stay flagged, and
+  `defaults.cache: false` still sends everything live. Existing
+  `~/.evalshift/cache.db` files keep working: the new `trace_json` column is
+  added in place on open, and every cached text response still hits.
 
 ### Removed
 
