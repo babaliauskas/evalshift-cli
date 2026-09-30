@@ -14,10 +14,11 @@ import asyncio
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, ClassVar
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from typer.testing import CliRunner
 
@@ -25,6 +26,7 @@ from evalshift_cli.cache.schema import Base, create_engine
 from evalshift_cli.cache.store import CacheStore, cache_key
 from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.cli.main import app
+from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
 
 # Use an in-memory database for every test to keep them fast and hermetic.
 IN_MEMORY_DB = "sqlite+aiosqlite:///:memory:"
@@ -748,3 +750,254 @@ class TestCacheKeySampleIndex:
 
     def test_different_samples_produce_different_keys(self) -> None:
         assert self._key(0) != self._key(1)
+
+
+# ---------------------------------------------------------------------------
+# Tool-call responses — the value carries a parsed ToolTrace
+# ---------------------------------------------------------------------------
+
+
+def _rich_trace() -> ToolTrace:
+    """A trace exercising every field a downstream consumer reads."""
+    return ToolTrace(
+        calls=[
+            ToolCall(
+                tool_name="search_orders",
+                arguments={"customer": "Zoë", "limit": 5, "filters": {"open": True}},
+                call_id="toolu_01ABC",
+                sequence_index=0,
+                round_index=0,
+            ),
+            ToolCall(
+                tool_name="issue_refund",
+                arguments={"order_id": "A-1", "amount": 12.5, "items": [1, 2]},
+                call_id="call_xyz",
+                parent_call_id="toolu_01ABC",
+                sequence_index=1,
+                round_index=1,
+            ),
+            ToolCall(
+                tool_name="broken",
+                arguments={"_parse_error": True},
+                call_id=None,
+                sequence_index=2,
+                round_index=1,
+            ),
+        ],
+        final_text="Refunded order A-1.",
+        raised_refusal=True,
+        refusal_text="I can only refund once.",
+        round_count=2,
+    )
+
+
+def _tool_put_kwargs(trace: ToolTrace) -> dict[str, object]:
+    kw = _put_kwargs()
+    kw["response_text"] = trace.final_text or ""
+    return kw
+
+
+class TestCacheStoreToolTrace:
+    async def test_round_trip_preserves_the_trace_exactly(self, store: CacheStore) -> None:
+        trace = _rich_trace()
+        await store.put("k", **_tool_put_kwargs(trace), finish_reason="tool_calls", trace=trace)  # type: ignore[arg-type]
+        got = await store.get("k")
+        assert got is not None
+        assert got.trace == trace
+        assert got.trace is not None
+        assert got.trace.model_dump() == trace.model_dump()
+        assert got.response_text == "Refunded order A-1."
+        assert got.finish_reason == "tool_calls"
+        assert (got.input_tokens, got.output_tokens, got.latency_ms) == (10, 5, 250)
+        assert got.cost_usd == pytest.approx(0.0001)
+
+    async def test_tool_only_trace_round_trips(self, store: CacheStore) -> None:
+        trace = ToolTrace(
+            calls=[ToolCall(tool_name="t", arguments={}, call_id="c1", sequence_index=0)],
+            final_text=None,
+        )
+        await store.put("k", **_tool_put_kwargs(trace), trace=trace)  # type: ignore[arg-type]
+        got = await store.get("k")
+        assert got is not None
+        assert got.trace == trace
+        assert got.trace is not None
+        assert got.trace.final_text is None
+
+    async def test_text_rows_carry_no_trace(self, store: CacheStore) -> None:
+        await store.put("k", **_put_kwargs())  # type: ignore[arg-type]
+        got = await store.get("k")
+        assert got is not None
+        assert got.trace is None
+
+    async def test_a_trace_that_no_longer_validates_is_a_miss(self, tmp_path: Path) -> None:
+        # A row written by some other version whose trace shape this code
+        # cannot read must be re-dispatched, not crash the run.
+        url = f"sqlite+aiosqlite:///{tmp_path / 'c.db'}"
+        store = await CacheStore.open(database_url=url)
+        try:
+            trace = _rich_trace()
+            await store.put("k", **_tool_put_kwargs(trace), trace=trace)  # type: ignore[arg-type]
+            async with store._engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE cached_calls SET trace_json = :j"),
+                    {"j": '{"calls": "not a list"}'},
+                )
+            assert await store.get("k") is None
+        finally:
+            await store.close()
+
+
+# DDL exactly as `CacheStore.open` created it on origin/main (af4e6fe), dumped
+# from `sqlite_master` of a DB that code wrote — the shape every existing
+# user's ~/.evalshift/cache.db has today.
+_ORIGIN_MAIN_DDL = (
+    "CREATE TABLE cached_calls (\n"
+    "\tcache_key VARCHAR(64) NOT NULL, \n"
+    "\tmodel_id VARCHAR(128) NOT NULL, \n"
+    "\tprompt_text TEXT NOT NULL, \n"
+    "\tinputs_json TEXT NOT NULL, \n"
+    "\tresponse_text TEXT NOT NULL, \n"
+    "\tinput_tokens INTEGER NOT NULL, \n"
+    "\toutput_tokens INTEGER NOT NULL, \n"
+    "\tcost_usd FLOAT NOT NULL, \n"
+    "\tlatency_ms INTEGER NOT NULL, \n"
+    "\tfinish_reason VARCHAR(32), \n"
+    "\tcreated_at DATETIME NOT NULL, \n"
+    "\tPRIMARY KEY (cache_key)\n"
+    ")"
+)
+
+
+class TestCacheMigrationFromOriginMain:
+    async def _legacy_db(self, tmp_path: Path) -> str:
+        from datetime import UTC, datetime
+
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        url = f"sqlite+aiosqlite:///{tmp_path / 'legacy.db'}"
+        engine = create_async_engine(url)
+        async with engine.begin() as conn:
+            await conn.execute(text(_ORIGIN_MAIN_DDL))
+            await conn.execute(
+                text(
+                    "INSERT INTO cached_calls (cache_key, model_id, prompt_text, inputs_json, "
+                    "response_text, input_tokens, output_tokens, cost_usd, latency_ms, "
+                    "finish_reason, created_at) VALUES ('old', 'm', 'p', '{}', 'old text', "
+                    "1, 2, 0.5, 3, 'stop', :now)"
+                ),
+                {"now": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")},
+            )
+        await engine.dispose()
+        return url
+
+    async def test_existing_text_rows_still_hit(self, tmp_path: Path) -> None:
+        store = await CacheStore.open(database_url=await self._legacy_db(tmp_path))
+        try:
+            got = await store.get("old")
+            assert got is not None
+            assert got.response_text == "old text"
+            assert got.finish_reason == "stop"
+            assert got.trace is None
+        finally:
+            await store.close()
+
+    async def test_tool_rows_can_be_written_after_the_backfill(self, tmp_path: Path) -> None:
+        url = await self._legacy_db(tmp_path)
+        store = await CacheStore.open(database_url=url)
+        try:
+            trace = _rich_trace()
+            await store.put("new", **_tool_put_kwargs(trace), trace=trace)  # type: ignore[arg-type]
+            got = await store.get("new")
+            assert got is not None
+            assert got.trace == trace
+        finally:
+            await store.close()
+        # Re-opening an already-migrated DB is a no-op, not a duplicate-column error.
+        again = await CacheStore.open(database_url=url)
+        try:
+            assert await again.count() == 2
+        finally:
+            await again.close()
+
+
+class TestToolRoundKeySensitivity:
+    """Every component the tool path keys on moves the key; identical inputs hit.
+
+    Mirrors what :func:`evalshift_cli.runner.orchestrator._execute_with_tools`
+    passes per round: the dispatched message list as ``history``, the toolset
+    fingerprint, the generation config (tool_choice / parallel_tool_calls), the
+    round index and the sample index.
+    """
+
+    _TOOLS: ClassVar[list[dict[str, Any]]] = [
+        {"name": "t", "description": "d", "input_schema": {"type": "object"}}
+    ]
+
+    def _kwargs(self) -> dict[str, Any]:
+        return {
+            "model_id": "anthropic/claude-sonnet-4-5",
+            "prompt_text": "Hello Alex",
+            "inputs": {"name": "Alex"},
+            "temperature": 0.0,
+            "max_tokens": 1024,
+            "history": [
+                {"role": "user", "content": "Hello Alex"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_r0_0",
+                            "type": "function",
+                            "function": {"name": "t", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call_r0_0", "content": "{}"},
+            ],
+            "generation_config": {"tool_choice": "auto"},
+            "toolset_fingerprint": fingerprint_tools(self._TOOLS),
+            "round_index": 1,
+            "sample_index": None,
+        }
+
+    def test_identical_inputs_same_key(self) -> None:
+        assert cache_key(**self._kwargs()) == cache_key(**self._kwargs())
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("model_id", "openai/gpt-4o"),
+            ("prompt_text", "Hello Bea"),
+            ("inputs", {"name": "Bea"}),
+            ("temperature", 0.7),
+            ("max_tokens", 2048),
+            ("history", [{"role": "user", "content": "Hello Alex"}]),
+            ("generation_config", {"tool_choice": "required"}),
+            ("generation_config", {"tool_choice": "auto", "parallel_tool_calls": False}),
+            ("round_index", 2),
+            ("sample_index", 1),
+        ],
+    )
+    def test_each_component_changes_the_key(self, field: str, value: Any) -> None:
+        changed = self._kwargs()
+        changed[field] = value
+        assert cache_key(**changed) != cache_key(**self._kwargs())
+
+    def test_a_changed_fixture_result_changes_the_key(self) -> None:
+        changed = self._kwargs()
+        changed["history"] = [dict(m) for m in changed["history"]]
+        changed["history"][2]["content"] = '{"hits": 1}'
+        assert cache_key(**changed) != cache_key(**self._kwargs())
+
+    def test_tool_strictness_changes_the_key(self) -> None:
+        strict = [{**self._TOOLS[0], "strict": True}]
+        changed = self._kwargs()
+        changed["toolset_fingerprint"] = fingerprint_tools(strict)
+        assert cache_key(**changed) != cache_key(**self._kwargs())
+
+    def test_a_changed_tool_schema_changes_the_key(self) -> None:
+        other = [{**self._TOOLS[0], "input_schema": {"type": "object", "required": ["q"]}}]
+        changed = self._kwargs()
+        changed["toolset_fingerprint"] = fingerprint_tools(other)
+        assert cache_key(**changed) != cache_key(**self._kwargs())

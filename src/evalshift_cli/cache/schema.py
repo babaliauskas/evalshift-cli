@@ -54,6 +54,12 @@ class CachedCall(Base):
             so a cache hit stays flagged as truncated. Rows written before
             this column existed read back as ``NULL`` (treated as not
             truncated) and age out within the TTL.
+        trace_json: For a tool-calling round, the parsed
+            :class:`~evalshift_cli.evaluators.tool_models.ToolTrace` as JSON
+            (``ToolTrace.model_dump_json()``); ``response_text`` then holds
+            the trace's ``final_text`` (or ``""``). ``NULL`` for text-only
+            responses. Nullable and backfilled additively on open, so a DB
+            written before tool calls were cached keeps serving its text rows.
         created_at: When the cache row was written. Driver of TTL.
     """
 
@@ -69,6 +75,7 @@ class CachedCall(Base):
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
+    trace_json: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
