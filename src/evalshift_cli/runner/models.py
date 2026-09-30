@@ -250,7 +250,9 @@ class Call(_StrictModel):
         latency_ms: Wall time of the live call, summed over replayed
             rounds. ``0`` for cache hits after the first run (we keep the
             *original* latency).
-        cached: ``True`` if the response came from the local cache.
+        cached: ``True`` if the response came from the local cache — for a
+            multi-round replay, only when every round did (each round is
+            its own cache entry; a row with any live round is live).
         error: ``None`` on success; the stringified error on failure. A
             multi-round replay that fails part-way names the round it died
             in (``"round 2/3: <error>"``) and records no ``trace`` — a
