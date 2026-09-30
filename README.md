@@ -70,9 +70,11 @@ CI enforces a 90% coverage floor on the source. The CLI is published on PyPI as
 `evalshift`, the capture SDK as `evalshift-sdk`, and the hosted service runs at
 `api.evalshift.dev`.
 
-The `evalshift.yaml` schema is versioned: `version: 1` changes only for a
-breaking change — a field renamed, removed, or given new semantics — so configs
-and CI pipelines keep working across releases.
+The `evalshift.yaml` schema is versioned: `version: 1` changes only when a
+field is renamed or given new semantics. A removed field does not bump it: a
+config that still sets one fails to load with an error naming the key, so no
+config is ever silently misread across releases. See
+[Config version policy](docs/configuration.md#config-version-policy).
 
 ## Install
 
