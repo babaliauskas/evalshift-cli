@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Under SQLAlchemy 2.1, which fresh installs resolve (`sqlalchemy>=2.0`), a
+  `CacheStore` opened on an in-memory SQLite database could silently lose
+  concurrent writes. The default on-disk cache used by CLI runs was not
+  affected. In-memory databases get SQLAlchemy's single-connection
+  `StaticPool`, so concurrent sessions shared one transaction, and one
+  session's rollback-on-return could discard another's uncommitted write.
+  SQLAlchemy 2.1's aiosqlite rework (sqlalchemy#10415) made this happen
+  routinely, so some cached writes were missing on the next lookup. Two
+  orchestrator cache tests failed on every fresh checkout, and the
+  embeddings-cache test failed intermittently. `CacheStore` now runs its
+  sessions one at a time on a single-connection pool. This works the same
+  on SQLAlchemy 2.0 and 2.1.
+
 - README.md, DOCS.md, llms-full.txt, four `docs/` pages, and AGENTS.md
   advertised `evalshift all --push` as the command to run. `all` has been a
   hidden alias for `compare` since 1.0.0 — it still works, and always will —

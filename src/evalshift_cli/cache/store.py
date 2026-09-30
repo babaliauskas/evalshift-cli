@@ -14,9 +14,11 @@ callers should run them via ``asyncio.run`` — which is exactly what the
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,7 +26,8 @@ from typing import Any
 
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import SingletonThreadPool, StaticPool
 
 from evalshift_cli.cache.schema import (
     Base,
@@ -138,6 +141,14 @@ class CacheStore:
     Construct via :meth:`open` to get a fully-initialised store with the
     schema created. The class manages its own engine and sessionmaker;
     callers shouldn't reach into either.
+
+    Every operation is safe to call from concurrent tasks. On an engine
+    whose pool hands out a single shared DBAPI connection (an in-memory
+    ``sqlite+aiosqlite:///:memory:`` URL gets a ``StaticPool``), sessions
+    are serialised: overlapping sessions there would share one transaction,
+    and one session's rollback-on-return would discard another's
+    uncommitted write. File-backed databases use a real connection pool and
+    run unserialised.
     """
 
     def __init__(
@@ -149,6 +160,9 @@ class CacheStore:
         self._engine = engine
         self._sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
         self._ttl = ttl
+        self._shared_connection_lock: asyncio.Lock | None = (
+            asyncio.Lock() if _pool_shares_one_connection(engine) else None
+        )
 
     @classmethod
     async def open(
@@ -177,10 +191,27 @@ class CacheStore:
         """Dispose of the underlying engine."""
         await self._engine.dispose()
 
+    @asynccontextmanager
+    async def _session(self) -> AsyncIterator[AsyncSession]:
+        """Open a session, holding the shared-connection lock when there is one.
+
+        The lock spans the whole session, including its close: the pool's
+        rollback-on-return runs on close, and on a shared connection that
+        rollback is exactly what would discard another session's pending
+        write.
+        """
+        guard: AbstractAsyncContextManager[None] = (
+            self._shared_connection_lock
+            if self._shared_connection_lock is not None
+            else nullcontext()
+        )
+        async with guard, self._sessionmaker() as session:
+            yield session
+
     async def get(self, key: str) -> CachedResponse | None:
         """Return the cached response for ``key`` or ``None`` on miss/expiry."""
         cutoff = _utcnow() - self._ttl
-        async with self._sessionmaker() as session:
+        async with self._session() as session:
             stmt = select(CachedCall).where(CachedCall.cache_key == key)
             row = (await session.execute(stmt)).scalar_one_or_none()
             if row is None:
@@ -235,7 +266,7 @@ class CacheStore:
             "finish_reason": finish_reason,
             "created_at": _utcnow(),
         }
-        async with self._sessionmaker() as session:
+        async with self._session() as session:
             stmt = sqlite_insert(CachedCall).values(cache_key=key, **values)
             await session.execute(
                 stmt.on_conflict_do_update(index_elements=["cache_key"], set_=values),
@@ -244,7 +275,7 @@ class CacheStore:
 
     async def clear(self) -> int:
         """Delete every entry from the cache. Returns the number of rows removed."""
-        async with self._sessionmaker() as session:
+        async with self._session() as session:
             # Count first so we can return a deterministic delete count
             # without depending on Result.rowcount, which isn't part of
             # SQLAlchemy's typed Result API.
@@ -257,9 +288,23 @@ class CacheStore:
 
     async def count(self) -> int:
         """Return the total number of rows in the cache (any TTL state)."""
-        async with self._sessionmaker() as session:
+        async with self._session() as session:
             stmt = select(CachedCall.cache_key)
             return len((await session.execute(stmt)).scalars().all())
+
+
+def _pool_shares_one_connection(engine: AsyncEngine) -> bool:
+    """Whether every session on ``engine`` gets the same DBAPI connection.
+
+    SQLAlchemy picks a single-connection pool for in-memory SQLite (a
+    ``StaticPool`` under aiosqlite), so there is no transaction isolation
+    between sessions at all. Overlapping sessions on it only ever worked by
+    scheduling luck: SQLAlchemy 2.1 moved aiosqlite onto the generic asyncio
+    cursor adapter (sqlalchemy#10415), which reorders the awaits so one
+    session's rollback-on-return routinely lands between another's
+    ``INSERT`` and ``COMMIT``.
+    """
+    return isinstance(engine.pool, StaticPool | SingletonThreadPool)
 
 
 async def _ensure_finish_reason_column(conn: Any) -> None:
