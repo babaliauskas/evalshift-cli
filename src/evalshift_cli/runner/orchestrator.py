@@ -48,7 +48,6 @@ from rich.progress import (
 
 from evalshift_cli.cache.store import CacheStore, cache_key
 from evalshift_cli.captures.reader import CaptureError, capture_base, load_toolset
-from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.config.models import EvalShiftConfig
 from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
 from evalshift_cli.models.capabilities import (
@@ -57,7 +56,12 @@ from evalshift_cli.models.capabilities import (
     silently_unsent_params,
     unsupported_params,
 )
-from evalshift_cli.models.client import ModelClient, ModelClientError, ToolCompletionResult
+from evalshift_cli.models.client import (
+    ModelClient,
+    ModelClientError,
+    ToolCompletionResult,
+    serialize_tools,
+)
 from evalshift_cli.models.registry import resolve_model
 from evalshift_cli.parsers.base import PromptParseError, PromptTemplate
 from evalshift_cli.parsers.manual import ManualParser
@@ -538,19 +542,6 @@ def resolve_suite_tools(
         )
         for example in suite.examples
     }
-
-
-def _fingerprint_toolset(tools: Sequence[ToolSpec]) -> str:
-    """Content-address a resolved toolset the same way regardless of its source.
-
-    An inline ``tools:`` list and a ``toolset_ref`` sidecar both resolve to the
-    same ``list[ToolSpec]`` shape by the time dispatch sees them. Fingerprinting
-    that resolved list — via Task 2's
-    :func:`~evalshift_cli.captures.toolset.fingerprint_tools` — rather than trusting
-    a ``toolset_ref`` string verbatim guarantees the two spellings of the same
-    toolset produce the same fingerprint, and therefore the same cache key.
-    """
-    return fingerprint_tools([t.to_anthropic() for t in tools])
 
 
 def _setup_run(
@@ -1252,7 +1243,7 @@ async def _execute(
         # None for both: this call never sends a ``tools`` parameter and is
         # single-shot by construction, so it keeps its pre-existing key. The
         # tool path always sets both, so the two paths' keys never collide.
-        toolset_fingerprint=None,
+        tools_payload=None,
         round_index=None,
         sample_index=cache_sample_index,
     )
@@ -1380,7 +1371,8 @@ async def _execute_with_tools(
     independent requests — round *k* is sent the recording, never the
     candidate's earlier rounds — so a round is keyed on exactly what it sends:
     the dispatched message list (``None`` for a plain-prompt round 0), the
-    toolset fingerprint, the generation config, the effective temperature and
+    tools array exactly as sent (:func:`serialize_tools`, in order), the
+    generation config, the effective temperature and
     token cap (``key_temperature`` / ``key_max_tokens``, as the text path keys
     them), the round index and ``cache_sample_index``. A hit restores the
     round's :class:`ToolCompletionResult` (trace, tokens, cost, latency,
@@ -1394,7 +1386,7 @@ async def _execute_with_tools(
     """
     gen_temperature, gen_extra = translate_generation_config(item.example.generation_config)
     rounds = item.example.rounds_to_replay()
-    toolset_fingerprint = _fingerprint_toolset(item.tools)
+    tools_payload = serialize_tools(canonical_id, item.tools)
     all_cached = True
 
     merged_calls: list[ToolCall] = []
@@ -1421,7 +1413,7 @@ async def _execute_with_tools(
             max_tokens=key_max_tokens,
             history=round_messages,
             generation_config=item.example.generation_config,
-            toolset_fingerprint=toolset_fingerprint,
+            tools_payload=tools_payload,
             round_index=round_index,
             sample_index=cache_sample_index,
         )

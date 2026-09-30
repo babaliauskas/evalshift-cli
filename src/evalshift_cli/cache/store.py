@@ -70,7 +70,7 @@ def cache_key(
     max_tokens: int,
     history: Sequence[Mapping[str, str]] | None = None,
     generation_config: Mapping[str, Any] | None = None,
-    toolset_fingerprint: str | None = None,
+    tools_payload: Sequence[Mapping[str, Any]] | None = None,
     round_index: int | None = None,
     sample_index: int | None = None,
 ) -> str:
@@ -94,18 +94,17 @@ def cache_key(
         generation_config: Recorded per-example generation config applied at
             dispatch. Same inclusion rule as ``history``: hashed only when not
             ``None``, so config-less calls keep their pre-existing keys.
-        toolset_fingerprint: Content-address of the toolset this call was
-            dispatched with (``"sha256:<hex>"`` from
-            :func:`evalshift_cli.captures.toolset.fingerprint_tools`). Same
-            inclusion rule as ``history``/``generation_config``: hashed only
-            when not ``None``, so a call that never sends a ``tools``
-            parameter to the provider at all keeps its pre-existing key. An
-            example's toolset, whether spelled as an inline ``tools:`` list
-            or a ``toolset_ref`` sidecar, resolves to the same fingerprint
-            before it reaches this function — see
-            :func:`evalshift_cli.runner.orchestrator._fingerprint_toolset` — so
-            the two spellings of one toolset never fork the cache, while two
-            genuinely different toolsets always produce different keys.
+        tools_payload: The ``tools`` array exactly as sent to the provider,
+            in order (:func:`evalshift_cli.models.client.serialize_tools`, the
+            same helper dispatch uses). Same inclusion rule as
+            ``history``/``generation_config``: hashed only when not ``None``,
+            so a call that never sends a ``tools`` parameter keeps its
+            pre-existing key. ``sort_keys`` orders each tool's own keys but
+            never the list, so reordering the tools, or changing a name,
+            description, schema or ``strict`` flag, changes the key — each of
+            those changes what the provider receives. An inline ``tools:``
+            list and a ``toolset_ref`` sidecar share entries exactly when they
+            resolve to the same tools in the same order.
         round_index: 0-based round of a teacher-forced multi-round replay
             (see :meth:`evalshift_cli.suite.models.SuiteExample.rounds_to_replay`).
             Same inclusion rule as the three above: hashed only when not
@@ -135,8 +134,8 @@ def cache_key(
         payload["history"] = [dict(m) for m in history]
     if generation_config is not None:
         payload["generation_config"] = dict(generation_config)
-    if toolset_fingerprint is not None:
-        payload["toolset_fingerprint"] = toolset_fingerprint
+    if tools_payload is not None:
+        payload["tools_payload"] = [dict(t) for t in tools_payload]
     if round_index is not None:
         payload["round_index"] = round_index
     if sample_index is not None:

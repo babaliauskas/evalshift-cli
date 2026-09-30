@@ -39,6 +39,7 @@ from evalshift_cli.models.client import (
     ModelClient,
     ModelClientError,
     ToolCompletionResult,
+    serialize_tools,
 )
 from evalshift_cli.runner.checkpoint import (
     iter_calls,
@@ -49,7 +50,6 @@ from evalshift_cli.runner.orchestrator import (
     RunAborted,
     RunResult,
     _build_work_list,
-    _fingerprint_toolset,
     build_messages,
     build_round_messages,
     history_for_cache_key,
@@ -1386,8 +1386,8 @@ class TestResolveExampleTools:
         )
         assert second == first
 
-    def test_inline_and_ref_to_same_tools_fingerprint_identically(self, tmp_path: Path) -> None:
-        """The two spellings of one toolset must key the cache identically."""
+    def test_inline_and_ref_to_same_tools_send_the_same_payload(self, tmp_path: Path) -> None:
+        """The two spellings of one toolset send (and so key) the same tools array."""
         tool = self._tool_a()
         ref = self._write_sidecar(tmp_path, [tool])
 
@@ -1401,7 +1401,8 @@ class TestResolveExampleTools:
             toolset_cache={},
         )
 
-        assert _fingerprint_toolset(inline_tools) == _fingerprint_toolset(ref_tools)
+        for model in ("anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-flash"):
+            assert serialize_tools(model, inline_tools) == serialize_tools(model, ref_tools)
 
 
 # ---------------------------------------------------------------------------
@@ -2519,7 +2520,9 @@ class TestToolPathCache:
                 },
                 3,
             ),
+            ({"tools": [_ROUND_TOOL_2, _ROUND_TOOL]}, 3),
             ({"generation_config": {"tool_choice": "required"}}, 3),
+            ({"generation_config": {"temperature": 0.7}}, 3),
             ({"generation_config": {"parallel_tool_calls": False}}, 3),
             ({"inputs": {"name": "Bea"}}, 3),
             # A recorded fixture is only sent from the round after it.
@@ -2539,7 +2542,9 @@ class TestToolPathCache:
         ids=[
             "tool-strict",
             "tool-description",
+            "tool-order",
             "tool-choice",
+            "temperature",
             "parallel-tool-calls",
             "inputs",
             "later-fixture",
@@ -2562,6 +2567,44 @@ class TestToolPathCache:
         changed = Suite(examples=[_two_round_example(**change)])
         await run_orchestrator(**self._kwargs(tmp_path, cache, changed))
         assert len(seen) == 6 + 2 * expected_rounds
+
+    async def test_a_max_tokens_override_is_a_miss(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        suite = Suite(examples=[_two_round_example()])
+        await run_orchestrator(**self._kwargs(tmp_path, cache, suite))
+        assert len(seen) == 6
+
+        capped = EvalShiftConfig(
+            prompts=[_round_config().prompts[0].model_copy(update={"max_tokens": 512})],
+            defaults=Defaults(concurrency=4, max_cost_usd=100.0),
+        )
+        await run_orchestrator(**self._kwargs(tmp_path, cache, suite, config=capped))
+        assert len(seen) == 12
+
+    async def test_a_row_without_a_trace_under_a_tool_key_is_redispatched(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        # A hit that cannot rebuild a ToolCompletionResult must not be served.
+        from sqlalchemy import text
+
+        seen = _install_tool_fake(monkeypatch)
+        kwargs = self._kwargs(tmp_path, cache, Suite(examples=[_two_round_example()]))
+        await run_orchestrator(**kwargs)
+        assert await cache.count() == 6
+        async with cache._engine.begin() as conn:
+            await conn.execute(text("UPDATE cached_calls SET trace_json = NULL"))
+
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 12
+        assert (second.live_calls, second.cached_calls) == (2, 0)
 
     async def test_a_different_target_model_is_a_miss(
         self,

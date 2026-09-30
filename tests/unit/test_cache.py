@@ -24,7 +24,6 @@ from typer.testing import CliRunner
 
 from evalshift_cli.cache.schema import Base, create_engine
 from evalshift_cli.cache.store import CacheStore, cache_key
-from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.cli.main import app
 from evalshift_cli.evaluators.tool_models import ToolCall, ToolTrace
 
@@ -263,10 +262,10 @@ class TestCacheKey:
         )
         assert a == b
 
-    # -- toolset_fingerprint (Task 8: per-example toolsets reach the cache key) --
+    # -- tools_payload (the tool path keys the tools array exactly as sent) --
 
-    def test_no_toolset_fingerprint_is_byte_identical_to_pre_toolset_payload(self) -> None:
-        """Regression: omitting ``toolset_fingerprint`` must not change the hashed payload.
+    def test_no_tools_payload_is_byte_identical_to_pre_toolset_payload(self) -> None:
+        """Regression: omitting ``tools_payload`` must not change the hashed payload.
 
         Mirrors ``test_no_history_is_byte_identical_to_pre_history_payload``. A call
         dispatched via ``complete``/``complete_messages`` never sends a ``tools``
@@ -296,120 +295,60 @@ class TestCacheKey:
         )
         expected = hashlib.sha256(old_payload.encode("utf-8")).hexdigest()
 
-        actual = cache_key(
-            model_id=model_id,
-            prompt_text=prompt_text,
-            inputs=inputs,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        assert actual == expected
+        base = {
+            "model_id": model_id,
+            "prompt_text": prompt_text,
+            "inputs": inputs,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        assert cache_key(**base) == expected  # type: ignore[arg-type]
+        assert cache_key(**base, tools_payload=None) == expected  # type: ignore[arg-type]
 
-        actual_explicit_none = cache_key(
-            model_id=model_id,
-            prompt_text=prompt_text,
-            inputs=inputs,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            toolset_fingerprint=None,
-        )
-        assert actual_explicit_none == expected
-
-    def test_toolset_fingerprint_changes_key(self) -> None:
-        base = cache_key(
+    def _tool_key(self, tools_payload: list[dict[str, Any]] | None) -> str:
+        return cache_key(
             model_id="m",
             prompt_text="hi",
             inputs={},
             temperature=0.0,
             max_tokens=1024,
+            tools_payload=tools_payload,
         )
-        with_toolset = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint="sha256:" + "a" * 64,
-        )
-        assert base != with_toolset
 
-    def test_different_toolsets_produce_different_keys(self) -> None:
-        """The cache key differs across differing toolsets (Task 8 requirement)."""
-        a = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint="sha256:" + "a" * 64,
-        )
-        b = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint="sha256:" + "b" * 64,
-        )
-        assert a != b
+    _SEARCH: ClassVar[dict[str, Any]] = {
+        "name": "search_orders",
+        "description": "Look up orders.",
+        "input_schema": {},
+    }
+    _REFUND: ClassVar[dict[str, Any]] = {
+        "name": "issue_refund",
+        "description": "Refund an order.",
+        "input_schema": {},
+    }
 
-    def test_same_toolset_fingerprint_same_key(self) -> None:
-        a = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint="sha256:" + "c" * 64,
-        )
-        b = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint="sha256:" + "c" * 64,
-        )
-        assert a == b
+    def test_tools_payload_changes_key(self) -> None:
+        assert self._tool_key([self._SEARCH]) != self._tool_key(None)
 
-    def test_inline_and_ref_resolved_toolset_fingerprint_the_same_key(self) -> None:
-        """An inline toolset and a ``toolset_ref`` to the same tools key identically.
+    def test_empty_tools_payload_differs_from_none(self) -> None:
+        assert self._tool_key([]) != self._tool_key(None)
 
-        Simulates the two spellings ``SuiteExample`` allows for one toolset:
-        ``fp_inline`` fingerprints a hand-authored ``tools:`` list directly;
-        ``fp_from_sidecar`` fingerprints the *same* tools as they would come back
-        off a promoted sidecar -- a freshly-built, differently-ordered list of
-        equivalent dicts (``fingerprint_tools`` sorts by name, so list order must
-        not matter). Both must fingerprint identically, and two ``cache_key()``
-        calls built from each must collide.
-        """
-        inline_tools = [
-            {"name": "search_orders", "description": "Look up orders.", "input_schema": {}},
-            {"name": "issue_refund", "description": "Refund an order.", "input_schema": {}},
-        ]
-        sidecar_tools = list(reversed(inline_tools))  # same tools, different order
+    def test_different_tools_produce_different_keys(self) -> None:
+        assert self._tool_key([self._SEARCH]) != self._tool_key([self._REFUND])
 
-        fp_inline = fingerprint_tools(inline_tools)
-        fp_from_sidecar = fingerprint_tools(sidecar_tools)
-        assert fp_inline == fp_from_sidecar
-
-        a = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint=fp_inline,
+    def test_same_tools_same_order_same_key(self) -> None:
+        assert self._tool_key([self._SEARCH, self._REFUND]) == self._tool_key(
+            [dict(self._SEARCH), dict(self._REFUND)]
         )
-        b = cache_key(
-            model_id="m",
-            prompt_text="hi",
-            inputs={},
-            temperature=0.0,
-            max_tokens=1024,
-            toolset_fingerprint=fp_from_sidecar,
+
+    def test_reordered_tools_produce_different_keys(self) -> None:
+        """The provider receives the list in order, so order is part of the request."""
+        assert self._tool_key([self._SEARCH, self._REFUND]) != self._tool_key(
+            [self._REFUND, self._SEARCH]
         )
-        assert a == b
+
+    def test_dict_key_order_inside_a_tool_does_not_matter(self) -> None:
+        reordered = dict(reversed(list(self._SEARCH.items())))
+        assert self._tool_key([self._SEARCH]) == self._tool_key([reordered])
 
     # -- round_index (teacher-forced multi-round replay) --
 
@@ -417,7 +356,7 @@ class TestCacheKey:
         """Omitting ``round_index`` must not change the hashed payload.
 
         Same inclusion rule as ``history`` / ``generation_config`` /
-        ``toolset_fingerprint``: hashed only when not ``None``, so every key
+        ``tools_payload``: hashed only when not ``None``, so every key
         minted before the round dimension existed stays valid.
         """
         import hashlib
@@ -924,8 +863,8 @@ class TestToolRoundKeySensitivity:
     """Every component the tool path keys on moves the key; identical inputs hit.
 
     Mirrors what :func:`evalshift_cli.runner.orchestrator._execute_with_tools`
-    passes per round: the dispatched message list as ``history``, the toolset
-    fingerprint, the generation config (tool_choice / parallel_tool_calls), the
+    passes per round: the dispatched message list as ``history``, the tools
+    array exactly as sent, the generation config (tool_choice / parallel_tool_calls), the
     round index and the sample index.
     """
 
@@ -956,7 +895,7 @@ class TestToolRoundKeySensitivity:
                 {"role": "tool", "tool_call_id": "call_r0_0", "content": "{}"},
             ],
             "generation_config": {"tool_choice": "auto"},
-            "toolset_fingerprint": fingerprint_tools(self._TOOLS),
+            "tools_payload": [dict(t) for t in self._TOOLS],
             "round_index": 1,
             "sample_index": None,
         }
@@ -991,16 +930,24 @@ class TestToolRoundKeySensitivity:
         assert cache_key(**changed) != cache_key(**self._kwargs())
 
     def test_tool_strictness_changes_the_key(self) -> None:
-        strict = [{**self._TOOLS[0], "strict": True}]
         changed = self._kwargs()
-        changed["toolset_fingerprint"] = fingerprint_tools(strict)
+        changed["tools_payload"] = [{**self._TOOLS[0], "strict": True}]
         assert cache_key(**changed) != cache_key(**self._kwargs())
 
     def test_a_changed_tool_schema_changes_the_key(self) -> None:
-        other = [{**self._TOOLS[0], "input_schema": {"type": "object", "required": ["q"]}}]
         changed = self._kwargs()
-        changed["toolset_fingerprint"] = fingerprint_tools(other)
+        changed["tools_payload"] = [
+            {**self._TOOLS[0], "input_schema": {"type": "object", "required": ["q"]}}
+        ]
         assert cache_key(**changed) != cache_key(**self._kwargs())
+
+    def test_reordering_the_tools_changes_the_key(self) -> None:
+        second = {"name": "u", "description": "e", "input_schema": {"type": "object"}}
+        a = self._kwargs()
+        a["tools_payload"] = [self._TOOLS[0], second]
+        b = self._kwargs()
+        b["tools_payload"] = [second, self._TOOLS[0]]
+        assert cache_key(**a) != cache_key(**b)
 
 
 def test_the_suite_never_opens_the_users_real_cache() -> None:
