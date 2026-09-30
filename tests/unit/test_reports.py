@@ -2006,6 +2006,22 @@ class TestReportShell:
         assert _pct_delta(1.0, 2.0) == pytest.approx(100.0)
         assert _pct_delta(2.0, 1.0) == pytest.approx(-50.0)
 
+    def test_run_latency_delta_is_none_when_either_side_measured_nothing_live(self) -> None:
+        # A role whose every call was served (wholly or partly) from the cache
+        # has no live latency sample; its 0.0 mean is "unmeasured", so the
+        # header must not read it as a -100% latency change.
+        from evalshift_cli.reports.html import _run_latency_delta_pct
+
+        def totals(src_live: float, tgt_live: float) -> dict[str, dict[str, float]]:
+            return {
+                "source": {"latency_ms_avg": 100.0 if src_live else 0.0, "live_calls": src_live},
+                "target": {"latency_ms_avg": 150.0 if tgt_live else 0.0, "live_calls": tgt_live},
+            }
+
+        assert _run_latency_delta_pct(totals(2, 0)) is None
+        assert _run_latency_delta_pct(totals(0, 2)) is None
+        assert _run_latency_delta_pct(totals(2, 2)) == pytest.approx(50.0)
+
     def test_verdict_panel_shows_the_outcome_split(self, tmp_path: Path) -> None:
         html = self._html(tmp_path, decision=True)
         assert "Equivalent 0.0%" in html
