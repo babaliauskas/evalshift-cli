@@ -29,7 +29,7 @@ checklist) with three jobs:
   `evalshift.yaml` and pushed inside the bundle. `evalshift-version` is pinned
   to the CLI that scaffolded the project: the CLI that *reads* the config in CI must be at least as new
   as the CLI that *wrote* it locally (`extra: forbid` rejects newer keys), and
-  the CLI warns when the pin falls behind — see [Pin drift](#pin-drift). `max-parallel` defaults to 1 —
+  the CLI warns when the pin falls behind (or runs ahead of the local CLI) — see [Pin drift](#pin-drift). `max-parallel` defaults to 1 —
   raise it toward your hosted plan's in-flight-run ceiling (Free 1, Pro 5,
   Team 10). The PR comment is posted by the first matrix job only: the
   comment marker is a constant, so multiple suites would overwrite one

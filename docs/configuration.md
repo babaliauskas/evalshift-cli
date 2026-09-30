@@ -47,7 +47,10 @@ practice that means the `evalshift-version` your CI workflow installs must be
 at least the version you run `capture sync` and `init` with locally. The CI
 pin check is the mechanism that enforces it: `capture sync`, `init`, `doctor`,
 and `validate` warn when a workflow under `.github/workflows/` pins an older
-CLI, or none at all, and print the exact line to set. See
+CLI, or none at all, and print the exact line to set. They also warn when
+every pin is newer than the local CLI. That does not break the rule — CI
+reads with the newer CLI — but local runs then disagree with CI, and the fix
+printed is `pip install -U evalshift`. See
 [Pin drift](github-action.md#pin-drift).
 
 ## `project`

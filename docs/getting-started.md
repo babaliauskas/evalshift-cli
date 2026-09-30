@@ -98,8 +98,8 @@ environment is the capture SDK — yellow when it is missing or shadowed by an
 older CLI install.
 
 If a workflow under `.github/workflows/` uses the GitHub Action, the table
-also has a `ci pin` row — yellow when CI pins an older CLI than yours (or
-none at all); see [Pin drift](github-action.md#pin-drift).
+also has a `ci pin` row — yellow when CI pins an older or newer CLI than
+yours (or none at all); see [Pin drift](github-action.md#pin-drift).
 
 If everything is green or yellow, you're ready to run.
 
@@ -141,10 +141,10 @@ evalshift capture sync
 `.evalshift/suites/<suite>/golden.jsonl` and injects the matching
 `suites:` block into `evalshift.yaml`. See
 [Configuration](configuration.md) for the full capture lifecycle. If a
-workflow under `.github/workflows/` pins an older CLI than the one you just
-synced with, it ends with an advisory warning and the exact
-`evalshift-version` line to set — see
-[Pin drift](github-action.md#pin-drift).
+workflow under `.github/workflows/` pins an older or newer CLI than the one
+you just synced with, or none at all, it ends with an advisory warning and the
+fix — the exact `evalshift-version` line to set, or `pip install -U evalshift`
+when CI is ahead — see [Pin drift](github-action.md#pin-drift).
 
 ## 7. Run the pipeline
 

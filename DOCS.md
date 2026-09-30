@@ -176,7 +176,7 @@ evalshift capture clean                # delete promoted capture files + sweep o
 7. Skips captures whose turn recorded an `error` event — a turn that died before the agent acted is not ground truth, and promoting it would assert `expected_no_tools: true` on a question that needed a tool. `--allow-errored` promotes it anyway (still never asserting `expected_no_tools`). `capture promote` exits non-zero on the same condition. Separately and unconditionally — `--allow-errored` does not help — a capture whose first `model_call` has no `toolset_ref` is refused: the SDK did not record what tools were offered, so there is nothing to carry, and re-capturing with a current `evalshift-sdk` is the only fix.
 8. Warns when two captures claim the same `(conversation_id, turn_index)` (a retried turn), and when a promoted turn contains a failed tool result (`error`, or `{"success": false}`). Both stay warnings — see [Agent evals → What does not belong in a golden suite](docs/agents.md).
 9. Writes `.evalshift/suites/<suite>/golden.jsonl` and rewrites the managed `suites:` block in `evalshift.yaml` (between the `>>> evalshift suites` markers).
-10. After the write (or after printing the block for you to paste), checks the CI pin: if a workflow under `.github/workflows/` uses `babaliauskas/evalshift-action` with an `evalshift-version` older than this CLI, or with no pin at all, it prints a warning naming the workflow and job plus the exact `evalshift-version: "<this version>"` line to set. Advisory only — sync never edits a workflow and the exit code is unchanged. See [Pin drift](#pin-drift).
+10. After the write (or after printing the block for you to paste), checks the CI pin: if a workflow under `.github/workflows/` uses `babaliauskas/evalshift-action` with an `evalshift-version` older than this CLI, with no pin at all, or with pins that are all newer than this CLI, it prints a warning naming the workflow and job plus the fix — the exact `evalshift-version: "<this version>"` line to set, or, for a newer pin, `pip install -U evalshift` locally. Advisory only — sync never edits a workflow and the exit code is unchanged. See [Pin drift](#pin-drift).
 
 Strictness knobs for the derived tool expectations: `--strict-args` (exact argument matches), `--names-only` (ignore arguments), `--tool-count` (also pin the call count, scoped the same way as `expected_tools`), `--rounds {first,all}` (which agent rounds become ground truth, default `first`). `--tag` attaches extra slice tags; `--print` previews the `suites:` block without writing.
 
@@ -807,7 +807,7 @@ Common conventions: `-c/--config` defaults to `./evalshift.yaml`; run artefacts 
 
 **`evalshift init`** — scaffold a minimal capture-first `evalshift.yaml`.
 `-f/--force` · `-d/--directory <dir>` · `--ci` · `--wire-agents/--no-wire-agents` (default on) · `--provider gemini|openai|anthropic|deepseek` · `--profile model-upgrade|cost-reduction|local-model|quantization|provider-switch` (default `model-upgrade`)
-Without `--ci`, warns after writing when an existing workflow under `.github/workflows/` pins an older CLI than this one, or none at all (see [Pin drift](#pin-drift)); `init --ci` writes the pin itself and does not warn about the file it just wrote.
+Without `--ci`, warns after writing when an existing workflow under `.github/workflows/` pins an older or newer CLI than this one, or none at all (see [Pin drift](#pin-drift)); `init --ci` writes the pin itself and does not warn about the file it just wrote.
 
 **`evalshift doctor`** — environment/config check. Exit 1 only on an invalid existing config. Row 2, `evalshift-sdk`, confirms `import evalshift` is the SDK (`warn` when missing or shadowed, never a failure). Reports the toolset each configured suite carries and flags a suite whose examples carry more than one distinct toolset. The suite-side checks cover every suite in the config's `suites:` block, falling back to `./golden.jsonl` when none are wired. Adds a `ci pin` row when a workflow uses the GitHub Action (`warn` on pin drift, never a failure) and a `judge family` row when an `llm_judge` judge shares a provider with a configured arm (`warn`, never a failure).
 
@@ -855,7 +855,7 @@ All `run` flags, plus `--gate` · `--policy-gate` · `--open` · `--push` · `--
 
 ### Hidden debug commands
 
-**`evalshift validate`** — load config + suite + prompts, cross-check compatibility. `-s/--suite` · `-c/--config`. After the success line, prints the [Pin drift](#pin-drift) warning if a workflow pins an older CLI (advisory; exit code unchanged, and a no-op in CI where the running CLI is the pin).
+**`evalshift validate`** — load config + suite + prompts, cross-check compatibility. `-s/--suite` · `-c/--config`. After the success line, prints the [Pin drift](#pin-drift) warning if a workflow pins an older or newer CLI, or none at all (advisory; exit code unchanged, and a no-op in CI where the running CLI is the pin).
 **`evalshift test-call`** — one live smoke-test call. `-m/--model` (required) · `-p/--prompt` · `-t/--temperature` (0–2, default 0) · `--max-tokens` (1–8192, default 256) · `--tools <file>` (prints a ToolTrace)
 
 ---

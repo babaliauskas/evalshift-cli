@@ -131,8 +131,8 @@ evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire
   EVALSHIFT.md and points AGENTS.md/CLAUDE.md/GEMINI.md/.cursorrules/copilot-instructions at it;
   creates AGENTS.md when none of those files exist. Idempotent.
   --provider prompted on TTY, else gemini. Does NOT write prompts.py/tools.yaml/golden.jsonl.
-  Without --ci, warns after writing when an existing .github/workflows/*.yml pins an older
-  evalshift-version than this CLI, or none (advisory, exit 0; see CI pin drift). --ci writes
+  Without --ci, warns after writing when an existing .github/workflows/*.yml pins an older or
+  newer evalshift-version than this CLI, or none (advisory, exit 0; see CI pin drift). --ci writes
   the pin itself and does not warn about the file it just wrote.
   PROFILE budgets (regression/critical/equivalence/arg-drift/tool-divergence/cost/latency):
     model-upgrade (default): .30/1/.75/.20/.20/.30/.30 (= MigrationPolicy defaults)
@@ -151,7 +151,8 @@ evalshift doctor
   ok ("pinned to <v>"; "not pinned (version unknown)" when every pin is a ${{ }} expression)
   when nothing drifts; warn (exit 0) on pin drift --
   stale (pin < local), unpinned (input absent -> action default may lag), ahead (all pins >
-  local). Fix line names the exact `evalshift-version: "<local>"` to set. See CI pin drift.
+  local). Fix line names the exact `evalshift-version: "<local>"` to set (ahead: `pip install -U
+  evalshift` instead). See CI pin drift.
   Adds a `judge family` row when the config wires llm_judge AND names both
   defaults.source_model and target_model: warn (exit 0), one row per distinct judge_model whose
   resolved provider equals an arm's ("judge `<m>` shares a model family (<provider>) with the
@@ -292,7 +293,8 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   Reports "wired generation config for N case(s)" when promoted captures carried one.
   After writing (or printing the block to paste) warns on CI pin drift: a workflow step
   `uses: babaliauskas/evalshift-action@...` whose evalshift-version is older than this CLI or
-  absent gets a warning naming workflow + job and the `evalshift-version: "<v>"` to set.
+  absent gets a warning naming workflow + job and the `evalshift-version: "<v>"` to set; pins
+  all newer than this CLI get one too, with the fix `pip install -U evalshift`.
   Advisory only: never edits the workflow, exit code unchanged. `init` (without --ci) warns
   the same way next to an existing workflow; `validate` prints it after its success line.
   Each suite's entry is DERIVED from its own rows, evaluators included:
