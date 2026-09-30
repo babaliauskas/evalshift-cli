@@ -198,12 +198,13 @@ output (cosine ~0.98) that stays within `min_similarity` is treated as
 *equivalent*, not a regression — so the policy gate and the report agree.
 
 Per-slice overrides live under `migration_policy.slices` — a map of
-slice name (an example tag: every distinct tag is a slice) to a partial policy block; unset fields inherit the top
-level. A slice budget gates the run exactly like a top-level one: a
-conclusively breached slice budget **fails** the run, an unconfirmed
-breach makes it `inconclusive`, and `recommendations` names which slice
-budget blocked. A slice that fails on comparison *severity* rather than
-a budget still only downgrades an overall `pass` to `conditional_pass`.
+slice name (an example tag: every distinct tag is a slice) to a partial
+policy block; unset fields inherit the top level. A slice budget gates
+the run exactly like a top-level one: a conclusively breached slice
+budget **fails** the run, an unconfirmed breach makes it `inconclusive`,
+and `recommendations` names which slice budget blocked. A slice that
+fails on comparison *severity* rather than a budget still only
+downgrades an overall `pass` to `conditional_pass`.
 
 ```yaml
 migration_policy:
@@ -622,7 +623,9 @@ slice, and each is analysed separately. Per-slice budgets go under
 The top-level `slices:` list is still accepted — it is validated and copied
 into the run bundle's evaluator config — but analysis does not read it today:
 `name`, `filter` and `applies_to` rename, filter and scope nothing, and a run
-reports the same slices with or without it.
+reports the same slices with or without it. It is, however, part of the
+bundle's `eval_config_hash`, so editing or removing it breaks hosted baseline
+compatibility with earlier runs.
 
 `overall` is reserved and cannot be used as a slice `name`, as an example tag,
 or as a `migration_policy.slices` key. It names the run-level scope in the run

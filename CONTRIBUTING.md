@@ -35,7 +35,8 @@ pytest -m "not integration"             # unit tests only
 ruff check .                            # lint
 ruff format .                           # auto-format
 mypy --strict src/evalshift_cli             # type-check
-pre-commit run --all-files              # everything pre-commit runs
+pre-commit run --all-files              # commit-stage hooks only
+make ci                                 # exactly what CI runs (also the pre-push hook)
 ```
 
 ## Style
