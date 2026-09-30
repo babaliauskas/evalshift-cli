@@ -713,6 +713,67 @@ class TestBundleShipsNoSuiteContent:
         assert snapshot_before["examples_hash"] != snapshot_after["examples_hash"]
 
 
+class TestEvaluatorConfigKeepsTheLegacySlicesKey:
+    """Removing the top-level ``slices:`` key must not move ``eval_config_hash``.
+
+    The server pairs a run with its baseline only on an equal
+    ``eval_config_hash``, and that hash is computed over the whole
+    ``evaluator_config`` snapshot — which has always carried a ``"slices"``
+    key. Dropping the key would change the hash of every config, including
+    the ones that never set ``slices:``, and orphan every hosted baseline.
+    """
+
+    _CONFIG = """
+        version: 1
+        project: acme/model-migration
+        prompts:
+          - id: greet
+            detection: manual
+            content: "Hello {name}"
+            variables: [name]
+        defaults:
+          source_model: gemini/gemini-2.5-flash
+          target_model: gemini/gemini-3.1-flash-lite-preview
+        evaluators:
+          structural:
+            - type: length
+              min_chars: 1
+          llm_judge:
+            - criterion_name: tone
+              criterion_prompt: Which reply is friendlier?
+        migration_policy:
+          max_overall_regression_rate: 0.10
+          slices:
+            checkout:
+              max_overall_regression_rate: 0.05
+    """
+
+    #: ``manifest.eval_config_hash`` for :attr:`_CONFIG`, computed by the CLI at
+    #: origin/main af4e6fe — the last commit that still accepted ``slices:``.
+    #: If this changes, every hosted baseline stops matching its next run.
+    _HASH_BEFORE_THE_REMOVAL = (
+        "sha256:37936052974aecda1876fb406cb98a60c30b91b403b5ca59f6b53f0f1c1827e5"
+    )
+
+    def _bundle(self, run_fixture: RunFixture) -> dict[str, Any]:
+        run_fixture.config.write_text(self._CONFIG, encoding="utf-8")
+        return _load(run_fixture.build().path)
+
+    def test_eval_config_hash_of_a_slices_less_config_is_unchanged(
+        self, run_fixture: RunFixture
+    ) -> None:
+        manifest = self._bundle(run_fixture)["manifest"]
+        assert isinstance(manifest, dict)
+        assert manifest["eval_config_hash"] == self._HASH_BEFORE_THE_REMOVAL
+
+    def test_evaluator_config_still_ships_an_empty_slices_list(
+        self, run_fixture: RunFixture
+    ) -> None:
+        config = self._bundle(run_fixture)["evaluator_config"]
+        assert isinstance(config, dict)
+        assert config["slices"] == []
+
+
 def _rewrite_suite_history(suite_path: Path, system_prompt: str) -> None:
     """Give every suite example a conversation prefix carrying ``system_prompt``."""
     rows = [
