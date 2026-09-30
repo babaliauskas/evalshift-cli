@@ -24,17 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **The top-level `slices:` key is gone from `evalshift.yaml`, and its removal
-  is breaking.** The block (`name`, `filter`, `applies_to`) was validated and
-  recorded in the run bundle, but analysis never read it: slices have always
-  come from example `tags`, one per distinct tag plus `all`, so none of its
-  fields renamed, filtered or scoped anything, and a run reports the same
-  slices without it. **Migration: delete the block.** Per-slice budgets, the
-  one thing it looked like it configured, go under `migration_policy.slices`,
-  keyed by tag.
+- **The top-level `slices:` key is gone from `evalshift.yaml`, and its
+  removal is breaking.** The block (`name`, `filter`, `applies_to`) was
+  validated and recorded in the run bundle, but analysis never read it:
+  slices have always come from example `tags`, one per distinct tag plus
+  `all`, so none of its fields renamed, filtered or scoped anything, and a
+  run reports the same slices without it. **Migration: delete the block.**
+  Per-slice budgets, the one thing it looked like it configured, go under
+  `migration_policy.slices`, keyed by tag.
 
   A config that still sets `slices:` now **fails to load** instead of being
-  quietly ignored, the same way `thresholds` does since 1.1.0, naming what
+  quietly ignored, the same way `thresholds` has since 1.1.0, naming what
   happened and the fix:
 
   ```text
@@ -42,18 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```
 
   `evalshift validate` prints it; `evalshift doctor` fails its config row.
-  `version:` stays `1`, under the same config version policy. The two shipped
-  example configs that set the block no longer do, and
+  `version:` stays `1`, under the same config version policy. The two
+  shipped example configs that set the block no longer do, and
   `tests/unit/test_docs_currency.py` now fails if any doc or example shows a
   top-level `slices:` or `thresholds:` key.
 
   Hosted baselines are unaffected for every config that never set the key
   (or set `slices: []`): the bundle's `evaluator_config` still carries
-  `"slices": []`, so `eval_config_hash` is byte-identical to what earlier CLIs
-  computed and existing baselines keep matching. Deleting a *non-empty* block
-  does change that hash, so runs pushed afterwards are not comparable to
-  baselines pushed before until the base branch pushes a run with the edited
-  config.
+  `"slices": []`, so `eval_config_hash` is byte-identical to what earlier
+  CLIs computed and existing baselines keep matching. Deleting a *non-empty*
+  block does change that hash, so runs pushed afterwards are not comparable
+  to baselines pushed before until the base branch pushes a run with the
+  edited config.
 
 ### Fixed
 
@@ -120,28 +120,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   places, and all of them now say what the CLI does. Nothing about CLI
   behaviour changed. The one that matters most concerns slices: the docs
   said a top-level `slices:` block picks examples by tag, names the slice,
-  and scopes it to prompts. It does none of that. The block is validated
-  (the reserved `overall` name is still rejected) and recorded in the run
-  bundle, but analysis never reads it. Slices come from example `tags`, one
-  per distinct tag plus `all`, and per-slice budgets are keyed by tag under
-  `migration_policy.slices`. The docs now say so, and the block itself is
-  removed in this release (see Removed above). Imported agent traces (`traces import`) stay local; the bundle
-  carries only the replay's own tool-call trace, without tool results or
-  `model_call` events. The response cache serves only tool-less examples,
-  so every `run` of an agent suite is live and full price. `--resume`
-  hashes the suite's path, not its contents. `push <run-id>` uploads an
-  existing bundle as-is instead of rebuilding it, and `bundle` needs a git
-  SHA. `--policy-gate` also fails when no `migration_policy` is configured.
-  The `init` profile table had the wrong `model-upgrade` numbers and no
-  tool-divergence column. The multi-turn suite example failed to load
-  because it had no `tools`. The failure-label list was missing
-  `TOOL_GROUND_TRUTH_MISS`. Upstream model-call failures and evaluator
-  failures are handled the same way, as errored rows excluded from the
-  statistics. The GitHub Action docs gained `require-policy` and the other
-  missing inputs. `record_model_call` examples now pass the required
-  `tools=`. DOCS.md's header said version 1.0.1; a new check in
-  `tests/unit/test_docs_currency.py` keeps the version in DOCS.md and
-  llms-full.txt equal to the package's.
+  and scopes it to prompts. It did none of that. The block was validated and
+  recorded in the run bundle, but analysis never read it. Slices come from
+  example `tags`, one per distinct tag plus `all`, and per-slice budgets are
+  keyed by tag under `migration_policy.slices`. The docs now say so, and the
+  block itself is removed in this release (see Removed above). Imported
+  agent traces (`traces import`) stay local; the bundle carries only the
+  replay's own tool-call trace, without tool results or `model_call` events.
+  The response cache serves only tool-less examples, so every `run` of an
+  agent suite is live and full price. `--resume` hashes the suite's path,
+  not its contents. `push <run-id>` uploads an existing bundle as-is instead
+  of rebuilding it, and `bundle` needs a git SHA. `--policy-gate` also fails
+  when no `migration_policy` is configured. The `init` profile table had the
+  wrong `model-upgrade` numbers and no tool-divergence column. The
+  multi-turn suite example failed to load because it had no `tools`. The
+  failure-label list was missing `TOOL_GROUND_TRUTH_MISS`. Upstream
+  model-call failures and evaluator failures are handled the same way, as
+  errored rows excluded from the statistics. The GitHub Action docs gained
+  `require-policy` and the other missing inputs. `record_model_call`
+  examples now pass the required `tools=`. DOCS.md's header said version
+  1.0.1; a new check in `tests/unit/test_docs_currency.py` keeps the version
+  in DOCS.md and llms-full.txt equal to the package's.
 
 ## [1.1.0] - 2026-09-19
 
