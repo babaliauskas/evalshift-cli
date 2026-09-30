@@ -94,6 +94,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/github-action.md`, and `docs/hosted.md` now name `run:create` +
   `run:read` + `policy:read` for the CI key.
 
+- A run whose target was served entirely from the cache while the source ran
+  live showed a -100% latency change in the HTML report header and in the
+  run insights. Latency averages cover only calls measured live on this run,
+  so a role with none of them averages 0, which means unmeasured, not
+  instant. Both now say the latency change is not comparable unless both
+  roles measured some latency live.
+
 - Two `evalshift` processes opening the response cache at the same moment
   (parallel CI jobs, or a `run` beside an `evaluate`) could crash one of them
   with `table cached_calls already exists` when the cache file was new. Both
