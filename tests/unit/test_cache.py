@@ -958,3 +958,68 @@ def test_the_suite_never_opens_the_users_real_cache() -> None:
     from evalshift_cli.cache import schema
 
     assert Path.home() / ".evalshift" / "cache.db" != schema.DEFAULT_CACHE_PATH
+
+
+class TestConcurrentSchemaSetup:
+    """Several `evalshift` processes can open one cache.db at the same moment.
+
+    Each probes the schema and then changes it, so another process can make the
+    same change in between. Losing that race must not abort the run: the
+    schema the loser wanted is already there.
+    """
+
+    async def test_a_column_added_since_the_probe_is_not_an_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from evalshift_cli.cache import store as store_module
+
+        url = f"sqlite+aiosqlite:///{tmp_path / 'c.db'}"
+        await (await CacheStore.open(database_url=url)).close()  # fully migrated
+
+        # Stale probe: this process "saw" a legacy table, another added the columns.
+        async def stale(_conn: Any) -> set[str]:
+            return {"cache_key", "model_id"}
+
+        monkeypatch.setattr(store_module, "_existing_columns", stale)
+        again = await CacheStore.open(database_url=url)
+        await again.close()
+
+    async def test_a_table_created_since_the_check_is_not_an_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        url = f"sqlite+aiosqlite:///{tmp_path / 'c.db'}"
+        await (await CacheStore.open(database_url=url)).close()
+
+        # Another process created the table between create_all's check and its CREATE.
+        real_create_all = Base.metadata.create_all
+
+        def create_without_check(bind: Any, **_kw: Any) -> None:
+            real_create_all(bind, checkfirst=False)
+
+        monkeypatch.setattr(Base.metadata, "create_all", create_without_check)
+        again = await CacheStore.open(database_url=url)
+        await again.close()
+
+    async def test_other_schema_errors_still_raise(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from sqlalchemy.exc import OperationalError
+
+        from evalshift_cli.cache import store as store_module
+
+        monkeypatch.setattr(store_module, "_ADDITIVE_COLUMNS", (("broken", "INTEGER DEFAULT ("),))
+        with pytest.raises(OperationalError):
+            await CacheStore.open(database_url=f"sqlite+aiosqlite:///{tmp_path / 'c.db'}")
+
+    async def test_stores_opened_together_on_a_legacy_file_all_succeed(
+        self, tmp_path: Path
+    ) -> None:
+        url = await TestCacheMigrationFromOriginMain()._legacy_db(tmp_path)
+        stores = await asyncio.gather(*(CacheStore.open(database_url=url) for _ in range(4)))
+        try:
+            got = await stores[0].get("old")
+            assert got is not None
+            assert got.trace is None
+        finally:
+            for s in stores:
+                await s.close()

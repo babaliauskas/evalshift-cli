@@ -27,6 +27,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 
@@ -191,9 +192,7 @@ class CacheStore:
         """
         url = database_url or default_database_url(path)
         engine = create_engine(url)
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            await _ensure_additive_columns(conn)
+        await _ensure_schema(engine)
         return cls(engine, ttl=ttl)
 
     async def close(self) -> None:
@@ -339,22 +338,52 @@ _ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-async def _ensure_additive_columns(conn: Any) -> None:
-    """Additively backfill nullable columns on pre-existing DBs.
+async def _ensure_schema(engine: AsyncEngine) -> None:
+    """Create the table and backfill :data:`_ADDITIVE_COLUMNS`, tolerating races.
+
+    Several ``evalshift`` processes can open one cache DB at once (parallel CI
+    jobs, a ``run`` next to an ``evaluate``). Each step is check-then-change,
+    so another process can make the same change in between: ``create_all``
+    then fails with "table … already exists" and a backfill with "duplicate
+    column name". Both mean the schema the loser wanted is already there, so
+    they are swallowed; any other error is raised. Each change runs in its own
+    transaction so a lost race rolls back only that statement.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except OperationalError as exc:
+        if not _lost_schema_race(exc, "already exists"):
+            raise
+    async with engine.connect() as conn:
+        columns = await _existing_columns(conn)
+    for name, ddl_type in _ADDITIVE_COLUMNS:
+        if name in columns:
+            continue
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"ALTER TABLE cached_calls ADD COLUMN {name} {ddl_type}"))
+        except OperationalError as exc:
+            if not _lost_schema_race(exc, "duplicate column name"):
+                raise
+
+
+async def _existing_columns(conn: Any) -> set[str]:
+    """Column names of ``cached_calls`` as this connection sees them now.
 
     ``create_all`` only creates missing *tables*, never alters existing ones,
-    and the disposable 7-day cache has no migration framework. A cache DB
-    created before a column in :data:`_ADDITIVE_COLUMNS` existed would be
-    missing it, so probe ``PRAGMA table_info`` and ``ALTER TABLE ... ADD
-    COLUMN`` for each absent one. Existing rows read back ``NULL`` there
-    (not truncated, no tool trace), so they keep serving the text path. A
-    fresh DB already has every column via ``create_all``, making this a no-op.
+    and the disposable 7-day cache has no migration framework, so a DB created
+    before a column in :data:`_ADDITIVE_COLUMNS` existed is missing it until
+    :func:`_ensure_schema` adds it. Existing rows read back ``NULL`` there (not
+    truncated, no tool trace), so they keep serving the text path.
     """
     result = await conn.execute(text("PRAGMA table_info(cached_calls)"))
-    columns = {row[1] for row in result.fetchall()}
-    for name, ddl_type in _ADDITIVE_COLUMNS:
-        if name not in columns:
-            await conn.execute(text(f"ALTER TABLE cached_calls ADD COLUMN {name} {ddl_type}"))
+    return {row[1] for row in result.fetchall()}
+
+
+def _lost_schema_race(exc: OperationalError, message: str) -> bool:
+    """Whether ``exc`` is SQLite reporting that a concurrent opener got there first."""
+    return message in str(exc.orig)
 
 
 def _utcnow() -> datetime:
