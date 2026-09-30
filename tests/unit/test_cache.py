@@ -1001,3 +1001,13 @@ class TestToolRoundKeySensitivity:
         changed = self._kwargs()
         changed["toolset_fingerprint"] = fingerprint_tools(other)
         assert cache_key(**changed) != cache_key(**self._kwargs())
+
+
+def test_the_suite_never_opens_the_users_real_cache() -> None:
+    # Several command-level tests open the default on-disk cache. Without the
+    # autouse redirect in tests/conftest.py they read and wrote the developer's
+    # ~/.evalshift/cache.db, so a cached row from an earlier test run could
+    # serve a later one.
+    from evalshift_cli.cache import schema
+
+    assert Path.home() / ".evalshift" / "cache.db" != schema.DEFAULT_CACHE_PATH
