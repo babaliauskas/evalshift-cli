@@ -82,7 +82,6 @@ defaults:
   source_model: gemini-2.5-flash
   target_model: gemini-3.1-flash-lite-preview
   judge_model: gemini-3.1-pro-preview
-  cache: false
 
 evaluators:
   # Top-level: what every suite is scored with. Tool evaluators do not belong
@@ -225,11 +224,13 @@ the results recorded in the same round; a name match never reaches across a
   counts examples.
 * Each round is its own response-cache entry, keyed on exactly what that round
   sends: the prompt, the recorded rounds and fixture results fed back, the
-  toolset (including `strict`), `generation_config` and the round index. A
-  repeat run is served from the cache; editing round *k*'s fixtures re-sends
-  only the rounds after it, and a round that errored is re-sent while the
-  rounds before it are not. The example's row counts as cached only when every
-  round was a hit.
+  tool list exactly as sent and in order (including `strict`),
+  `generation_config` and the round index. A repeat run is served from the
+  cache; editing round *k*'s fixtures re-sends only the rounds after it, and a
+  round that errored is re-sent while the rounds before it are not. The
+  example's row counts as cached only when every round was a hit; a partly
+  cached row's latency is left out of the live latency figures, since some of
+  it was measured on an earlier run.
 
 `expected_tools` is `expected_tool_rounds[0]` under both settings. `--rounds
 all` no longer flattens every round into `expected_tools` — that yardstick was

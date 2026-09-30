@@ -91,18 +91,21 @@ as one section under the pipeline block (also on stage failure); errors are neve
 | run_bundle.json.gz | bundle/push | optional hosted upload bundle |
 
 Cache: SQLite ~/.evalshift/cache.db, key = SHA-256 of canonical JSON
-{model, prompt, inputs, temperature, max_tokens[, history]} + generation_config, toolset
-fingerprint, round index, sample index when set; TTL 7 days. Tool-calling examples ARE cached,
+{model, prompt, inputs, temperature, max_tokens[, history]} + generation_config, tools array
+as sent, round index, sample index when set; TTL 7 days. Tool-calling examples ARE cached,
 one entry per replayed round, keyed on canonical model + prompt + inputs + the exact message list
-that round sends (history, current turn, recorded rounds + fixture results fed back) + toolset
-fingerprint (names, descriptions, schemas, strict) + generation_config (tool_choice,
+that round sends (history, current turn, recorded rounds + fixture results fed back) + the tool
+list exactly as sent, in order (names, descriptions, schemas, strict; reordering = miss) +
+generation_config (tool_choice,
 parallel_tool_calls) + effective temperature/max_tokens + round index + sample index; editing a
 fixture re-sends only the rounds after it. A hit restores the parsed trace (call ids, arguments,
 final text, refusal), tokens, cost, latency, finish_reason: the raw.jsonl row equals the live one
-except `cached`, which is true only when every round hit. Errors never cached (next run re-sends
+except `cached` (true only when every round hit) and `cached_rounds` (rounds served from cache).
+cached_rounds > 0 = latency partly from an earlier run: excluded from live latency stats,
+latency_comparable false. Errors never cached (next run re-sends
 the failed round; earlier rounds hit); truncated responses cached and still flagged; a hit
 records the original cost and latency. An older cache.db is upgraded in place and keeps its
-entries. defaults.cache: false disables; `evalshift cache clear` wipes.
+entries; concurrent opens by several processes are safe. defaults.cache: false disables; `evalshift cache clear` wipes.
 Resume: `run --resume` continues newest in_progress run; requires config_hash match (canonical
 config + suite PATH; suite contents are NOT hashed, so start fresh after editing examples),
 skips (prompt_id, example_id, role, sample_index) keys already in raw.jsonl; errored calls

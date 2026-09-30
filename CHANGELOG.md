@@ -36,12 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replayed round is now its own entry. It is keyed on the canonical model,
   the prompt and inputs, the exact message list that round sends (history,
   current turn, and the recorded rounds and fixture results fed back), the
-  toolset fingerprint (including `strict`), `generation_config` (so
+  tool list exactly as sent and in order (including `strict`),
+  `generation_config` (so
   `tool_choice` and `parallel_tool_calls`), the effective temperature and
   `max_tokens`, the round index and the sample index. A hit restores the
   parsed trace, tokens, cost, latency and finish reason, so the `raw.jsonl`
   row is identical to the live one apart from `cached`, which is true only
-  when every round hit. Errors are never cached: the next run re-sends a
+  when every round hit, and the new `cached_rounds` count. A row with any
+  round served from the cache carries latency from an earlier run, so it
+  stays out of the report's live latency figures and its latency delta is
+  marked not comparable, in `report.json` and in the bundle alike. Errors are never cached: the next run re-sends a
   failed round and serves the rounds before it from the cache. Truncated
   responses are cached and stay flagged, and `defaults.cache: false` still
   sends everything live. Existing `~/.evalshift/cache.db` files keep working:
@@ -90,6 +94,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to `fail-on: regression`. The scaffold, `DOCS.md`, `llms-full.txt`,
   `docs/github-action.md`, and `docs/hosted.md` now name `run:create` +
   `run:read` + `policy:read` for the CI key.
+
+- Two `evalshift` processes opening the response cache at the same moment
+  (parallel CI jobs, or a `run` beside an `evaluate`) could crash one of them
+  with `table cached_calls already exists` when the cache file was new. Both
+  had checked for the table, and the slower one then tried to create it too.
+  Opening the cache now treats that error, and its migration counterpart
+  `duplicate column name`, as "another process already did it" and carries
+  on; any other schema error is still raised.
 
 - Under SQLAlchemy 2.1, which fresh installs resolve (`sqlalchemy>=2.0`), a
   `CacheStore` opened on an in-memory SQLite database could silently lose
