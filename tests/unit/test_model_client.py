@@ -35,7 +35,9 @@ from evalshift_cli.models.client import (
     RateLimitError,
     RetryPolicy,
     ToolCompletionResult,
+    serialize_tools,
 )
+from evalshift_cli.models.registry import resolve_model
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -1264,3 +1266,54 @@ class TestDeepSeekReasoningBackfill:
             tools=[_DEMO_TOOL],
         )
         assert captured["kwargs"]["messages"] == _REPLAYED_ROUND
+
+
+_SECOND_TOOL = ToolSpec(
+    name="add_note",
+    description="Attach a note",
+    input_schema={"type": "object", "properties": {"text": {"type": "string"}}},
+    strict=True,
+)
+
+
+class TestSerializeTools:
+    """The one place a toolset becomes the ``tools`` array on the wire.
+
+    The run cache keys on this exact list, so it must be what
+    ``complete_messages_with_tools`` sends, in the caller's order.
+    """
+
+    def test_openai_shape_in_the_given_order(self) -> None:
+        payload = serialize_tools(resolve_model("gpt-4o").id, [_SECOND_TOOL, _DEMO_TOOL])
+        assert payload == [_SECOND_TOOL.to_openai(), _DEMO_TOOL.to_openai()]
+
+    def test_anthropic_shape_for_anthropic_models(self) -> None:
+        payload = serialize_tools(resolve_model("claude-4.5-sonnet").id, [_DEMO_TOOL, _SECOND_TOOL])
+        assert payload == [_DEMO_TOOL.to_anthropic(), _SECOND_TOOL.to_anthropic()]
+
+    async def test_the_wire_carries_exactly_the_serialized_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[_SECOND_TOOL, _DEMO_TOOL],
+        )
+        assert captured["kwargs"]["tools"] == serialize_tools(
+            resolve_model("gpt-4o").id, [_SECOND_TOOL, _DEMO_TOOL]
+        )
+
+    async def test_dispatch_goes_through_serialize_tools(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Shared source, not a parallel copy: patching the helper changes the wire.
+        sentinel = [{"name": "sentinel"}]
+        monkeypatch.setattr(client_module, "serialize_tools", lambda _c, _t: sentinel)
+        captured = _patch_tools_acompletion(monkeypatch, _OPENAI_SINGLE_RESPONSE)
+        await ModelClient().complete_messages_with_tools(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[_DEMO_TOOL],
+        )
+        assert captured["kwargs"]["tools"] == sentinel

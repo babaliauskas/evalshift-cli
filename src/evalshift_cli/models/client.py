@@ -27,7 +27,7 @@ import logging
 import random
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Final, cast
@@ -654,9 +654,7 @@ class ModelClient:
         mt = meta.default_max_tokens if max_tokens is None else max_tokens
 
         provider = detect_provider(canonical)
-        tools_payload = [
-            t.to_anthropic() if provider == "anthropic" else t.to_openai() for t in tools
-        ]
+        tools_payload = serialize_tools(canonical, tools)
 
         kwargs: dict[str, Any] = {
             "model": canonical,
@@ -788,6 +786,20 @@ class ModelClient:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def serialize_tools(canonical: str, tools: Sequence[ToolSpec]) -> list[dict[str, Any]]:
+    """The ``tools`` array sent to ``canonical``, in the order given.
+
+    Anthropic models get :meth:`ToolSpec.to_anthropic`; everything else gets
+    :meth:`ToolSpec.to_openai` (Gemini and DeepSeek accept the OpenAI shape via
+    LiteLLM). :meth:`ModelClient.complete_messages_with_tools` sends exactly
+    this list, and the run cache keys on it, so the key and the wire share one
+    source: anything that changes what the provider receives — a tool's
+    schema, description, ``strict`` flag, or the list order — changes the key.
+    """
+    provider = detect_provider(canonical)
+    return [t.to_anthropic() if provider == "anthropic" else t.to_openai() for t in tools]
 
 
 def _build_result(
@@ -963,4 +975,5 @@ __all__ = [
     "RateLimitError",
     "RetryPolicy",
     "ToolCompletionResult",
+    "serialize_tools",
 ]
