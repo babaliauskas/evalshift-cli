@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-01
+
+Shipped as a minor again. The `slices` removal below is breaking by the
+letter of SemVer — a config that still sets the key stops loading — but the
+field never had any effect: `analyze` has always built one slice per
+distinct example tag plus `all`, so `name`, `filter` and `applies_to` renamed,
+filtered or scoped nothing. A major would announce a migration that, for
+anyone who never wrote `slices:`, does not exist; those who did get a
+load-time error naming the key and the fix, the same way `thresholds` was
+handled in 1.1.0.
+
 ### Added
 
 - DeepSeek is a supported provider. `deepseek-flash` and `deepseek-v4-pro`
