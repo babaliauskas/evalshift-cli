@@ -132,7 +132,8 @@ CI_WORKFLOW_TEMPLATE: Final = """\
 #        EVALSHIFT_TOKEN       hosted EvalShift service-account key (es_...).
 #                              Mint it in the web app (org Settings -> API
 #                              tokens -> Service accounts) scoped to
-#                              run:create + run:read. Not a personal token.
+#                              run:create + run:read + policy:read. Not a
+#                              personal token.
 #        __PROVIDER_API_KEY__      key for the provider your evalshift.yaml models
 #                              use. Add further keys here (and under `env:`
 #                              below) if your judge/embedding models live in
