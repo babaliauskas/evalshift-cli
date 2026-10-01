@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Top regressions in the HTML report now read as expandable: the worst one
+  in each section starts open, each row has a boxed caret and a
+  "Show details" / "Hide details" hint, and the header reacts on hover and
+  shows a keyboard focus ring. Printing expands every regression in
+  Chromium-based browsers.
+
 ## [1.2.0] - 2026-10-01
 
 Shipped as a minor again. The `slices` removal below is breaking by the

@@ -724,6 +724,21 @@ class TestHtmlRender:
         assert '<details class="reg-input">' in html
         assert "Greet the user named Alex." in html
 
+    def test_top_regressions_open_first_and_hint_expandable(self, tmp_path: Path) -> None:
+        cwd, run_id = _scaffold_full_run(tmp_path)
+        payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)
+        html = render_html(payload)
+
+        opened = html.count('<details class="panel regression" open>')
+        closed = html.count('<details class="panel regression">')
+        # The fixture must yield several regressions for this to mean anything.
+        assert opened + closed >= 2
+        # Only each section's worst regression starts expanded, so the reader
+        # sees one opened and learns the rest open too.
+        assert opened == sum(1 for ps in payload.prompt_sections if ps.top_regressions)
+        # Every row says it expands, in words, not just a caret glyph.
+        assert html.count('<span class="reg-toggle"') == opened + closed
+
     def test_top_regression_shows_reason_and_scores(self, tmp_path: Path) -> None:
         cwd, run_id = _scaffold_full_run(tmp_path)
         payload = build_report_payload(cwd / ".evalshift" / "runs" / run_id)

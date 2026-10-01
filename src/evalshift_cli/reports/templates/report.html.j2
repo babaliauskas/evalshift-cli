@@ -613,7 +613,9 @@
       {% if section.top_regressions %}
       {% for tr in section.top_regressions %}
       {% set reason = regression_reason(tr) %}
-      <details class="panel regression">
+      {#- The worst regression starts open: seeing one expanded is what tells
+          the reader the rest expand too. -#}
+      <details class="panel regression"{% if loop.first %} open{% endif %}>
         <summary class="reg-head">
           <span class="caret"></span>
           <span class="reg-id">{{ tr.example_id }}</span>
@@ -622,6 +624,7 @@
           {% if tr.truncated %}<span class="badge badge-warn trunc-flag">truncated (token cap)</span>{% endif %}
           {% if tr.target_empty_output %}<span class="badge badge-warn empty-output-flag" title="The model returned no visible text despite spending tokens (often thinking-only responses).">empty output</span>{% endif %}
           <span class="delta">{{ "%+.3f"|format(tr.delta) }}</span>
+          <span class="reg-toggle" aria-hidden="true"></span>
         </summary>
         <div class="reg-body">
           <div class="notice notice-bad reg-why">
