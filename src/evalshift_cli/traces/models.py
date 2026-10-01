@@ -25,10 +25,13 @@ def _to_utc(value: datetime) -> datetime:
 UtcTimestamp = Annotated[AwareDatetime, AfterValidator(_to_utc)]
 """An event timestamp, offset-aware and stored in UTC.
 
-The bundle contract requires a zero offset (`BUNDLE_SPEC.md` §Validation, enforced by
-`app/runs/bundle.py`), and these events are copied into the bundle verbatim by
-`evalshift_cli.hosted.trace_events.from_agent_trace`. So the two cases are settled here, where
-the error can still name the capture file and line:
+Imported agent traces stay local: `evalshift traces import` writes them to
+`.evalshift/runs/<id>/traces.jsonl`, and only `evaluate`, `report.json` and the
+`diff`/`inspect`/`replay case` commands read them back. They are never copied into a
+hosted run bundle — `evalshift_cli.hosted.trace_events.from_agent_trace` exists for that
+purpose but has no production caller today; `bundle.py` only calls `from_tool_trace` for
+the replay's own tool-call traces. So the two cases below are settled here, for internal
+consistency and so the error can still name the capture file and line:
 
 * an offset timestamp is unambiguous and is converted;
 * a naive one is refused, because assuming UTC would silently relabel a trace recorded
