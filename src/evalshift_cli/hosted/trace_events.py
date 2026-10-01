@@ -12,6 +12,11 @@ Two internal representations describe that, and neither goes on the wire:
 
 Both map here onto one wire shape so the server, the database and the client
 speak a single language. Neither internal model changes.
+
+Only :func:`from_tool_trace` has a production caller (``hosted/bundle.py``): a run
+bundle's ``examples[].traces`` come from the replay's own tool-call traces.
+:func:`from_agent_trace` converts imported agent traces to the same wire shape but is
+not wired into bundling today — those traces stay local.
 """
 
 from __future__ import annotations
@@ -170,7 +175,14 @@ _PASSTHROUGH_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def from_agent_trace(trace: AgentTrace) -> dict[str, Any] | None:
-    """Wire stream for one imported bring-your-own-agent trace.
+    """Convert an imported agent trace to bundle wire events.
+
+    Not called by ``bundle.py`` today: imported traces (``evalshift traces import``)
+    stay local in ``.evalshift/runs/<id>/traces.jsonl`` and are read only by
+    ``evaluate``, ``report.json`` and the ``diff``/``inspect``/``replay case``
+    commands. A run bundle's ``examples[].traces`` come solely from the replay's own
+    tool-call traces via :func:`from_tool_trace`. This function exists for a future
+    caller that would include imported traces in the bundle.
 
     A round begins at each ``model_call``. The counter increments on every
     ``model_call`` after the first, so events preceding any model call stay in
