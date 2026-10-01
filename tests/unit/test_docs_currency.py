@@ -165,3 +165,37 @@ def test_reference_header_version_matches_the_package(name: str) -> None:
     assert match.group(1) == evalshift_cli.__version__, (
         f"{name} says version {match.group(1)}; the package is {evalshift_cli.__version__}"
     )
+
+
+def _yaml_bearing_docs() -> list[str]:
+    """Every checked-in file a reader might copy an `evalshift.yaml` block from."""
+    found = [
+        *PROSE_FILES,
+        *(str(p.relative_to(REPO_ROOT)) for p in sorted((REPO_ROOT / "docs").glob("*.md"))),
+        *(str(p.relative_to(REPO_ROOT)) for p in sorted((REPO_ROOT / "examples").rglob("*.md"))),
+        *(
+            str(p.relative_to(REPO_ROOT))
+            for p in sorted((REPO_ROOT / "examples").rglob("evalshift.yaml"))
+        ),
+    ]
+    return sorted(set(found))
+
+
+#: Top-level `evalshift.yaml` keys that were removed. A config that still sets
+#: one fails to load, so a doc that shows one hands the reader a broken config.
+REMOVED_TOP_LEVEL_KEYS: tuple[str, ...] = ("thresholds", "slices")
+
+
+@pytest.mark.parametrize("name", _yaml_bearing_docs())
+def test_no_doc_shows_a_removed_top_level_key(name: str) -> None:
+    """A top-level YAML key starts in column 0; a nested one never does.
+
+    That keeps `migration_policy.slices` -- indented under its parent, and very
+    much alive -- out of the match, while catching a copied-in `slices:` or
+    `thresholds:` block wherever it appears.
+    """
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+    pattern = re.compile(rf"^(?:{'|'.join(REMOVED_TOP_LEVEL_KEYS)}):", re.MULTILINE)
+
+    hits = [m.group(0) for m in pattern.finditer(text)]
+    assert not hits, f"{name} shows removed top-level key(s) {hits}; that config would not load"

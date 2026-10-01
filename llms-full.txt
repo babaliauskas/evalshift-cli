@@ -139,8 +139,9 @@ evalshift init [-f/--force] [-d/--directory DIR] [--ci] [--wire-agents/--no-wire
     cost-reduction: .02/0/.97/.01/.02/.05/.30 | local-model: .05/0/.90/.02/.05/.00/.50
     quantization: .02/0/.97/.005/.02/.00/.20 | provider-switch: .03/0/.95/.01/.03/.20/.40
 evalshift doctor
-  Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation; missing API
-  keys are soft warnings (exit 0).
+  Env/config check. Exit 1 ONLY when an existing evalshift.yaml fails validation (the row shows
+  the problem count + "run `evalshift validate` for details"; validate prints each problem);
+  missing API keys are soft warnings (exit 0).
   Row 2 `evalshift-sdk`: ok ("<v> (import name `evalshift`)"); warn (exit 0) when the SDK is
   not installed, fails to import, or the name resolves to something else (an older CLI's
   leftover files, a local evalshift/ directory).
@@ -427,7 +428,8 @@ NOT PUBLIC -- may change in any release, do not build on it:
 - Console wording, progress rendering and log formatting.
 
 Config schema version is NOT tied to the CLI major: `version:` in evalshift.yaml bumps only when
-a field is renamed, removed or redefined; additive fields ride the CLI version. Consequence: the
+a field is renamed or redefined; additive fields, and removals that fail the load with a message
+naming the key, ride the CLI version. Consequence: the
 CLI that READS a config must be at least as new as the CLI that WROTE it -- which is what the CI
 pin check enforces.
 
@@ -459,7 +461,16 @@ Strict Pydantic, extra="forbid" everywhere — unknown keys fail at load. `thres
 REMOVED and rejected by name (it was free-form and gated nothing): a config still carrying it
 fails to load with "`thresholds` was removed: it was free-form and gated nothing. Delete it from
 evalshift.yaml; migration_policy is the single source of truth for gating." Nothing replaced it
-— delete the block, express any gate you meant by it as a migration_policy budget.
+— delete the block, express any gate you meant by it as a migration_policy budget. A top-level
+`slices:` list is REMOVED the same way (it was validated and recorded, but analysis never read
+it): a config still carrying it fails to load with "`slices` was removed: it never had any
+effect. Slices come from example `tags` automatically (one per distinct tag, plus `all`). Delete
+it from evalshift.yaml; per-slice budgets go under migration_policy.slices, keyed by tag." Delete
+the block; runs report the same slices without it. Hosted baselines: the bundle's
+evaluator_config still carries a constant `"slices": []`, so eval_config_hash is unchanged for a
+config that never set the key (or set `slices: []`); deleting a NON-EMPTY block changes the hash,
+so runs pushed afterwards are not comparable to earlier baselines until the base branch pushes a
+run with the edited config.
 
 version: 1                          # literal 1, default 1 (optional)
 project: str|null                   # hosted slug, regex ^[a-z0-9-]+/[a-z0-9-]+$
@@ -588,16 +599,6 @@ evaluators:                         # every evaluator config also takes blocking
       check_missing_verification: bool = true
       verification_tools: [str]
       dangerous_tools: [str]
-slices:                             # VALIDATED + recorded in the bundle, NOT APPLIED:
-  - name: str                       # name/filter/applies_to rename, filter and scope
-    filter: str                     # nothing today (filter is a literal tag). Slices
-    applies_to: ["*"]               # come from example tags instead: one per distinct
-                                    # tag, plus "all". "overall" is RESERVED (run-level
-                                    # scope in the bundle): rejected as slice name,
-                                    # example tag, and policy slice key. Still part of
-                                    # the bundle's eval_config_hash: editing or removing
-                                    # it breaks hosted baseline compatibility with
-                                    # earlier runs.
 suites:                             # managed block; capture sync rewrites between
   <name>:                           # ">>> evalshift suites" markers
     source: captured|jsonl = captured
@@ -1004,9 +1005,10 @@ content leaves the machine.
     summarizes.
   - evaluator_config: config version; prompt list METADATA (names, file paths, variable
     names — every prompt body replaced by content_hash); the whole defaults block (model ids,
-    concurrency, cache, max_cost_usd, max_tokens, samples_per_example); slices (the top-level
-    block, recorded though not applied); full evaluators block INCLUDING each llm_judge
-    criterion_prompt text (keep judge criteria free of secrets).
+    concurrency, cache, max_cost_usd, max_tokens, samples_per_example); slices (always [] --
+    a legacy key kept so eval_config_hash stays stable; the top-level config key is removed);
+    full evaluators block INCLUDING each llm_judge criterion_prompt text (keep judge criteria
+    free of secrets).
   - dataset_snapshot: suite path, size, slice names, examples_hash. No example content.
 - NEVER uploads: provider API keys; the hosted token (never inside a bundle); prompt bodies /
   system prompts (manual content -> content_hash; python_string bodies never enter the config);
@@ -1117,10 +1119,10 @@ content leaves the machine.
   cases, so dedup spans sync runs.
 - Slices: every distinct example tag is a slice under its own name, plus "all"; each evaluator is
   analyzed overall AND per slice; per-slice budgets go under migration_policy.slices keyed by the
-  tag and inherit unset fields from the top level. The top-level slices: block is validated and
-  recorded in the bundle but NOT applied: name/filter/applies_to have no effect on analysis
-  today. It IS part of the bundle's eval_config_hash, so editing or removing it breaks hosted
-  baseline compatibility with earlier runs.
+  tag and inherit unset fields from the top level. Nothing to configure: there is no top-level
+  slices key (REMOVED -- a config still setting it fails to load; see the schema section).
+  "overall" is RESERVED (run-level scope in the bundle): rejected as an example tag and as a
+  migration_policy.slices key.
 - Slice dedup: slices holding identical (prompt, evaluator, example) triples collapse to one
   before any test runs. Duplicates restate the same finding AND skew BH-FDR anti-conservatively:
   k extra copies of a p-value raise both n and the rank the copies reach, and (n+k)/(r+k) < n/r,
@@ -1198,7 +1200,7 @@ prompts:
     path: prompts.py
     variable: AGENT_SYSTEM_PROMPT
     variables: [query]
-# No slices: block needed -- the "security" tag on the rows below is already a slice.
+# No slice config -- the "security" tag on the rows below is already a slice.
 # >>> evalshift suites (managed by `evalshift capture sync`) >>>
 suites:
   briefing:                                     # tool-free rows -> no evaluators: block
@@ -1327,6 +1329,8 @@ retries them (cache serves the tool-less successes; tool-calling examples are al
 Config rejected -> extra="forbid": check for typo'd keys; error names the exact path.
 "`thresholds` was removed" -> the key is gone from evalshift.yaml; delete it. It gated nothing;
 migration_policy is the single source of truth. Nothing replaced it.
+"`slices` was removed" -> the top-level key is gone from evalshift.yaml; delete it. It never had
+an effect: slices come from example tags. Per-slice budgets: migration_policy.slices, keyed by tag.
 python_string rejected -> the variable isn't a plain string literal; use detection: manual.
 Captures not found -> capture commands read .evalshift/captures/ under the CWD (or
 $EVALSHIFT_DIR); run from the directory your agent wrote to.

@@ -19,7 +19,6 @@ from evalshift_cli.config.models import (
     MigrationPolicy,
     PromptDefinition,
     SemanticEvaluatorConfig,
-    SliceConfig,
     SliceMigrationPolicy,
     StructuralEvaluatorConfig,
     ToolArgumentsEvaluatorConfig,
@@ -210,25 +209,6 @@ class TestLLMJudgeConfig:
     def test_empty_criterion_prompt_fails(self) -> None:
         with pytest.raises(ValidationError):
             LLMJudgeConfig(criterion_name="x", criterion_prompt="")
-
-
-# ---------------------------------------------------------------------------
-# SliceConfig
-# ---------------------------------------------------------------------------
-
-
-class TestSliceConfig:
-    def test_defaults(self) -> None:
-        s = SliceConfig(name="long", filter="len(conversation) > 1000")
-        assert s.applies_to == ["*"]
-
-    def test_empty_name_fails(self) -> None:
-        with pytest.raises(ValidationError):
-            SliceConfig(name="", filter="True")
-
-    def test_empty_filter_fails(self) -> None:
-        with pytest.raises(ValidationError):
-            SliceConfig(name="long", filter="")
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +463,6 @@ class TestEvalShiftConfig:
         assert cfg.version == 1
         assert isinstance(cfg.defaults, Defaults)
         assert isinstance(cfg.evaluators, EvaluatorsConfig)
-        assert cfg.slices == []
         assert cfg.project is None
         assert cfg.migration_policy is None
         assert cfg.evaluators.agent_trace == []
@@ -530,6 +509,55 @@ class TestEvalShiftConfig:
         assert "migration_policy is the single source of truth" in message
         assert "Extra inputs are not permitted" not in message
 
+    def test_removed_slices_field_is_rejected_by_name(self) -> None:
+        """A config that still sets top-level ``slices`` says what happened to it.
+
+        The block was validated and recorded but never read: slices come from
+        example tags. Calling it an "extra input" would send the user looking
+        for its new spelling instead of telling them it is gone, and where the
+        one thing it looked like it did (per-slice budgets) actually lives.
+        """
+        with pytest.raises(ValidationError) as info:
+            EvalShiftConfig.model_validate(
+                {
+                    "prompts": [{"id": "cs", "detection": "manual", "content": "hi {n}"}],
+                    "slices": [{"name": "long", "filter": "long"}],
+                },
+            )
+
+        message = str(info.value)
+        assert "`slices` was removed" in message
+        assert "never had any effect" in message
+        assert "example `tags`" in message
+        assert "migration_policy.slices" in message
+        assert "keyed by tag" in message
+        assert "Extra inputs are not permitted" not in message
+
+    def test_an_empty_top_level_slices_list_is_rejected_too(self) -> None:
+        """``slices: []`` did nothing either; the key itself is what is gone."""
+        with pytest.raises(ValidationError, match="`slices` was removed"):
+            EvalShiftConfig.model_validate(
+                {
+                    "prompts": [{"id": "cs", "detection": "manual", "content": "hi"}],
+                    "slices": [],
+                },
+            )
+
+    def test_both_removed_fields_are_named_at_once(self) -> None:
+        """Fixing one removed key should not uncover the other on the next run."""
+        with pytest.raises(ValidationError) as info:
+            EvalShiftConfig.model_validate(
+                {
+                    "prompts": [{"id": "cs", "detection": "manual", "content": "hi"}],
+                    "thresholds": {"pass_rate_min": 0.9},
+                    "slices": [],
+                },
+            )
+
+        message = str(info.value)
+        assert "`thresholds` was removed" in message
+        assert "`slices` was removed" in message
+
     def test_invalid_hosted_project_slug_fails(self) -> None:
         with pytest.raises(ValidationError):
             EvalShiftConfig(
@@ -566,7 +594,6 @@ class TestEvalShiftConfig:
                     ),
                 ],
             ),
-            slices=[SliceConfig(name="long", filter="len(conversation)>1000")],
         )
         recreated = EvalShiftConfig.model_validate(original.model_dump())
         assert recreated == original

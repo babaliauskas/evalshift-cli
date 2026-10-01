@@ -80,6 +80,34 @@ class TestValidateFailures:
         assert result.exit_code == 1
         assert "Invalid config" in result.stdout
 
+    @pytest.mark.parametrize(
+        ("block", "removed"),
+        [
+            ("thresholds:\n  pass_rate_min: 0.9\n", "`thresholds` was removed"),
+            ("slices:\n  - {name: refunds, filter: refunds}\n", "`slices` was removed"),
+        ],
+        ids=["thresholds", "slices"],
+    )
+    def test_a_removed_key_is_named_not_called_a_typo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        block: str,
+        removed: str,
+    ) -> None:
+        """Both retired keys fail the same way: the panel names the removal."""
+        (tmp_path / "evalshift.yaml").write_text(
+            "prompts:\n  - {id: a, detection: manual, content: hi}\n" + block,
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        # Wide enough that Rich does not wrap the message inside the panel.
+        result = runner.invoke(app, ["validate"], env={"COLUMNS": "400"})
+        assert result.exit_code == 1
+        assert "Invalid config" in result.stdout
+        assert removed in result.stdout
+        assert "Extra inputs are not permitted" not in result.stdout
+
     def test_missing_suite_exits_one(
         self,
         monkeypatch: pytest.MonkeyPatch,

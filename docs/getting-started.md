@@ -90,8 +90,8 @@ You'll see a short table:
 * Green ✓ — check passes.
 * Yellow ✗ — informational warning (e.g. an unset API key, or no
   `evalshift.yaml` here yet). Doctor still exits 0.
-* Red ✗ — hard failure (e.g. an `evalshift.yaml` that doesn't validate).
-  Doctor exits 1.
+* Red ✗ — hard failure (e.g. an `evalshift.yaml` that doesn't validate;
+  run `evalshift validate` to see each problem). Doctor exits 1.
 
 The second row, `evalshift-sdk`, confirms that `import evalshift` in this
 environment is the capture SDK — yellow when it is missing or shadowed by an

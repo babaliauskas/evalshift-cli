@@ -27,9 +27,9 @@ RESERVED_SLICE_NAME: str = "overall"
 `decision.overall` is the whole-run summary and `BudgetResult.scope` defaults to
 `"overall"`, so a slice by that name shadows the run's own numbers wherever the two
 render side by side. `BUNDLE_SPEC.md` has always said so; the server enforces it at
-finalize. A slice name reaches a bundle from a suite tag, from `SliceConfig.name`, or
-from a `migration_policy.slices` key, and all three refuse it — the literal lives in
-this module because it is the only one all three can import without a cycle.
+finalize. A slice name reaches a bundle from a suite tag or from a
+`migration_policy.slices` key, and both refuse it — the literal lives in this module
+because it is the only one both can import without a cycle.
 """
 
 __all__ = ["CAPTURED_TAG", "PROVENANCE_TAGS", "RESERVED_SLICE_NAME"]

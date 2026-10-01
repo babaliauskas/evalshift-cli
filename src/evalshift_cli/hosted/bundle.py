@@ -269,7 +269,15 @@ def _evaluator_config_snapshot(
         "prompts": dumped["prompts"],
         "defaults": dumped["defaults"],
         "evaluators": evaluators.model_dump(mode="json"),
-        "slices": dumped["slices"],
+        # Legacy constant. This key used to carry the top-level ``slices:``
+        # block, which was removed from evalshift.yaml because nothing ever
+        # read it; a config that still sets it no longer loads. The key stays,
+        # always ``[]``, because ``eval_config_hash`` is computed over this
+        # whole dict and the server pairs a run with its baseline only on an
+        # equal hash: dropping it would change the hash of every config --
+        # including the ones that never set ``slices:``, for which ``[]`` is
+        # exactly what was hashed before -- and orphan every hosted baseline.
+        "slices": [],
     }
 
 
@@ -316,10 +324,10 @@ def _wire_evaluator_config(full: dict[str, Any]) -> dict[str, Any]:
     Same contract as ``_wire_dataset_snapshot``: ``eval_config_hash`` is
     computed over the full snapshot, inline prompt bodies included, and each
     non-null ``prompts[].content`` ships as a ``content_hash`` instead of the
-    text. Everything else — evaluators, defaults, slices — is methodology, not
-    content, and ships as-is. A ``python_string`` prompt's body never entered
-    the config at all (its dump carries ``path`` + ``variable``), so only
-    ``manual`` prompts have anything to strip.
+    text. Everything else — evaluators, defaults, the legacy empty ``slices``
+    — is methodology, not content, and ships as-is. A ``python_string``
+    prompt's body never entered the config at all (its dump carries ``path`` +
+    ``variable``), so only ``manual`` prompts have anything to strip.
     """
     prompts: list[dict[str, Any]] = []
     for prompt in full["prompts"]:

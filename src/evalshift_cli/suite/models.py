@@ -158,8 +158,9 @@ class SuiteExample(_StrictModel):
         inputs: Mapping of template-variable name to value. The orchestrator
             substitutes these into each prompt template via
             :func:`evalshift_cli.utils.templating.render`.
-        tags: Optional labels used by :class:`evalshift_cli.config.models.SliceConfig`
-            to group examples for slice-level statistical analysis. An
+        tags: Optional labels that group examples for slice-level
+            statistical analysis: each distinct tag becomes a slice of the
+            same name (see :mod:`evalshift_cli.analysis.slicing`). An
             example may carry multiple tags.
         expected: Optional reference output for evaluators that take an
             "expected" answer (most evaluators in the MVP do not).
@@ -268,8 +269,8 @@ class SuiteExample(_StrictModel):
     def _reject_reserved_slice_tag(self) -> Self:
         """Refuse a tag that would become the reserved ``overall`` slice.
 
-        Tags are slice names: ``analysis.slicing._slices_of`` maps an untranslated
-        tag straight through. The bundle contract reserves ``overall`` for the
+        Tags are slice names: ``analysis.slicing._slices_of`` maps each tag
+        straight through. The bundle contract reserves ``overall`` for the
         run-level scope, so the suite is where the collision has to be caught --
         the alternative is a full run followed by a rejection at finalize.
         """

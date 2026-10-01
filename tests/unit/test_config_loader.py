@@ -88,9 +88,6 @@ class TestLoadConfigHappy:
               llm_judge:
                 - criterion_name: factuality
                   criterion_prompt: Which output preserves more factual detail?
-            slices:
-              - name: long
-                filter: "len(conversation) > 1000"
             """,
         )
         cfg = load_config(path)
@@ -98,7 +95,6 @@ class TestLoadConfigHappy:
         assert cfg.defaults.max_cost_usd == 25.0
         assert cfg.evaluators.semantic is not None
         assert len(cfg.evaluators.llm_judge) == 1
-        assert cfg.slices[0].name == "long"
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +229,25 @@ class TestLoadConfigSchema:
         assert "`thresholds` was removed" in rendered
         assert "migration_policy is the single source of truth" in rendered
 
+    def test_removed_slices_key_explains_the_removal(self, tmp_path: Path) -> None:
+        path = _write(
+            tmp_path,
+            """
+            prompts:
+              - id: a
+                detection: manual
+                content: hi
+            slices:
+              - name: refunds
+                filter: refunds
+            """,
+        )
+        with pytest.raises(ConfigError) as info:
+            load_config(path)
+        rendered = info.value.format_plain()
+        assert "`slices` was removed" in rendered
+        assert "migration_policy.slices" in rendered
+
     def test_multiple_errors_collected(self, tmp_path: Path) -> None:
         path = _write(
             tmp_path,
@@ -311,3 +326,29 @@ class TestFormatLoc:
     )
     def test_format(self, loc: tuple[int | str, ...], expected: str) -> None:
         assert _format_loc(loc) == expected
+
+
+_EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
+
+
+class TestLoadConfigCheckedInExamples:
+    """Every ``examples/**/evalshift.yaml`` shipped in this repo must load.
+
+    They are the configs readers copy first. Removing a config key breaks any
+    of them that still sets it, and only two are exercised end to end by other
+    tests -- the sibling ``golden.jsonl`` check lives in ``test_suite_loader``.
+    """
+
+    def test_every_checked_in_evalshift_yaml_loads(self) -> None:
+        configs = sorted(_EXAMPLES_DIR.glob("**/evalshift.yaml"))
+        # Guard the guard: an empty glob means the path is broken.
+        assert len(configs) >= 4, f"expected at least 4 example configs, found {configs}"
+
+        failures: list[str] = []
+        for path in configs:
+            try:
+                load_config(path)
+            except ConfigError as exc:
+                failures.append(f"{path.relative_to(_EXAMPLES_DIR.parent)}: {exc.format_plain()}")
+
+        assert not failures, "example config(s) failed to load:\n" + "\n".join(failures)
