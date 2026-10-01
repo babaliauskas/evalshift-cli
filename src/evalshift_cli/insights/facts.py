@@ -218,9 +218,16 @@ def build_facts(
         "cost_source_usd": _usd(source.total_cost_usd),
         "cost_target_usd": _usd(target.total_cost_usd),
         "cost_delta_pct": _relative_pct(source.total_cost_usd, target.total_cost_usd),
-        # Cache hits carry ``latency_ms = 0`` by convention, so a role with no
-        # live calls has no measured latency and no percentage to report.
-        "latency_delta_pct": _relative_pct(source.latency_ms_avg, target.latency_ms_avg),
+        # Latency averages cover only calls measured fully live on this run
+        # (cache hits keep their original latency and are excluded via
+        # ``Call.latency_replayed``). A role with no such call averages 0.0,
+        # meaning "unmeasured", so either side lacking one leaves no
+        # percentage to report — not -100% or a division by zero.
+        "latency_delta_pct": (
+            _relative_pct(source.latency_ms_avg, target.latency_ms_avg)
+            if source.live_calls and target.live_calls
+            else NOT_COMPARABLE
+        ),
         "cost_ceiling_pct": budget_limits.get("max_cost_increase", NOT_AVAILABLE),
         "latency_ceiling_pct": budget_limits.get("max_latency_increase", NOT_AVAILABLE),
         "regression_rate_pct": (

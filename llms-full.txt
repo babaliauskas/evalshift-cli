@@ -90,12 +90,21 @@ as one section under the pipeline block (also on stage failure); errors are neve
 | traces.jsonl | traces import | optional BYO agent traces |
 | run_bundle.json.gz | bundle/push | optional hosted upload bundle |
 
-Cache: SQLite ~/.evalshift/cache.db, key = SHA-256 of canonical JSON
-{model, prompt, inputs, temperature, max_tokens[, history]} + generation_config, toolset
-fingerprint, round index, sample index when set; TTL 7 days. TOOL-LESS examples only: an example
-with a non-empty toolset is NOT cached -- every run of an agent suite is live and full price.
-Evaluate-stage embedding/judge caches still apply. defaults.cache: false disables; `evalshift
-cache clear` wipes.
+Cache: SQLite ~/.evalshift/cache.db, key = SHA-256 of canonical JSON {model, prompt, inputs,
+temperature, max_tokens[, history]} + generation_config, tools array as sent, round index, sample
+index when set; TTL 7 days. Tool-calling examples ARE cached, one entry per replayed round, keyed
+on canonical model + prompt + inputs + the exact message list that round sends (history, current
+turn, recorded rounds + fixture results fed back) + the tool list exactly as sent, in order
+(names, descriptions, schemas, strict; reordering = miss) + generation_config (tool_choice,
+parallel_tool_calls) + effective temperature/max_tokens + round index + sample index; editing a
+fixture re-sends only the rounds after it. A hit restores the parsed trace (call ids, arguments,
+final text, refusal), tokens, cost, latency, finish_reason: the raw.jsonl row equals the live one
+except `cached` (true only when every round hit) and `cached_rounds` (rounds served from cache).
+cached_rounds > 0 = latency partly from an earlier run: excluded from live latency stats,
+latency_comparable false. Errors never cached (next run re-sends the failed round; earlier rounds
+hit); truncated responses cached and still flagged; a hit records the original cost and latency.
+An older cache.db is upgraded in place and keeps its entries; concurrent opens by several
+processes are safe. defaults.cache: false disables; `evalshift cache clear` wipes.
 Resume: `run --resume` continues newest in_progress run; requires config_hash match (canonical
 config + suite PATH; suite contents are NOT hashed, so start fresh after editing examples),
 skips (prompt_id, example_id, role, sample_index) keys already in raw.jsonl; errored calls
@@ -490,7 +499,7 @@ defaults:
   judge_model: str = gemini-3.1-flash-lite-preview
   insights_model: str|null            # run-narrative model; falls back to judge_model
   concurrency: int = 10 (1..64)   # applies to run AND evaluate
-  cache: bool = true              # covers tool-less completions, embeddings, judge verdicts
+  cache: bool = true              # covers run completions (tool rounds too), embeddings, judge verdicts
   max_cost_usd: float = 50.0        # soft ceiling, reserved for future enforcement
   max_tokens: int = 4096            # truncated calls are EXCLUDED from stats
   samples_per_example: int = 1 (1..20)  # repeats per (prompt, example) per model; scores averaged per example
@@ -1308,8 +1317,7 @@ with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", config: evalshift.yaml,
 ## Troubleshooting checklist
 
 Run seems expensive -> estimate is worst-case at max_tokens; actual usually far lower; cache
-makes repeats of tool-less examples free (tool-calling examples are always live); iterate with a
-small suite.
+makes repeats of unchanged examples free, tool-calling ones included; iterate with a small suite.
 All severities "none" -> usually genuinely no significant difference; check n (<5 insufficient,
 <20 uncertain) and remember BH correction raises the bar; zero-variance comparisons skip.
 Verdict "inconclusive" -> (1) all evaluators advisory (fresh init: flip blocking: true as the
@@ -1325,7 +1333,7 @@ migration_decision.json as reason/recommendations).
   fresh. Suite contents are not hashed: an edited suite at the same path resumes silently.
 Failed calls -> recorded in raw.jsonl with error, pair gets an errored 0.5/0.5 row excluded from
 the statistics; fresh run
-retries them (cache serves the tool-less successes; tool-calling examples are all re-dispatched).
+retries them (cache serves the successes; for a multi-round tool example, the rounds before the failed one).
 Config rejected -> extra="forbid": check for typo'd keys; error names the exact path.
 "`thresholds` was removed" -> the key is gone from evalshift.yaml; delete it. It gated nothing;
 migration_policy is the single source of truth. Nothing replaced it.

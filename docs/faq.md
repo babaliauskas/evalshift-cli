@@ -137,10 +137,9 @@ you see `≤ $0.17` and the run actually cost $0.03, that's expected.
 ## How do I lower the cost of a run?
 
 * **Set the SQLite cache to be on** (it's the default). A re-run of
-  the exact same configuration makes no run-stage calls for tool-less
-  examples. Examples that offer tools are not cached: an agent suite's
-  run stage is live, at full price, every time. Evaluate-stage embedding
-  and judge calls are cached either way.
+  the exact same configuration makes no run-stage calls, agent suites
+  included: examples that offer tools are cached one entry per replayed
+  round. Evaluate-stage embedding and judge calls are cached too.
 * **Use cheaper models.** The model registry assigns sensible
   defaults but you can drop everything to flash/mini/haiku tier.
 * **Skip the LLM judge.** Structural and semantic evaluators are

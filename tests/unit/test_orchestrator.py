@@ -39,6 +39,7 @@ from evalshift_cli.models.client import (
     ModelClient,
     ModelClientError,
     ToolCompletionResult,
+    serialize_tools,
 )
 from evalshift_cli.runner.checkpoint import (
     iter_calls,
@@ -49,7 +50,6 @@ from evalshift_cli.runner.orchestrator import (
     RunAborted,
     RunResult,
     _build_work_list,
-    _fingerprint_toolset,
     build_messages,
     build_round_messages,
     history_for_cache_key,
@@ -296,6 +296,8 @@ class TestOrchestratorHappyPath:
         assert second.cached_calls == 4
         assert second.live_calls == 0
         assert counter["calls"] == 4  # unchanged from before
+        assert all(r.cached_rounds == 1 for r in iter_calls(second.run_dir))
+        assert all(r.cached_rounds == 0 for r in iter_calls(first.run_dir))
 
     async def test_effective_max_tokens_and_finish_reason(
         self,
@@ -1386,8 +1388,8 @@ class TestResolveExampleTools:
         )
         assert second == first
 
-    def test_inline_and_ref_to_same_tools_fingerprint_identically(self, tmp_path: Path) -> None:
-        """The two spellings of one toolset must key the cache identically."""
+    def test_inline_and_ref_to_same_tools_send_the_same_payload(self, tmp_path: Path) -> None:
+        """The two spellings of one toolset send (and so key) the same tools array."""
         tool = self._tool_a()
         ref = self._write_sidecar(tmp_path, [tool])
 
@@ -1401,7 +1403,8 @@ class TestResolveExampleTools:
             toolset_cache={},
         )
 
-        assert _fingerprint_toolset(inline_tools) == _fingerprint_toolset(ref_tools)
+        for model in ("anthropic/claude-sonnet-4-5", "gemini/gemini-2.5-flash"):
+            assert serialize_tools(model, inline_tools) == serialize_tools(model, ref_tools)
 
 
 # ---------------------------------------------------------------------------
@@ -2242,3 +2245,486 @@ class TestSamplesRun:
         assert one.total_calls == 6
         assert three.total_calls == 18
         assert three.estimated_usd == pytest.approx(one.estimated_usd * 3)
+
+
+# ---------------------------------------------------------------------------
+# Tool-calling examples go through the response cache, one entry per round
+# ---------------------------------------------------------------------------
+
+
+def _round_of(kwargs: dict[str, Any]) -> int:
+    """The teacher-forced round a tool-path dispatch asks for.
+
+    Derived from what was sent (not from a dispatch counter) so it stays right
+    when earlier rounds were served from the cache: round *k* carries exactly
+    *k* recorded assistant turns with ``call_r{j}_{i}`` ids.
+    """
+    messages = kwargs.get("messages")
+    if messages is None:
+        return 0
+    return sum(
+        1
+        for m in messages
+        if m.get("role") == "assistant"
+        and any(str(tc.get("id", "")).startswith("call_r") for tc in m.get("tool_calls") or [])
+    )
+
+
+def _install_tool_fake(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    fail_rounds: set[int] | None = None,
+    finish_reason_for: Any = None,
+) -> list[dict[str, Any]]:
+    """Patch both tool entry points with a fake that records every live dispatch.
+
+    Each round's trace exercises every field a downstream consumer reads:
+    provider call ids, nested/unicode arguments, a refusal, final text.
+    """
+    seen: list[dict[str, Any]] = []
+
+    async def fake(self: ModelClient, **kwargs: Any) -> ToolCompletionResult:
+        model = str(kwargs["model"])
+        round_index = _round_of(kwargs)
+        seen.append({"model": model, "round": round_index})
+        if fail_rounds is not None and round_index in fail_rounds:
+            raise ModelClientError(f"upstream exploded in round {round_index}")
+        trace = ToolTrace(
+            calls=[
+                ToolCall(
+                    tool_name="search",
+                    arguments={"q": f"r{round_index}", "opts": {"lang": "é", "k": 1.5}},
+                    call_id=f"toolu_{model[-3:]}_{round_index}_{i}",
+                    sequence_index=i,
+                )
+                for i in range(round_index + 1)
+            ],
+            final_text=f"{model} answer {round_index}",
+            raised_refusal=round_index == 1,
+            refusal_text="partial refusal" if round_index == 1 else None,
+        )
+        return ToolCompletionResult(
+            trace=trace,
+            model_id=model,
+            input_tokens=7 + round_index,
+            output_tokens=3 + round_index,
+            cost_usd=0.25 * (round_index + 1),
+            latency_ms=100 + round_index,
+            raw_provider_response={"id": "resp"},
+            finish_reason=(
+                "tool_calls" if finish_reason_for is None else finish_reason_for(round_index)
+            ),
+        )
+
+    monkeypatch.setattr(ModelClient, "complete_with_tools", fake)
+    monkeypatch.setattr(ModelClient, "complete_messages_with_tools", fake)
+    return seen
+
+
+def _rows(run_dir: Path) -> list[dict[str, Any]]:
+    """raw.jsonl rows minus the fields a cache hit is allowed to change."""
+    return sorted(
+        (r.model_dump(exclude={"run_id", "cached", "cached_rounds"}) for r in iter_calls(run_dir)),
+        key=lambda r: (r["example_id"], r["role"], r["sample_index"]),
+    )
+
+
+def _tool_config(**defaults: Any) -> EvalShiftConfig:
+    return EvalShiftConfig(
+        prompts=list(_round_config().prompts),
+        defaults=Defaults(concurrency=4, max_cost_usd=100.0, **defaults),
+    )
+
+
+def _single_shot_tool_suite() -> Suite:
+    return Suite(
+        examples=[
+            suite_example(id=f"ex{i}", inputs={"name": f"User{i}"}, tools=[_ROUND_TOOL])
+            for i in range(2)
+        ],
+    )
+
+
+class TestToolPathCache:
+    def _kwargs(self, tmp_path: Path, cache: CacheStore, suite: Suite, **over: Any) -> Any:
+        config_path, suite_path, runs_base = _writeable_paths(tmp_path)
+        kwargs: dict[str, Any] = {
+            "config": _tool_config(),
+            "config_path": config_path,
+            "suite": suite,
+            "suite_path": suite_path,
+            "source_model": "gemini-2.5-flash",
+            "target_model": "gemini-2.5-pro",
+            "runs_base": runs_base,
+            "yes": True,
+            "cache": cache,
+        }
+        kwargs.update(over)
+        return kwargs
+
+    async def test_repeat_run_of_a_single_shot_tool_suite_is_served_from_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        kwargs = self._kwargs(tmp_path, cache, _single_shot_tool_suite())
+
+        first = await run_orchestrator(**kwargs)
+        assert (first.live_calls, first.cached_calls, len(seen)) == (4, 0, 4)
+
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 4  # nothing dispatched
+        assert (second.live_calls, second.cached_calls) == (0, 4)
+        assert second.total_cost_usd == pytest.approx(first.total_cost_usd)
+        assert _rows(second.run_dir) == _rows(first.run_dir)
+        assert all(r.cached and r.cached_rounds == 1 for r in iter_calls(second.run_dir))
+        assert not any(r.cached or r.cached_rounds for r in iter_calls(first.run_dir))
+
+    @pytest.mark.parametrize(
+        "history",
+        [
+            None,
+            [
+                ChatMessage(role="user", content="earlier turn"),
+                ChatMessage(role="assistant", content="earlier reply"),
+            ],
+        ],
+        ids=["single-turn", "multi-turn"],
+    )
+    async def test_repeat_run_of_a_teacher_forced_example_is_served_from_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+        history: list[ChatMessage] | None,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        suite = Suite(examples=[_two_round_example(history=history)])
+        kwargs = self._kwargs(tmp_path, cache, suite)
+
+        first = await run_orchestrator(**kwargs)
+        assert len(seen) == 6  # 3 rounds x 2 roles
+        assert (first.live_calls, first.cached_calls) == (2, 0)
+
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 6
+        assert (second.live_calls, second.cached_calls) == (0, 2)
+        rows = _rows(second.run_dir)
+        assert rows == _rows(first.run_dir)
+        for row in rows:
+            assert row["trace"]["round_count"] == 3
+            assert [c["round_index"] for c in row["trace"]["calls"]] == [0, 1, 1, 2, 2, 2]
+            assert row["trace"]["raised_refusal"] is True
+            assert row["input_tokens"] == 7 + 8 + 9
+            assert row["cost_usd"] == pytest.approx(0.25 + 0.5 + 0.75)
+            assert row["latency_ms"] == 100 + 101 + 102
+
+    async def test_cache_disabled_dispatches_every_tool_round_live(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        suite = Suite(examples=[_two_round_example()])
+        kwargs = self._kwargs(tmp_path, cache, suite, config=_tool_config(cache=False))
+
+        await run_orchestrator(**kwargs)
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 12
+        assert (second.live_calls, second.cached_calls) == (2, 0)
+        assert await cache.count() == 0
+
+    async def test_an_errored_tool_call_is_not_cached(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        _install_tool_fake(monkeypatch, fail_rounds={0})
+        kwargs = self._kwargs(tmp_path, cache, _single_shot_tool_suite())
+
+        first = await run_orchestrator(**kwargs)
+        assert first.failed_calls == 4
+        assert await cache.count() == 0
+
+        seen = _install_tool_fake(monkeypatch)
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 4
+        assert (second.live_calls, second.cached_calls, second.failed_calls) == (4, 0, 0)
+
+    async def test_a_failed_round_is_redispatched_and_earlier_rounds_are_served(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        # Rounds are independent requests (teacher forcing feeds back the
+        # recording, never the candidate), so round 0's genuine response stays
+        # valid when round 1 fails — only the failed round and later re-run.
+        _install_tool_fake(monkeypatch, fail_rounds={1})
+        kwargs = self._kwargs(tmp_path, cache, Suite(examples=[_two_round_example()]))
+        first = await run_orchestrator(**kwargs)
+        assert first.failed_calls == 2
+        assert all(r.error and r.error.startswith("round 2/3") for r in iter_calls(first.run_dir))
+
+        seen = _install_tool_fake(monkeypatch)
+        second = await run_orchestrator(**kwargs)
+        assert sorted(s["round"] for s in seen) == [1, 1, 2, 2]
+        # A row with any live round spent money now: it counts as live.
+        assert (second.live_calls, second.cached_calls, second.failed_calls) == (2, 0, 0)
+        for row in iter_calls(second.run_dir):
+            assert not row.cached
+            assert row.cached_rounds == 1  # round 0 replayed; its latency is not fresh
+            assert row.latency_replayed
+            assert row.trace is not None
+            assert row.trace.round_count == 3
+
+        third = await run_orchestrator(**kwargs)
+        assert len(seen) == 4
+        assert (third.live_calls, third.cached_calls) == (0, 2)
+        assert _rows(third.run_dir) == _rows(second.run_dir)
+        assert all(r.cached and r.cached_rounds == 3 for r in iter_calls(third.run_dir))
+
+    async def test_a_truncated_round_is_cached_and_stays_flagged(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _install_tool_fake(
+            monkeypatch,
+            finish_reason_for=lambda k: "length" if k == 0 else "stop",
+        )
+        kwargs = self._kwargs(tmp_path, cache, Suite(examples=[_two_round_example()]))
+        await run_orchestrator(**kwargs)
+
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="evalshift_cli.runner.orchestrator"):
+            second = await run_orchestrator(**kwargs)
+        assert second.cached_calls == 2
+        for row in iter_calls(second.run_dir):
+            assert row.finish_reason == "length"
+            assert row.truncated
+        assert any("truncated" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        ("change", "expected_rounds"),
+        [
+            # Anything round 0 is sent re-dispatches every round.
+            ({"tools": [_ROUND_TOOL.model_copy(update={"strict": True}), _ROUND_TOOL_2]}, 3),
+            (
+                {
+                    "tools": [
+                        _ROUND_TOOL.model_copy(update={"description": "Search it."}),
+                        _ROUND_TOOL_2,
+                    ]
+                },
+                3,
+            ),
+            ({"tools": [_ROUND_TOOL_2, _ROUND_TOOL]}, 3),
+            ({"generation_config": {"tool_choice": "required"}}, 3),
+            ({"generation_config": {"temperature": 0.7}}, 3),
+            ({"generation_config": {"parallel_tool_calls": False}}, 3),
+            ({"inputs": {"name": "Bea"}}, 3),
+            # A recorded fixture is only sent from the round after it.
+            (
+                {
+                    "tool_result_fixtures": [
+                        [ToolResultFixture(tool_name="search", result={"hits": 2})],
+                        [
+                            ToolResultFixture(tool_name="fetch", result="edited text"),
+                            ToolResultFixture(tool_name="fetch", error="not found"),
+                        ],
+                    ]
+                },
+                1,
+            ),
+        ],
+        ids=[
+            "tool-strict",
+            "tool-description",
+            "tool-order",
+            "tool-choice",
+            "temperature",
+            "parallel-tool-calls",
+            "inputs",
+            "later-fixture",
+        ],
+    )
+    async def test_a_change_to_what_is_sent_misses_exactly_the_affected_rounds(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+        change: dict[str, Any],
+        expected_rounds: int,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        await run_orchestrator(
+            **self._kwargs(tmp_path, cache, Suite(examples=[_two_round_example()]))
+        )
+        assert len(seen) == 6
+
+        changed = Suite(examples=[_two_round_example(**change)])
+        await run_orchestrator(**self._kwargs(tmp_path, cache, changed))
+        assert len(seen) == 6 + 2 * expected_rounds
+
+    async def test_a_generation_config_warning_fires_once_per_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # The config is translated once per work item and reused for the key
+        # and the dispatch; translating it twice doubled every warning.
+        _install_tool_fake(monkeypatch)
+        example = suite_example(
+            id="ex0",
+            inputs={"name": "A"},
+            tools=[_ROUND_TOOL],
+            generation_config={"tool_choice": 42},
+        )
+        with caplog.at_level("WARNING", logger="evalshift_cli.runner.generation"):
+            await run_orchestrator(**self._kwargs(tmp_path, cache, Suite(examples=[example])))
+        warnings = [r for r in caplog.records if "tool_choice not understood" in r.getMessage()]
+        assert len(warnings) == 2  # one per role
+
+    async def test_a_max_tokens_override_is_a_miss(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        suite = Suite(examples=[_two_round_example()])
+        await run_orchestrator(**self._kwargs(tmp_path, cache, suite))
+        assert len(seen) == 6
+
+        capped = EvalShiftConfig(
+            prompts=[_round_config().prompts[0].model_copy(update={"max_tokens": 512})],
+            defaults=Defaults(concurrency=4, max_cost_usd=100.0),
+        )
+        await run_orchestrator(**self._kwargs(tmp_path, cache, suite, config=capped))
+        assert len(seen) == 12
+
+    async def test_a_row_without_a_trace_under_a_tool_key_is_redispatched(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        # A hit that cannot rebuild a ToolCompletionResult must not be served.
+        from sqlalchemy import text
+
+        seen = _install_tool_fake(monkeypatch)
+        kwargs = self._kwargs(tmp_path, cache, Suite(examples=[_two_round_example()]))
+        await run_orchestrator(**kwargs)
+        assert await cache.count() == 6
+        async with cache._engine.begin() as conn:
+            await conn.execute(text("UPDATE cached_calls SET trace_json = NULL"))
+
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 12
+        assert (second.live_calls, second.cached_calls) == (2, 0)
+
+    async def test_a_different_target_model_is_a_miss(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        await run_orchestrator(**self._kwargs(tmp_path, cache, _single_shot_tool_suite()))
+        second = await run_orchestrator(
+            **self._kwargs(
+                tmp_path, cache, _single_shot_tool_suite(), target_model="gemini-2.5-flash-lite"
+            ),
+        )
+        assert len(seen) == 6  # only the new target's two examples went live
+        assert (second.live_calls, second.cached_calls) == (2, 2)
+
+    async def test_each_sample_is_its_own_cached_tool_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        seen = _install_tool_fake(monkeypatch)
+        suite = Suite(examples=[suite_example(id="ex0", inputs={"name": "A"}, tools=[_ROUND_TOOL])])
+        kwargs = self._kwargs(tmp_path, cache, suite, config=_tool_config(samples_per_example=2))
+
+        first = await run_orchestrator(**kwargs)
+        assert len(seen) == 4  # 2 roles x 2 samples, sample 1 not served from sample 0
+        assert first.cached_calls == 0
+        second = await run_orchestrator(**kwargs)
+        assert len(seen) == 4
+        assert second.cached_calls == 4
+
+    async def test_tool_and_text_entries_never_collide(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        text_counter = _make_fake_client(monkeypatch)
+        seen = _install_tool_fake(monkeypatch)
+        plain = Suite(examples=[suite_example(id="ex0", inputs={"name": "A"})])
+        with_tools = Suite(
+            examples=[suite_example(id="ex0", inputs={"name": "A"}, tools=[_ROUND_TOOL])]
+        )
+
+        await run_orchestrator(**self._kwargs(tmp_path, cache, plain))
+        assert text_counter["calls"] == 2
+        result = await run_orchestrator(**self._kwargs(tmp_path, cache, with_tools))
+        assert len(seen) == 2
+        assert result.cached_calls == 0
+        assert all(r.trace is not None for r in iter_calls(result.run_dir))
+
+    async def test_resume_serves_pending_tool_items_from_the_cache(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        cache: CacheStore,
+    ) -> None:
+        from datetime import datetime
+
+        from evalshift_cli.runner import checkpoint as cp_mod
+        from evalshift_cli.runner.models import RunModels, RunState
+
+        seen = _install_tool_fake(monkeypatch)
+        suite = Suite(examples=[_two_round_example()])
+        kwargs = self._kwargs(tmp_path, cache, suite)
+        full = await run_orchestrator(**kwargs)
+        source_row = next(r for r in iter_calls(full.run_dir) if r.role == "source")
+        target_row = next(r for r in iter_calls(full.run_dir) if r.role == "target")
+
+        # An interrupted run that finished only the source side.
+        run_dir = kwargs["runs_base"] / "r_20260601_dead00"
+        state = RunState(
+            run_id="r_20260601_dead00",
+            status="in_progress",
+            config_hash=cp_mod.compute_config_hash(kwargs["config"], str(kwargs["suite_path"])),
+            started_at=datetime(2026, 6, 1, tzinfo=UTC),
+            models=RunModels(source="gemini/gemini-2.5-flash", target="gemini/gemini-2.5-pro"),
+            prompt_ids=["agent"],
+            suite_path=str(kwargs["suite_path"]),
+            total_evaluations=2,
+            completed_evaluations=1,
+        )
+        cp_mod.write_state(run_dir, state)
+        cp_mod.append_call(run_dir, source_row.model_copy(update={"run_id": state.run_id}))
+
+        resumed = await run_orchestrator(**{**kwargs, "resume": True})
+        assert resumed.run_dir == run_dir
+        assert len(seen) == 6  # the pending target item was served from cache
+        assert (resumed.live_calls, resumed.cached_calls) == (0, 1)
+        resumed_target = next(r for r in iter_calls(run_dir) if r.role == "target")
+        assert resumed_target.cached
+        assert resumed_target.model_dump(
+            exclude={"run_id", "cached", "cached_rounds"}
+        ) == target_row.model_dump(exclude={"run_id", "cached", "cached_rounds"})

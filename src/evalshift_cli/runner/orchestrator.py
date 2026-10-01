@@ -48,7 +48,6 @@ from rich.progress import (
 
 from evalshift_cli.cache.store import CacheStore, cache_key
 from evalshift_cli.captures.reader import CaptureError, capture_base, load_toolset
-from evalshift_cli.captures.toolset import fingerprint_tools
 from evalshift_cli.config.models import EvalShiftConfig
 from evalshift_cli.evaluators.tool_models import ToolCall, ToolSpec, ToolTrace
 from evalshift_cli.models.capabilities import (
@@ -57,7 +56,12 @@ from evalshift_cli.models.capabilities import (
     silently_unsent_params,
     unsupported_params,
 )
-from evalshift_cli.models.client import ModelClient, ModelClientError
+from evalshift_cli.models.client import (
+    ModelClient,
+    ModelClientError,
+    ToolCompletionResult,
+    serialize_tools,
+)
 from evalshift_cli.models.registry import resolve_model
 from evalshift_cli.parsers.base import PromptParseError, PromptTemplate
 from evalshift_cli.parsers.manual import ManualParser
@@ -538,19 +542,6 @@ def resolve_suite_tools(
         )
         for example in suite.examples
     }
-
-
-def _fingerprint_toolset(tools: Sequence[ToolSpec]) -> str:
-    """Content-address a resolved toolset the same way regardless of its source.
-
-    An inline ``tools:`` list and a ``toolset_ref`` sidecar both resolve to the
-    same ``list[ToolSpec]`` shape by the time dispatch sees them. Fingerprinting
-    that resolved list — via Task 2's
-    :func:`~evalshift_cli.captures.toolset.fingerprint_tools` — rather than trusting
-    a ``toolset_ref`` string verbatim guarantees the two spellings of the same
-    toolset produce the same fingerprint, and therefore the same cache key.
-    """
-    return fingerprint_tools([t.to_anthropic() for t in tools])
 
 
 def _setup_run(
@@ -1206,23 +1197,11 @@ async def _execute(
     ``defaults.samples_per_example > 1`` so each sample is its own live call.
 
     For agent-style work items (``item.tools`` non-empty), dispatches to
-    :meth:`ModelClient.complete_with_tools` and stores the parsed
-    :class:`ToolTrace` on the resulting :class:`Call`. The local SQLite
-    cache is intentionally bypassed for tool calls in v0.2 — caching
-    serialised traces is a v0.3 polish.
+    :func:`_execute_with_tools`, which stores the parsed :class:`ToolTrace`
+    on the resulting :class:`Call` and caches each replayed round on its own.
     """
     meta = resolve_model(item.model_id)
     messages = build_messages(item.example, prompt_text)
-
-    if item.tools:
-        return await _execute_with_tools(
-            client=client,
-            run_id=run_id,
-            item=item,
-            prompt_text=prompt_text,
-            canonical_id=meta.id,
-            messages=messages,
-        )
 
     # Effective cap: prompt/run config override, else the registry default.
     # The same value is keyed AND sent so a cache hit matches the live call.
@@ -1237,19 +1216,24 @@ async def _execute(
         gen_temperature if gen_temperature is not None else meta.default_temperature
     )
 
+    if item.tools:
+        return await _execute_with_tools(
+            client=client,
+            cache=cache,
+            run_id=run_id,
+            item=item,
+            prompt_text=prompt_text,
+            canonical_id=meta.id,
+            messages=messages,
+            gen_temperature=gen_temperature,
+            gen_extra=gen_extra,
+            key_temperature=effective_temperature,
+            key_max_tokens=effective_max_tokens,
+            cache_enabled=cache_enabled,
+            cache_sample_index=cache_sample_index,
+        )
+
     history_for_key = history_for_cache_key(item.example)
-    # item.tools is always empty here — a non-empty toolset routes to
-    # _execute_with_tools above and never reaches this line — so this is
-    # always None in practice today. Written as a real conditional (not
-    # hard-coded) because that empty-ness is a routing fact, not a cache-key
-    # rule: this is the one call site that mirrors _execute_with_tools's own
-    # `_fingerprint_toolset(item.tools) if item.tools else None` shape, so the
-    # two stay in lockstep if either path's routing condition ever changes.
-    # None (omit from the payload) matches the history/generation_config
-    # precedent below: this call never sends a `tools` parameter to the
-    # provider at all, so it keeps its pre-existing cache key rather than
-    # forking on a toolset dimension that doesn't apply to it.
-    toolset_fingerprint = _fingerprint_toolset(item.tools) if item.tools else None
     key = cache_key(
         model_id=meta.id,
         prompt_text=prompt_text,
@@ -1258,11 +1242,10 @@ async def _execute(
         max_tokens=effective_max_tokens,
         history=history_for_key,
         generation_config=item.example.generation_config,
-        toolset_fingerprint=toolset_fingerprint,
-        # None: this path is single-shot by construction. Only the tool path
-        # replays rounds, and it bypasses the cache entirely (unchanged since
-        # v0.2), so nothing passes a real round today — the key's round
-        # dimension exists so tool-call caching can land without a migration.
+        # None for both: this call never sends a ``tools`` parameter and is
+        # single-shot by construction, so it keeps its pre-existing key. The
+        # tool path always sets both, so the two paths' keys never collide.
+        tools_payload=None,
         round_index=None,
         sample_index=cache_sample_index,
     )
@@ -1288,6 +1271,7 @@ async def _execute(
                 cost_usd=hit.cost_usd,
                 latency_ms=hit.latency_ms,
                 cached=True,
+                cached_rounds=1,
                 finish_reason=hit.finish_reason,
             )
 
@@ -1354,11 +1338,18 @@ async def _execute(
 async def _execute_with_tools(
     *,
     client: ModelClient,
+    cache: CacheStore,
     run_id: str,
     item: WorkItem,
     prompt_text: str,
     canonical_id: str,
+    gen_temperature: float | None,
+    gen_extra: dict[str, Any] | None,
+    key_temperature: float,
+    key_max_tokens: int,
+    cache_enabled: bool,
     messages: list[dict[str, Any]] | None = None,
+    cache_sample_index: int | None = None,
 ) -> Call:
     """Tool-aware call path: teacher-forced replay loop + one Call per example.
 
@@ -1379,11 +1370,32 @@ async def _execute_with_tools(
     single-turn examples, which keeps the existing single-prompt
     :meth:`ModelClient.complete_with_tools` path so a single-shot example makes
     a byte-identical client call to before this loop existed. Rounds ``k >= 1``
-    are always message-mode. The local cache is bypassed throughout — unchanged
-    from before.
+    are always message-mode.
+
+    Each round is its own cache entry. Teacher forcing makes the rounds
+    independent requests — round *k* is sent the recording, never the
+    candidate's earlier rounds — so a round is keyed on exactly what it sends:
+    the dispatched message list (``None`` for a plain-prompt round 0), the
+    tools array exactly as sent (:func:`serialize_tools`, in order), the
+    generation config, the effective temperature and token cap
+    (``key_temperature`` / ``key_max_tokens``, as the text path keys them), the
+    round index and ``cache_sample_index``. ``gen_temperature`` / ``gen_extra``
+    are :func:`translate_generation_config`'s output, computed once by
+    :func:`_execute` so its warnings fire once per call. A hit restores the
+    round's :class:`ToolCompletionResult` (trace, tokens, cost, latency, finish
+    reason) and feeds the same merge a live round does, so the :class:`Call` is
+    identical apart from ``cached`` and ``cached_rounds``. Policies follow the
+    text path: an errored round is not cached (earlier rounds, genuine
+    responses to their own requests, stay cached); a truncated round is cached
+    and warned about on a hit; ``cache_enabled=False`` neither reads nor
+    writes. The :class:`Call` records ``cached_rounds`` hits and is ``cached``
+    only when every round was a hit — a row with any live round spent money on
+    this run, but its summed latency is no longer a fresh measurement
+    (:attr:`Call.latency_replayed`).
     """
-    gen_temperature, gen_extra = translate_generation_config(item.example.generation_config)
     rounds = item.example.rounds_to_replay()
+    tools_payload = serialize_tools(canonical_id, item.tools)
+    cached_rounds = 0
 
     merged_calls: list[ToolCall] = []
     input_tokens = 0
@@ -1401,40 +1413,62 @@ async def _execute_with_tools(
             if round_index == 0
             else build_round_messages(item.example, prompt_text, round_index)
         )
-        try:
-            if round_messages is not None:
-                result = await client.complete_messages_with_tools(
-                    model=canonical_id,
-                    messages=round_messages,
-                    tools=list(item.tools),
+        key = cache_key(
+            model_id=canonical_id,
+            prompt_text=prompt_text,
+            inputs=item.example.inputs,
+            temperature=key_temperature,
+            max_tokens=key_max_tokens,
+            history=round_messages,
+            generation_config=item.example.generation_config,
+            tools_payload=tools_payload,
+            round_index=round_index,
+            sample_index=cache_sample_index,
+        )
+        result = await _cached_tool_round(cache, key, canonical_id) if cache_enabled else None
+        if result is not None:
+            cached_rounds += 1
+        else:
+            try:
+                result = await _dispatch_tool_round(
+                    client=client,
+                    item=item,
+                    canonical_id=canonical_id,
+                    prompt_text=prompt_text,
+                    round_messages=round_messages,
                     temperature=gen_temperature,
-                    max_tokens=item.max_tokens,
                     extra=gen_extra,
                 )
-            else:
-                result = await client.complete_with_tools(
-                    model=canonical_id,
-                    prompt=prompt_text,
-                    tools=list(item.tools),
-                    temperature=gen_temperature,
-                    max_tokens=item.max_tokens,
-                    extra=gen_extra,
+            except ModelClientError as exc:
+                # A partially replayed example is an unmeasured example: the
+                # rounds that did complete are dropped, exactly as a failed
+                # single-shot call records no trace. The round is named so the
+                # failure is attributable without re-running; a single-shot
+                # call keeps the bare provider error it always carried. Nothing
+                # is cached for the failed round.
+                return Call(
+                    run_id=run_id,
+                    prompt_id=item.prompt.id,
+                    example_id=item.example.id,
+                    model_id=canonical_id,
+                    role=item.role,
+                    sample_index=item.sample_index,
+                    error=f"round {round_index + 1}/{rounds}: {exc}" if rounds > 1 else str(exc),
                 )
-        except ModelClientError as exc:
-            # A partially replayed example is an unmeasured example: the rounds
-            # that did complete are dropped, exactly as a failed single-shot
-            # call records no trace. The round is named so the failure is
-            # attributable without re-running; a single-shot call keeps the
-            # bare provider error it always carried.
-            return Call(
-                run_id=run_id,
-                prompt_id=item.prompt.id,
-                example_id=item.example.id,
-                model_id=canonical_id,
-                role=item.role,
-                sample_index=item.sample_index,
-                error=f"round {round_index + 1}/{rounds}: {exc}" if rounds > 1 else str(exc),
-            )
+            if cache_enabled:
+                await cache.put(
+                    key,
+                    model_id=canonical_id,
+                    prompt_text=prompt_text,
+                    inputs=item.example.inputs,
+                    response_text=result.trace.final_text or "",
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    cost_usd=result.cost_usd,
+                    latency_ms=result.latency_ms,
+                    finish_reason=result.finish_reason,
+                    trace=result.trace,
+                )
 
         input_tokens += result.input_tokens
         output_tokens += result.output_tokens
@@ -1489,8 +1523,72 @@ async def _execute_with_tools(
         output_tokens=output_tokens,
         cost_usd=cost_usd,
         latency_ms=latency_ms,
+        cached=cached_rounds == rounds,
+        cached_rounds=cached_rounds,
         trace=trace,
         finish_reason=finish_reason,
+    )
+
+
+async def _cached_tool_round(
+    cache: CacheStore,
+    key: str,
+    canonical_id: str,
+) -> ToolCompletionResult | None:
+    """A cached tool round rebuilt as the :class:`ToolCompletionResult` it came from.
+
+    ``None`` on a miss, and on a hit without a trace (never written by the tool
+    path, so not something this round can be served from).
+    ``raw_provider_response`` comes back empty: the orchestrator never
+    persists or reads it.
+    """
+    hit = await cache.get(key)
+    if hit is None or hit.trace is None:
+        return None
+    if hit.finish_reason == "length":
+        log.warning(
+            "cached tool response for model %s was truncated (finish_reason=length)",
+            canonical_id,
+        )
+    return ToolCompletionResult(
+        trace=hit.trace,
+        model_id=canonical_id,
+        input_tokens=hit.input_tokens,
+        output_tokens=hit.output_tokens,
+        cost_usd=hit.cost_usd,
+        latency_ms=hit.latency_ms,
+        raw_provider_response={},
+        finish_reason=hit.finish_reason,
+    )
+
+
+async def _dispatch_tool_round(
+    *,
+    client: ModelClient,
+    item: WorkItem,
+    canonical_id: str,
+    prompt_text: str,
+    round_messages: list[dict[str, Any]] | None,
+    temperature: float | None,
+    extra: dict[str, Any] | None,
+) -> ToolCompletionResult:
+    """Send one tool round live: message-mode when there are messages, else the plain prompt."""
+    if round_messages is not None:
+        return await client.complete_messages_with_tools(
+            model=canonical_id,
+            messages=round_messages,
+            tools=list(item.tools),
+            temperature=temperature,
+            max_tokens=item.max_tokens,
+            extra=extra,
+        )
+    return await client.complete_with_tools(
+        model=canonical_id,
+        prompt=prompt_text,
+        tools=list(item.tools),
+        temperature=temperature,
+        max_tokens=item.max_tokens,
+        extra=extra,
     )
 
 

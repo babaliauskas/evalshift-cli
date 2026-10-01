@@ -349,3 +349,30 @@ class TestRepresentativeCalls:
             self._call(example_id="a", role="target", sample_index=0),
         ]
         assert representative_calls(calls) == calls
+
+
+class TestCallCachedRounds:
+    """``cached_rounds``: how many of a row's provider rounds were replayed from cache."""
+
+    _BASE = (
+        '{"run_id": "r_20260601_abc123", "prompt_id": "p", "example_id": "e",'
+        ' "model_id": "m", "role": "source", "latency_ms": 40'
+    )
+
+    def test_rows_written_before_the_field_read_back_as_zero(self) -> None:
+        call = Call.model_validate_json(self._BASE + "}")
+        assert call.cached_rounds == 0
+        assert not call.latency_replayed
+
+    def test_a_fully_cached_row_replays_its_latency(self) -> None:
+        call = Call.model_validate_json(self._BASE + ', "cached": true}')
+        assert call.latency_replayed
+
+    def test_a_partly_cached_row_is_not_cached_but_replays_latency(self) -> None:
+        call = Call.model_validate_json(self._BASE + ', "cached_rounds": 1}')
+        assert not call.cached
+        assert call.latency_replayed
+
+    def test_negative_counts_are_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            Call.model_validate_json(self._BASE + ', "cached_rounds": -1}')

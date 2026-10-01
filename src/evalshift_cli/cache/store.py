@@ -24,8 +24,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 
@@ -35,13 +37,20 @@ from evalshift_cli.cache.schema import (
     create_engine,
     default_database_url,
 )
+from evalshift_cli.evaluators.tool_models import ToolTrace
 
 DEFAULT_TTL_DAYS: int = 7
 
 
 @dataclass(frozen=True, slots=True)
 class CachedResponse:
-    """The cache-side view of a previously-completed LLM call."""
+    """The cache-side view of a previously-completed LLM call.
+
+    ``trace`` is set only for a tool-calling round: the parsed
+    :class:`ToolTrace` the live call produced, restored field for field.
+    Text-only responses (and every row written before tool calls were
+    cached) carry ``None``.
+    """
 
     response_text: str
     input_tokens: int
@@ -50,6 +59,7 @@ class CachedResponse:
     latency_ms: int
     created_at: datetime
     finish_reason: str | None = None
+    trace: ToolTrace | None = None
 
 
 def cache_key(
@@ -61,7 +71,7 @@ def cache_key(
     max_tokens: int,
     history: Sequence[Mapping[str, str]] | None = None,
     generation_config: Mapping[str, Any] | None = None,
-    toolset_fingerprint: str | None = None,
+    tools_payload: Sequence[Mapping[str, Any]] | None = None,
     round_index: int | None = None,
     sample_index: int | None = None,
 ) -> str:
@@ -73,38 +83,37 @@ def cache_key(
 
     Args:
         history: Multi-turn conversation prefix (recorded turns dispatched
-            ahead of ``prompt_text``). Included in the hashed payload only
-            when not ``None``, so single-turn calls (``history=None``)
-            produce byte-identical keys to before this parameter existed —
-            existing cache entries stay valid. An empty list is still
-            included (and hashes differently from ``None``) since it marks
-            the call as message-mode.
+            ahead of ``prompt_text``); the tool path passes the round's whole
+            dispatched message list here instead (history, current turn and the
+            teacher-forced recorded rounds), so every byte the provider sees is
+            keyed. Included in the hashed payload only when not ``None``, so
+            single-turn calls (``history=None``) produce byte-identical keys to
+            before this parameter existed — existing cache entries stay valid.
+            An empty list is still included (and hashes differently from
+            ``None``) since it marks the call as message-mode.
         generation_config: Recorded per-example generation config applied at
             dispatch. Same inclusion rule as ``history``: hashed only when not
             ``None``, so config-less calls keep their pre-existing keys.
-        toolset_fingerprint: Content-address of the toolset this call was
-            dispatched with (``"sha256:<hex>"`` from
-            :func:`evalshift_cli.captures.toolset.fingerprint_tools`). Same
-            inclusion rule as ``history``/``generation_config``: hashed only
-            when not ``None``, so a call that never sends a ``tools``
-            parameter to the provider at all keeps its pre-existing key. An
-            example's toolset, whether spelled as an inline ``tools:`` list
-            or a ``toolset_ref`` sidecar, resolves to the same fingerprint
-            before it reaches this function — see
-            :func:`evalshift_cli.runner.orchestrator._fingerprint_toolset` — so
-            the two spellings of one toolset never fork the cache, while two
-            genuinely different toolsets always produce different keys.
+        tools_payload: The ``tools`` array exactly as sent to the provider,
+            in order (:func:`evalshift_cli.models.client.serialize_tools`, the
+            same helper dispatch uses). Same inclusion rule as
+            ``history``/``generation_config``: hashed only when not ``None``,
+            so a call that never sends a ``tools`` parameter keeps its
+            pre-existing key. ``sort_keys`` orders each tool's own keys but
+            never the list, so reordering the tools, or changing a name,
+            description, schema or ``strict`` flag, changes the key — each of
+            those changes what the provider receives. An inline ``tools:``
+            list and a ``toolset_ref`` sidecar share entries exactly when they
+            resolve to the same tools in the same order.
         round_index: 0-based round of a teacher-forced multi-round replay
             (see :meth:`evalshift_cli.suite.models.SuiteExample.rounds_to_replay`).
             Same inclusion rule as the three above: hashed only when not
-            ``None``, so a single-shot call keeps its pre-existing key. ``0``
-            is a real round and hashes *differently* from ``None`` — round 0
-            of a replayed loop is dispatched with a different message list
-            than the same example replayed single-shot would be. The tool
-            path bypasses the cache entirely (unchanged since v0.2), so today
-            nothing passes this; it exists so that when tool-call caching
-            lands the round dimension is already in the key and no cache
-            migration is needed.
+            ``None``, so the text path (which never replays rounds and passes
+            ``None``) keeps its pre-existing keys. ``0`` is a real round and
+            hashes *differently* from ``None``. The tool path passes the real
+            round for every round it dispatches, single-shot examples
+            included, so a tool-calling key can never collide with a text
+            one.
         sample_index: 0-based sample of a repeated-sampling run
             (``defaults.samples_per_example > 1``). Same inclusion rule as
             ``round_index``: hashed only when not ``None``, so every
@@ -125,8 +134,8 @@ def cache_key(
         payload["history"] = [dict(m) for m in history]
     if generation_config is not None:
         payload["generation_config"] = dict(generation_config)
-    if toolset_fingerprint is not None:
-        payload["toolset_fingerprint"] = toolset_fingerprint
+    if tools_payload is not None:
+        payload["tools_payload"] = [dict(t) for t in tools_payload]
     if round_index is not None:
         payload["round_index"] = round_index
     if sample_index is not None:
@@ -182,9 +191,12 @@ class CacheStore:
         """
         url = database_url or default_database_url(path)
         engine = create_engine(url)
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            await _ensure_finish_reason_column(conn)
+        try:
+            await _ensure_schema(engine)
+        except BaseException:
+            # No store owns the engine yet, so nothing else would close it.
+            await engine.dispose()
+            raise
         return cls(engine, ttl=ttl)
 
     async def close(self) -> None:
@@ -221,6 +233,14 @@ class CacheStore:
             created_at = _ensure_utc(row.created_at)
             if created_at < cutoff:
                 return None
+            trace: ToolTrace | None = None
+            if row.trace_json is not None:
+                try:
+                    trace = ToolTrace.model_validate_json(row.trace_json)
+                except ValidationError:
+                    # Written by a version whose trace shape this one cannot
+                    # read: re-dispatch rather than fail the run.
+                    return None
             return CachedResponse(
                 response_text=row.response_text,
                 input_tokens=row.input_tokens,
@@ -229,6 +249,7 @@ class CacheStore:
                 latency_ms=row.latency_ms,
                 created_at=created_at,
                 finish_reason=row.finish_reason,
+                trace=trace,
             )
 
     async def put(
@@ -244,8 +265,13 @@ class CacheStore:
         cost_usd: float,
         latency_ms: int,
         finish_reason: str | None = None,
+        trace: ToolTrace | None = None,
     ) -> None:
         """Insert (or replace) a cache entry.
+
+        ``trace`` is the parsed tool trace of a tool-calling round, stored as
+        JSON beside ``response_text`` and restored by :meth:`get`; leave it
+        ``None`` for a text-only response.
 
         A single atomic ``INSERT ... ON CONFLICT DO UPDATE``: concurrent
         callers routinely miss the same key and race to write it back (the
@@ -264,6 +290,7 @@ class CacheStore:
             "cost_usd": cost_usd,
             "latency_ms": latency_ms,
             "finish_reason": finish_reason,
+            "trace_json": trace.model_dump_json() if trace is not None else None,
             "created_at": _utcnow(),
         }
         async with self._session() as session:
@@ -307,19 +334,60 @@ def _pool_shares_one_connection(engine: AsyncEngine) -> bool:
     return isinstance(engine.pool, StaticPool | SingletonThreadPool)
 
 
-async def _ensure_finish_reason_column(conn: Any) -> None:
-    """Additively backfill the ``finish_reason`` column on pre-existing DBs.
+# Nullable columns added after the table first shipped, with the DDL that adds
+# each one to a DB created before it existed. Append-only.
+_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("finish_reason", "VARCHAR(32)"),
+    ("trace_json", "TEXT"),
+)
+
+
+async def _ensure_schema(engine: AsyncEngine) -> None:
+    """Create the table and backfill :data:`_ADDITIVE_COLUMNS`, tolerating races.
+
+    Several ``evalshift`` processes can open one cache DB at once (parallel CI
+    jobs, a ``run`` next to an ``evaluate``). Each step is check-then-change,
+    so another process can make the same change in between: ``create_all``
+    then fails with "table … already exists" and a backfill with "duplicate
+    column name". Both mean the schema the loser wanted is already there, so
+    they are swallowed; any other error is raised. Each change runs in its own
+    transaction so a lost race rolls back only that statement.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except OperationalError as exc:
+        if not _lost_schema_race(exc, "already exists"):
+            raise
+    async with engine.connect() as conn:
+        columns = await _existing_columns(conn)
+    for name, ddl_type in _ADDITIVE_COLUMNS:
+        if name in columns:
+            continue
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"ALTER TABLE cached_calls ADD COLUMN {name} {ddl_type}"))
+        except OperationalError as exc:
+            if not _lost_schema_race(exc, "duplicate column name"):
+                raise
+
+
+async def _existing_columns(conn: Any) -> set[str]:
+    """Column names of ``cached_calls`` as this connection sees them now.
 
     ``create_all`` only creates missing *tables*, never alters existing ones,
-    and the disposable 7-day cache has no migration framework. A cache DB
-    created before this column existed would be missing it, so probe
-    ``PRAGMA table_info`` and ``ALTER TABLE ... ADD COLUMN`` when absent. A
-    fresh DB already has the column via ``create_all``, making this a no-op.
+    and the disposable 7-day cache has no migration framework, so a DB created
+    before a column in :data:`_ADDITIVE_COLUMNS` existed is missing it until
+    :func:`_ensure_schema` adds it. Existing rows read back ``NULL`` there (not
+    truncated, no tool trace), so they keep serving the text path.
     """
     result = await conn.execute(text("PRAGMA table_info(cached_calls)"))
-    columns = {row[1] for row in result.fetchall()}
-    if "finish_reason" not in columns:
-        await conn.execute(text("ALTER TABLE cached_calls ADD COLUMN finish_reason VARCHAR(32)"))
+    return {row[1] for row in result.fetchall()}
+
+
+def _lost_schema_race(exc: OperationalError, message: str) -> bool:
+    """Whether ``exc`` is SQLite reporting that a concurrent opener got there first."""
+    return message in str(exc.orig)
 
 
 def _utcnow() -> datetime:

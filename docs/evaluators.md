@@ -230,7 +230,6 @@ A 100-example suite with 1 prompt and 4 evaluators (2 structural +
 * Evaluate: 200 embedding calls + 100 judge calls
 
 LiteLLM's pricing data drives the pre-flight estimate; the local
-SQLite cache absorbs identical re-runs of tool-less examples, evaluate-stage
-embedding and judge calls included. Examples that offer tools are dispatched
-live on every run; only their evaluate-stage calls are cached. Evaluate dispatches its calls under
+SQLite cache absorbs identical re-runs, examples that offer tools and
+evaluate-stage embedding and judge calls included. Evaluate dispatches its calls under
 `defaults.concurrency`, same as the run stage.

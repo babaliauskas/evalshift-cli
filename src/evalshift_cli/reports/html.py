@@ -362,6 +362,19 @@ def _pct_delta(source: float, target: float) -> float | None:
     return (target - source) / source * 100.0
 
 
+def _run_latency_delta_pct(totals: Mapping[str, Mapping[str, float]]) -> float | None:
+    """Run-level latency change, or ``None`` unless both roles measured some live.
+
+    The means cover only calls measured fully live on this run (cache hits and
+    rows with any cached round are excluded), so a role with none averages
+    0.0 — unmeasured, not instant. :func:`_pct_delta` already refuses a zero
+    source; a zero target would otherwise read as a -100% change.
+    """
+    if not (totals["source"]["live_calls"] and totals["target"]["live_calls"]):
+        return None
+    return _pct_delta(totals["source"]["latency_ms_avg"], totals["target"]["latency_ms_avg"])
+
+
 def _run_role_totals(sections: Sequence[Any]) -> dict[str, dict[str, float]]:
     """Roll every prompt's economics up into one source/target pair.
 
@@ -505,10 +518,7 @@ def render_html(report: ReportData, *, insight: Insight | None = None) -> str:
         source_cost_usd=role_totals["source"]["cost"],
         target_cost_usd=role_totals["target"]["cost"],
         cost_delta_pct=_pct_delta(role_totals["source"]["cost"], role_totals["target"]["cost"]),
-        latency_delta_pct=_pct_delta(
-            role_totals["source"]["latency_ms_avg"],
-            role_totals["target"]["latency_ms_avg"],
-        ),
+        latency_delta_pct=_run_latency_delta_pct(role_totals),
         avg_score_delta=_avg_score_delta(report.executive_summary),
         headline=_headline_comparison(report.prompt_sections),
         budgets_passed=budgets_passed,

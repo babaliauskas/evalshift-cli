@@ -67,7 +67,25 @@ def test_delta_spread_is_rendered_from_the_examples(sample_run: dict[str, Any]) 
 def test_latency_is_not_reported_as_a_measurement_on_a_cached_replay(
     sample_run: dict[str, Any],
 ) -> None:
-    """Cache hits carry ``latency_ms = 0``; a percentage there is a fiction."""
+    """No role measured live latency; a percentage there is a fiction."""
+    assert build_facts(**sample_run).rendered["latency_delta_pct"] == "not comparable"
+
+
+def test_latency_is_not_comparable_when_only_one_side_ran_live(
+    sample_run: dict[str, Any],
+) -> None:
+    # A target served from the cache (or with some rounds replayed) has no
+    # live latency sample; its 0.0 average is "unmeasured", not "instant", so
+    # it must not render as a -100% latency change.
+    sample_run["economics"] = PromptEconomics(
+        source=role(live_calls=21, cached_calls=0, latency_ms_avg=1000.0),
+        target=role(
+            live_calls=0,
+            cached_calls=21,
+            latency_ms_avg=0.0,
+            total_cost_usd=COST_TARGET,
+        ),
+    )
     assert build_facts(**sample_run).rendered["latency_delta_pct"] == "not comparable"
 
 

@@ -17,9 +17,12 @@ from evalshift_cli.runner.models import Call, RunState
 class RoleEconomics:
     """Per-prompt × role rollup of operational stats from raw.jsonl.
 
-    `latency_ms_avg` / `_p95` are computed only over live (non-cached,
-    non-error) calls — cache hits replay text from disk so their
-    `latency_ms` is 0 and would skew the averages downward.
+    `latency_ms_avg` / `_p95` are computed only over calls whose latency was
+    measured on this run (no error, no round replayed from cache —
+    `Call.latency_replayed`). A cache hit carries the latency recorded when it
+    originally ran, so counting it would report an old measurement as new;
+    `live_calls` is that sample count. A partly cached multi-round row is
+    neither live here nor `cached_calls` (it spent money on this run).
     """
 
     calls: int
@@ -87,7 +90,7 @@ def role_economics(calls: list[Call]) -> RoleEconomics:
     failed = sum(1 for c in calls if c.error is not None)
     truncated = sum(1 for c in calls if c.truncated)
     empty_output = sum(1 for c in calls if is_empty_output(c))
-    live_latencies = [c.latency_ms for c in calls if not c.cached and c.error is None]
+    live_latencies = [c.latency_ms for c in calls if not c.latency_replayed and c.error is None]
     if live_latencies:
         sorted_l = sorted(live_latencies)
         avg_ms = sum(sorted_l) / len(sorted_l)

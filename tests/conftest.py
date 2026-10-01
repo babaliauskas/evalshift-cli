@@ -340,6 +340,26 @@ class RunFixture:
         return build_bundle(self.run_id, **kwargs)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_response_cache(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Point the default on-disk response cache at a fresh per-test file.
+
+    Command-level tests (``run``, ``compare``, ``evaluate`` and the integration
+    pipelines) open the cache without passing a URL, which resolves to
+    ``~/.evalshift/cache.db``. Unredirected, they wrote the developer's real
+    cache, and a row left there by one test run could serve the next one.
+    ``tmp_path_factory`` rather than ``tmp_path``, so tests that inspect their
+    own ``tmp_path`` never find a stray ``cache.db`` in it.
+    """
+    monkeypatch.setattr(
+        "evalshift_cli.cache.schema.DEFAULT_CACHE_PATH",
+        tmp_path_factory.mktemp("response-cache") / "cache.db",
+    )
+
+
 @pytest.fixture
 def run_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> RunFixture:
     """A completed two-example run, one live pair and one cache-replayed pair.

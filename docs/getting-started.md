@@ -38,8 +38,8 @@ fastest.
 
 EvalShift calls the provider you configure — any provider LiteLLM supports — directly using your own keys.
 Local runs do not send prompts or outputs to an EvalShift-operated server.
-Provider responses to tool-less examples are cached locally in `~/.evalshift/cache.db`;
-examples that offer tools are dispatched live on every run.
+Provider responses are cached locally in `~/.evalshift/cache.db`, so re-running an
+unchanged suite (agent suites included) makes no new calls.
 
 Set whichever providers you intend to use:
 

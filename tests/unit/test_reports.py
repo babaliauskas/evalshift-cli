@@ -2006,6 +2006,22 @@ class TestReportShell:
         assert _pct_delta(1.0, 2.0) == pytest.approx(100.0)
         assert _pct_delta(2.0, 1.0) == pytest.approx(-50.0)
 
+    def test_run_latency_delta_is_none_when_either_side_measured_nothing_live(self) -> None:
+        # A role whose every call was served (wholly or partly) from the cache
+        # has no live latency sample; its 0.0 mean is "unmeasured", so the
+        # header must not read it as a -100% latency change.
+        from evalshift_cli.reports.html import _run_latency_delta_pct
+
+        def totals(src_live: float, tgt_live: float) -> dict[str, dict[str, float]]:
+            return {
+                "source": {"latency_ms_avg": 100.0 if src_live else 0.0, "live_calls": src_live},
+                "target": {"latency_ms_avg": 150.0 if tgt_live else 0.0, "live_calls": tgt_live},
+            }
+
+        assert _run_latency_delta_pct(totals(2, 0)) is None
+        assert _run_latency_delta_pct(totals(0, 2)) is None
+        assert _run_latency_delta_pct(totals(2, 2)) == pytest.approx(50.0)
+
     def test_verdict_panel_shows_the_outcome_split(self, tmp_path: Path) -> None:
         html = self._html(tmp_path, decision=True)
         assert "Equivalent 0.0%" in html
@@ -2391,3 +2407,38 @@ class TestSamplesPerExampleInReport:
         html = render_html(build_report_payload(cwd / ".evalshift" / "runs" / run_id))
         assert "Sampling is not controlled" in html
         assert "samples_per_example" not in html
+
+
+def test_example_row_latency_is_incomparable_when_a_side_replayed_rounds() -> None:
+    from evalshift_cli.reports.json import _build_example_rows
+    from evalshift_cli.runner.models import Call
+
+    def call(role: str, example_id: str, latency: int, cached_rounds: int = 0) -> Call:
+        return Call(
+            run_id="r_20260601_abc123",
+            prompt_id="p",
+            example_id=example_id,
+            model_id="m",
+            role=role,  # type: ignore[arg-type]
+            latency_ms=latency,
+            cached_rounds=cached_rounds,
+        )
+
+    rows = _build_example_rows(
+        prompt_id="p",
+        calls=[
+            call("source", "live", 100),
+            call("target", "live", 150),
+            call("source", "mixed", 100, cached_rounds=1),
+            call("target", "mixed", 150),
+        ],
+        records=[],
+        tags_by_example_id={},
+        tool_evaluator_names=frozenset(),
+        examples_by_id={},
+    )
+    by_id = {r.example_id: r for r in rows}
+    assert by_id["live"].latency_comparable
+    assert by_id["live"].delta_latency_ms == 50
+    assert not by_id["mixed"].latency_comparable
+    assert by_id["mixed"].delta_latency_ms == 0
