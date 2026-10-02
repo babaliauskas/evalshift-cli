@@ -12,7 +12,7 @@ name: release
 #   repo, this workflow file, and the `pypi` environment as a trusted
 #   publisher. No token secret is stored anywhere.
 # - `EVALSHIFT_ACTION_DISPATCH_TOKEN` (optional): a fine-grained PAT with
-#   contents: write on babaliauskas/evalshift-action. Without it the
+#   contents: write on evalshift/evalshift-action. Without it the
 #   dispatch step is skipped and the action repo's daily poll picks the
 #   release up within a day.
 #
@@ -84,7 +84,7 @@ jobs:
     needs: [build, publish]
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch evalshift-cli-release to babaliauskas/evalshift-action
+      - name: Dispatch evalshift-cli-release to evalshift/evalshift-action
         env:
           GH_TOKEN: ${{ secrets.EVALSHIFT_ACTION_DISPATCH_TOKEN }}
           VERSION: ${{ needs.build.outputs.version }}
@@ -94,7 +94,7 @@ jobs:
             echo "::notice::EVALSHIFT_ACTION_DISPATCH_TOKEN is not set; skipping the dispatch. The action repo's daily PyPI poll will pick up ${VERSION} within a day."
             exit 0
           fi
-          gh api "repos/babaliauskas/evalshift-action/dispatches" \
+          gh api "repos/evalshift/evalshift-action/dispatches" \
             -f event_type=evalshift-cli-release \
             -f "client_payload[version]=${VERSION}"
           echo "Dispatched evalshift-cli-release for ${VERSION}; bump-cli-pin will open the pin PR."

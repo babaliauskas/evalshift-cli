@@ -60,7 +60,7 @@ parsed `ToolTrace`, and the configured `tool_*` evaluators score against the
 per-example `expected_tools` ground truth.
 
 For your own agent, the recommended path is capture-first: instrument it
-with the [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk),
+with the [evalshift-sdk](https://github.com/evalshift/evalshift-sdk),
 exercise it to record captures, then `evalshift capture sync` promotes them
 into a golden suite carrying the toolset your production agent actually
 offered — see [Getting started](getting-started.md).
@@ -135,7 +135,7 @@ Nothing in `evalshift.yaml` wires a toolset to a prompt — dispatch reads it
 off each golden-suite *example* instead (`toolset_ref` or inline `tools`, see
 [Suite ground truth](#suite-ground-truth) below), so the same prompt can
 legitimately dispatch some examples with tools and others without, in one
-run. [`examples/agent/tools.yaml`](https://github.com/babaliauskas/evalshift-cli/blob/main/examples/agent/tools.yaml) is just this project's human-readable record of what
+run. [`examples/agent/tools.yaml`](https://github.com/evalshift/evalshift-cli/blob/main/examples/agent/tools.yaml) is just this project's human-readable record of what
 those tools are; it accepts either Anthropic-shape (`name` / `description` /
 `input_schema`) or OpenAI-shape (`{ "type": "function", "function": {...}
 }`) entries — `evalshift run` serialises whatever a toolset resolves to in

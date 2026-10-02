@@ -182,12 +182,12 @@ The CLI checks for it wherever it writes or validates config — `capture sync`,
 `init` (without `--ci`, next to a workflow it did not write; `init --ci` pins
 the scaffolding CLI itself and does not warn about the file it just wrote),
 `doctor` (a `ci pin` row), and `validate`. It parses every `.github/workflows/*.yml` for
-`babaliauskas/evalshift-action` steps and compares their `evalshift-version`
+`evalshift/evalshift-action` steps and compares their `evalshift-version`
 with its own:
 
 ```text
 ⚠ CI installs evalshift 0.12.1 (.github/workflows/evalshift.yml, job evalshift) but the local CLI is 0.13.1 — an older CLI rejects config keys a newer one writes.
-  Fix: set `evalshift-version: "0.13.1"` on the babaliauskas/evalshift-action step.
+  Fix: set `evalshift-version: "0.13.1"` on the evalshift/evalshift-action step.
 ```
 
 | Status | Trigger | Fix |

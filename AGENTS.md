@@ -38,7 +38,7 @@ repos (`evalshift-sdk`, `evalshift-action`); never edit them from here.
   two packages never call each other. The CLI imports as `evalshift_cli` and
   depends on the SDK, so both install into one environment. See
   [docs/sdk.md](docs/sdk.md).
-- **GitHub Action** — `babaliauskas/evalshift-action@v0`. Runs the pipeline on
+- **GitHub Action** — `evalshift/evalshift-action@v0`. Runs the pipeline on
   pull requests, pushes the run, keeps one PR comment updated, sets the
   `evalshift/regression` commit status. See [docs/github-action.md](docs/github-action.md).
 - **Hosted server** — API at `https://api.evalshift.dev`, web app at

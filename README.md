@@ -2,7 +2,7 @@
 
 Open-source LLM migration and regression testing for AI agents.
 
-[![CI](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/babaliauskas/evalshift-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/evalshift/evalshift-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/evalshift/evalshift-cli/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/evalshift.svg)](https://pypi.org/project/evalshift/)
@@ -27,7 +27,7 @@ statistics**: paired tests, Cohen's d, 95% CIs, and Benjamini-Hochberg
 correction across every (prompt x evaluator x slice) comparison.
 
 An eval is only worth the examples in it. That is why the
-[capture SDK](https://github.com/babaliauskas/evalshift-sdk) is part of the
+[capture SDK](https://github.com/evalshift/evalshift-sdk) is part of the
 product rather than an add-on: it records real production runs — model calls,
 tool calls, final outputs — to disk, and `evalshift capture sync` promotes them
 into golden suites. Hand-written suites are fully supported too, but captured
@@ -44,7 +44,7 @@ Four pieces, released and documented independently:
 | --- | --- | --- |
 | **SDK** — PyPI `evalshift-sdk` | Records what your agent actually did in production — model calls, tool calls, final output — as capture files on disk. Those captures become your golden suite. | [docs/sdk.md](docs/sdk.md) |
 | **CLI** — this repo, PyPI `evalshift` | Replays the suite on two models, scores, analyses, reports, bundles, pushes. | [DOCS.md](DOCS.md) |
-| **GitHub Action** — `babaliauskas/evalshift-action@v0` | Runs the pipeline on pull requests, pushes the run, posts one PR comment, sets the `evalshift/regression` status. | [docs/github-action.md](docs/github-action.md) |
+| **GitHub Action** — `evalshift/evalshift-action@v0` | Runs the pipeline on pull requests, pushes the run, posts one PR comment, sets the `evalshift/regression` status. | [docs/github-action.md](docs/github-action.md) |
 | **Hosted server** — `api.evalshift.dev`, web app at `evalshift.dev` | Optional. Stores pushed run bundles, diffs them across branches, drives PR comments and gating. | [docs/hosted.md](docs/hosted.md) |
 
 The SDK and the CLI never call each other — the interface is files under
@@ -95,7 +95,7 @@ uv pip install evalshift-sdk     # or: pip install evalshift-sdk
 From source (for contributors):
 
 ```bash
-git clone https://github.com/babaliauskas/evalshift-cli.git
+git clone https://github.com/evalshift/evalshift-cli.git
 cd evalshift-cli
 uv venv --python 3.11
 source .venv/bin/activate
@@ -113,7 +113,7 @@ candidate model to it.
 evalshift init                    # minimal capture-first evalshift.yaml
 ```
 
-Instrument the agent with [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk)
+Instrument the agent with [evalshift-sdk](https://github.com/evalshift/evalshift-sdk)
 — stdlib-only, Python 3.10+, installed with the CLI or on its own:
 
 ```python
@@ -242,7 +242,7 @@ The short version:
 
 `evalshift init --ci` scaffolds a production-shaped workflow: it discovers
 every committed suite under `.evalshift/suites/`, evaluates each on every
-pull request via [`babaliauskas/evalshift-action@v0`](https://github.com/babaliauskas/evalshift-action)
+pull request via [`evalshift/evalshift-action@v0`](https://github.com/evalshift/evalshift-action)
 (one matrix job per suite), pushes the runs to hosted EvalShift, compares
 against the latest compatible base-branch run, posts one PR comment, and
 gates merges on your `migration_policy` through a single required
@@ -368,7 +368,7 @@ Runnable projects under [`examples/`](examples/):
 
 [Apache-2.0](LICENSE). Free for any use, commercial included — no share-back
 requirement, and an explicit patent grant. The capture SDK
-([`evalshift-sdk`](https://github.com/babaliauskas/evalshift-sdk)), the piece
+([`evalshift-sdk`](https://github.com/evalshift/evalshift-sdk)), the piece
 you import into your own application, is MIT.
 
 Earlier releases stay under the license they shipped with: `0.3.0` and earlier

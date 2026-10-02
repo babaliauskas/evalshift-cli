@@ -140,7 +140,7 @@ class TestValidateCiPin:
         workflow.parent.mkdir(parents=True)
         workflow.write_text(
             "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
-            "      - uses: babaliauskas/evalshift-action@v0\n"
+            "      - uses: evalshift/evalshift-action@v0\n"
             '        with:\n          evalshift-version: "0.0.1"\n',
             encoding="utf-8",
         )

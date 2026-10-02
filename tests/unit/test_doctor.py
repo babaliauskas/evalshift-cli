@@ -571,7 +571,7 @@ class TestCiPinCheck:
         path.parent.mkdir(parents=True)
         path.write_text(
             "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
-            "      - uses: babaliauskas/evalshift-action@v0\n"
+            "      - uses: evalshift/evalshift-action@v0\n"
             "        with:\n" + with_lines,
             encoding="utf-8",
         )

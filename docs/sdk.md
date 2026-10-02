@@ -1,13 +1,13 @@
 # Capture SDK
 
-The [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk) is a separate
+The [evalshift-sdk](https://github.com/evalshift/evalshift-sdk) is a separate
 package (`pip install evalshift-sdk`, import name `evalshift`) that you install
 **inside your agent process**. It records what your agent actually did — model
 calls, tool calls, the final output — as JSON capture files on disk. The CLI
 promotes those captures into golden suites.
 
 This page covers the CLI side of that contract. The full SDK guide lives in the
-SDK repo: [DOCS.md](https://github.com/babaliauskas/evalshift-sdk/blob/main/DOCS.md),
+SDK repo: [DOCS.md](https://github.com/evalshift/evalshift-sdk/blob/main/DOCS.md),
 dense LLM reference at <https://www.evalshift.dev/sdk-llms-full.txt>.
 
 ## The contract
@@ -61,7 +61,7 @@ to state its masking policy in the call itself. `True` applies the SDK's
 `default_redactor` (emails, `sk-…`, `AKIA…`, `Bearer …`), `False` records
 verbatim, and a `(value) -> value` callable does something custom; any other
 value — `None` included — raises `TypeError`. Details:
-[REDACTION.md](https://github.com/babaliauskas/evalshift-sdk/blob/main/docs/REDACTION.md).
+[REDACTION.md](https://github.com/evalshift/evalshift-sdk/blob/main/docs/REDACTION.md).
 
 `tools` is required on the same entry points: the toolset the agent was offered,
 or `[]` if it never calls tools. Omitting it is a `TypeError` too.
@@ -131,7 +131,7 @@ carries the recorded tool results so `run` replays later rounds teacher-forced
 `--keep-duplicates` disables dedup.
 
 Full behaviour: [Configuration](configuration.md) and the
-[Capturing from production](https://github.com/babaliauskas/evalshift-cli/blob/main/DOCS.md#capturing-from-production)
+[Capturing from production](https://github.com/evalshift/evalshift-cli/blob/main/DOCS.md#capturing-from-production)
 section of DOCS.md.
 
 ## 4. Evaluate a candidate against real behaviour
@@ -145,7 +145,7 @@ from production traffic rather than hand-written examples.
 
 ## Related
 
-- [`examples/capture-first/`](https://github.com/babaliauskas/evalshift-cli/tree/main/examples/capture-first)
+- [`examples/capture-first/`](https://github.com/evalshift/evalshift-cli/tree/main/examples/capture-first)
   — every step above checked in: the instrumented agent, the captures and
   toolset sidecar it wrote, the promoted suite, and the `evalshift.yaml` whose
   managed `suites:` block `capture sync` filled in.

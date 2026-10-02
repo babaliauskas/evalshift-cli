@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The EvalShift repositories moved from the `babaliauskas` GitHub account to
+  the `evalshift` organization: <https://github.com/evalshift/evalshift-cli>,
+  `evalshift-sdk` and `evalshift-action`. Links, package metadata and the
+  workflow `evalshift init --ci` scaffolds now use
+  `evalshift/evalshift-action@v0`. GitHub redirects the old names, so existing
+  workflows keep working.
+- The CI pin check (`init`, `validate`, `doctor`, `capture sync`) recognizes
+  `evalshift/evalshift-action` steps as well as the old
+  `babaliauskas/evalshift-action` name, matching owner and repository names
+  case-insensitively as GitHub does.
+
 ## [1.2.1] - 2026-10-01
 
 ### Changed

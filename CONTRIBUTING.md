@@ -10,7 +10,7 @@ We use [`uv`](https://docs.astral.sh/uv/) for environment and dependency managem
 
 ```bash
 # Clone and enter the repo
-git clone https://github.com/babaliauskas/EvalShift.git
+git clone https://github.com/evalshift/evalshift-cli.git
 cd evalshift
 
 # Create a virtualenv with Python 3.11 and install dev deps
@@ -72,15 +72,15 @@ A release is a commit, a tag, and nothing else — CI does the publishing.
    asserts the tag matches `pyproject.toml`, builds with `uv build`, publishes
    to PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
    (no token secret), and sends a `repository_dispatch` to
-   `babaliauskas/evalshift-action` so its `bump-cli-pin` workflow opens the
+   `evalshift/evalshift-action` so its `bump-cli-pin` workflow opens the
    pin-bump PR immediately.
 
 One-time setup, held outside the repo:
 
 - **PyPI trusted publisher** on the `evalshift` project: repository
-  `babaliauskas/evalshift-cli`, workflow `release.yml`, environment `pypi`.
+  `evalshift/evalshift-cli`, workflow `release.yml`, environment `pypi`.
 - **`EVALSHIFT_ACTION_DISPATCH_TOKEN`** (optional repo secret): fine-grained
-  PAT with contents: write on `babaliauskas/evalshift-action`. Without it the
+  PAT with contents: write on `evalshift/evalshift-action`. Without it the
   dispatch is skipped and the action repo's daily PyPI poll picks the release
   up within a day.
 

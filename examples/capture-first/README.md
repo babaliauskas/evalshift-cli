@@ -1,7 +1,7 @@
 # Capture-first example
 
 The flow the README and `evalshift init` recommend, checked in end to end:
-instrument an agent with the [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk),
+instrument an agent with the [evalshift-sdk](https://github.com/evalshift/evalshift-sdk),
 exercise it, then let `evalshift capture sync` turn what it recorded into a
 golden suite and wire that suite into `evalshift.yaml`.
 
