@@ -27,13 +27,15 @@ def _workflow(root: Path, name: str, body: str) -> Path:
     return path
 
 
-def _action_job(job: str, *, with_lines: str = "") -> str:
+def _action_job(
+    job: str, *, with_lines: str = "", uses: str = "evalshift/evalshift-action@v0"
+) -> str:
     return (
         f"  {job}:\n"
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
         "      - uses: actions/checkout@v7\n"
-        "      - uses: babaliauskas/evalshift-action@v0\n"
+        f"      - uses: {uses}\n"
         "        with:\n"
         '          token: "${{ secrets.EVALSHIFT_TOKEN }}"\n' + with_lines
     )
@@ -81,6 +83,33 @@ class TestFindActionPins:
                 literal=True,
             )
         ]
+
+    @pytest.mark.parametrize(
+        "uses",
+        [
+            # The action moved from a personal account to the `evalshift` org;
+            # GitHub redirects the old name, so existing workflows keep it.
+            "babaliauskas/evalshift-action@v0",
+            # GitHub owner and repository names are case-insensitive.
+            "Evalshift/evalshift-action@v0",
+            "EVALSHIFT/Evalshift-Action@v0",
+        ],
+    )
+    def test_matches_moved_owner_and_any_case(self, tmp_path: Path, uses: str) -> None:
+        _workflow(
+            tmp_path,
+            "evalshift.yml",
+            "on: push\njobs:\n" + _action_job("evalshift", with_lines=_pinned("0.12.1"), uses=uses),
+        )
+        assert [p.version for p in find_action_pins(tmp_path)] == ["0.12.1"]
+
+    def test_other_owners_action_is_ignored(self, tmp_path: Path) -> None:
+        _workflow(
+            tmp_path,
+            "evalshift.yml",
+            "on: push\njobs:\n" + _action_job("evalshift", uses="someone-else/evalshift-action@v0"),
+        )
+        assert find_action_pins(tmp_path) == []
 
     def test_absent_input_is_none(self, tmp_path: Path) -> None:
         _workflow(tmp_path, "evalshift.yml", "on: push\njobs:\n" + _action_job("evalshift"))
@@ -130,7 +159,7 @@ class TestFindActionPins:
         assert [p.job for p in find_action_pins(tmp_path)] == ["evalshift"]
 
     def test_non_yaml_files_are_ignored(self, tmp_path: Path) -> None:
-        _workflow(tmp_path, "README.md", "uses: babaliauskas/evalshift-action@v0\n")
+        _workflow(tmp_path, "README.md", "uses: evalshift/evalshift-action@v0\n")
         assert find_action_pins(tmp_path) == []
 
 

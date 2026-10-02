@@ -251,7 +251,7 @@ jobs:
 
       - name: Run evalshift on ${{ matrix.suite }}
         if: ${{ env.HAS_EVALSHIFT_TOKEN == 'true' }}
-        uses: babaliauskas/evalshift-action@v0
+        uses: evalshift/evalshift-action@v0
         with:
           token: ${{ secrets.EVALSHIFT_TOKEN }}
           config: evalshift.yaml

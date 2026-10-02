@@ -98,7 +98,7 @@ _SEMANTIC_BLOCK_DISABLED: Final = """\
 # Body of the minimal config, up to (but excluding) the suites region and the
 # migration_policy block. ``render_minimal_config`` appends those.
 _MINIMAL_YAML_BODY: Final = """\
-# EvalShift configuration. See https://github.com/babaliauskas/EvalShift for docs.
+# EvalShift configuration. See https://github.com/evalshift/evalshift-cli for docs.
 #
 # `init` writes only this file, set up for the capture-first flow: instrument
 # your agent with the evalshift-sdk, exercise it to record captures, then run

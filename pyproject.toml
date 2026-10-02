@@ -68,11 +68,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/babaliauskas/evalshift-cli"
-Documentation = "https://github.com/babaliauskas/evalshift-cli#readme"
-Repository = "https://github.com/babaliauskas/evalshift-cli"
-Issues = "https://github.com/babaliauskas/evalshift-cli/issues"
-Changelog = "https://github.com/babaliauskas/evalshift-cli/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/evalshift/evalshift-cli"
+Documentation = "https://github.com/evalshift/evalshift-cli#readme"
+Repository = "https://github.com/evalshift/evalshift-cli"
+Issues = "https://github.com/evalshift/evalshift-cli/issues"
+Changelog = "https://github.com/evalshift/evalshift-cli/blob/main/CHANGELOG.md"
 
 [project.scripts]
 evalshift = "evalshift_cli.cli.main:app"

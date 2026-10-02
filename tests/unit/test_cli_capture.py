@@ -1958,7 +1958,7 @@ def _write_stale_workflow(root: Path, version: str = "0.0.1") -> Path:
     path.parent.mkdir(parents=True)
     path.write_text(
         "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
-        "      - uses: babaliauskas/evalshift-action@v0\n"
+        "      - uses: evalshift/evalshift-action@v0\n"
         f'        with:\n          evalshift-version: "{version}"\n',
         encoding="utf-8",
     )

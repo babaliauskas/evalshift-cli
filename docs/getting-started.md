@@ -240,4 +240,4 @@ See [Hosted EvalShift](hosted.md) and [GitHub Action](github-action.md) for CI
 setup and privacy details.
 
 [uv]: https://docs.astral.sh/uv/
-[sdk]: https://github.com/babaliauskas/evalshift-sdk
+[sdk]: https://github.com/evalshift/evalshift-sdk

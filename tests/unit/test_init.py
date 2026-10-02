@@ -383,7 +383,7 @@ class TestInitCI:
 
     def test_ci_flag_writes_valid_workflow(self, in_tmp: Path) -> None:
         body, wf = self._workflow(in_tmp)
-        assert "babaliauskas/evalshift-action@v0" in body
+        assert "evalshift/evalshift-action@v0" in body
         assert "EVALSHIFT_TOKEN" in body
         assert "EVALSHIFT_NONINTERACTIVE" in body
         jobs = wf["jobs"]
@@ -442,7 +442,7 @@ class TestInitCI:
         assert isinstance(jobs, dict)
         steps = jobs["evalshift"]["steps"]
         (action_step,) = [
-            step for step in steps if str(step.get("uses", "")).startswith("babaliauskas/")
+            step for step in steps if str(step.get("uses", "")).startswith("evalshift/")
         ]
         assert action_step["with"]["suite-name"] == "${{ matrix.suite }}"
         assert "suite" not in action_step["with"]
@@ -514,7 +514,7 @@ class TestInitCiPin:
         path.parent.mkdir(parents=True)
         path.write_text(
             "on: push\njobs:\n  evalshift:\n    runs-on: ubuntu-latest\n    steps:\n"
-            "      - uses: babaliauskas/evalshift-action@v0\n"
+            "      - uses: evalshift/evalshift-action@v0\n"
             '        with:\n          evalshift-version: "0.0.1"\n',
             encoding="utf-8",
         )

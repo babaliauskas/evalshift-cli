@@ -58,7 +58,7 @@ uv pip install evalshift
 From source:
 
 ```bash
-git clone https://github.com/babaliauskas/evalshift-cli
+git clone https://github.com/evalshift/evalshift-cli
 cd evalshift-cli
 uv venv --python 3.11
 source .venv/bin/activate
@@ -89,8 +89,8 @@ EvalShift is four pieces. Each is released and documented independently; each ow
 | Piece | Distribution | What it does | Reference for humans | Reference for AI tools |
 | --- | --- | --- | --- | --- |
 | **CLI** | PyPI `evalshift` (import `evalshift_cli`) | Runs the suite on two models, scores, analyses, reports, bundles, pushes. | this document | <https://www.evalshift.dev/cli-llms-full.txt> |
-| **SDK** | PyPI `evalshift-sdk` (import `evalshift`) | In-process capture: records your agent's model/tool calls to `.evalshift/captures/`. | [docs/sdk.md](docs/sdk.md), [SDK repo](https://github.com/babaliauskas/evalshift-sdk) | <https://www.evalshift.dev/sdk-llms-full.txt> |
-| **GitHub Action** | `babaliauskas/evalshift-action@v0` | Runs the pipeline on PRs, pushes the run, maintains one PR comment, sets the `evalshift/regression` status. | [docs/github-action.md](docs/github-action.md), [action repo](https://github.com/babaliauskas/evalshift-action) | <https://www.evalshift.dev/ci-llms-full.txt> |
+| **SDK** | PyPI `evalshift-sdk` (import `evalshift`) | In-process capture: records your agent's model/tool calls to `.evalshift/captures/`. | [docs/sdk.md](docs/sdk.md), [SDK repo](https://github.com/evalshift/evalshift-sdk) | <https://www.evalshift.dev/sdk-llms-full.txt> |
+| **GitHub Action** | `evalshift/evalshift-action@v0` | Runs the pipeline on PRs, pushes the run, maintains one PR comment, sets the `evalshift/regression` status. | [docs/github-action.md](docs/github-action.md), [action repo](https://github.com/evalshift/evalshift-action) | <https://www.evalshift.dev/ci-llms-full.txt> |
 | **Hosted server** | service — API `https://api.evalshift.dev`, web app `https://evalshift.dev` | Stores pushed run bundles, diffs runs across branches, serves the web app, drives PR comments and gating. | [docs/hosted.md](docs/hosted.md) | covered by the CLI reference (`push`/`bundle` contract) |
 
 Data flow is one-directional: **SDK captures → CLI runs and bundles → server stores and diffs → web app displays.** The SDK and CLI never call each other — the interface is files under `.evalshift/captures/`. The CLI (import `evalshift_cli`) depends on the SDK (import `evalshift`), so one environment holds both.
@@ -113,7 +113,7 @@ Doing it by hand, the mapping is:
 
 ## Quickstart
 
-Point EvalShift at a real project. `evalshift init` writes a capture-first config, the [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk) records what your agent actually does, and `capture sync` turns those recordings into a golden suite:
+Point EvalShift at a real project. `evalshift init` writes a capture-first config, the [evalshift-sdk](https://github.com/evalshift/evalshift-sdk) records what your agent actually does, and `capture sync` turns those recordings into a golden suite:
 
 ```bash
 evalshift init
@@ -176,7 +176,7 @@ evalshift capture clean                # delete promoted capture files + sweep o
 7. Skips captures whose turn recorded an `error` event — a turn that died before the agent acted is not ground truth, and promoting it would assert `expected_no_tools: true` on a question that needed a tool. `--allow-errored` promotes it anyway (still never asserting `expected_no_tools`). `capture promote` exits non-zero on the same condition. Separately and unconditionally — `--allow-errored` does not help — a capture whose first `model_call` has no `toolset_ref` is refused: the SDK did not record what tools were offered, so there is nothing to carry, and re-capturing with a current `evalshift-sdk` is the only fix.
 8. Warns when two captures claim the same `(conversation_id, turn_index)` (a retried turn), and when a promoted turn contains a failed tool result (`error`, or `{"success": false}`). Both stay warnings — see [Agent evals → What does not belong in a golden suite](docs/agents.md).
 9. Writes `.evalshift/suites/<suite>/golden.jsonl` and rewrites the managed `suites:` block in `evalshift.yaml` (between the `>>> evalshift suites` markers).
-10. After the write (or after printing the block for you to paste), checks the CI pin: if a workflow under `.github/workflows/` uses `babaliauskas/evalshift-action` with an `evalshift-version` older than this CLI, with no pin at all, or with pins that are all newer than this CLI, it prints a warning naming the workflow and job plus the fix — the exact `evalshift-version: "<this version>"` line to set, or, for a newer pin, `pip install -U evalshift` locally. Advisory only — sync never edits a workflow and the exit code is unchanged. See [Pin drift](#pin-drift).
+10. After the write (or after printing the block for you to paste), checks the CI pin: if a workflow under `.github/workflows/` uses `evalshift/evalshift-action` with an `evalshift-version` older than this CLI, with no pin at all, or with pins that are all newer than this CLI, it prints a warning naming the workflow and job plus the fix — the exact `evalshift-version: "<this version>"` line to set, or, for a newer pin, `pip install -U evalshift` locally. Advisory only — sync never edits a workflow and the exit code is unchanged. See [Pin drift](#pin-drift).
 
 Strictness knobs for the derived tool expectations: `--strict-args` (exact argument matches), `--names-only` (ignore arguments), `--tool-count` (also pin the call count, scoped the same way as `expected_tools`), `--rounds {first,all}` (which agent rounds become ground truth, default `first`). `--tag` attaches extra slice tags; `--print` previews the `suites:` block without writing.
 
@@ -794,7 +794,7 @@ A suite wired under `suites:` is therefore selected by name — which is what `i
 
 `evalshift.yaml` is `extra="forbid"` everywhere, so the CLI that *reads* the config in CI must be at least as new as the CLI that *wrote* it locally — a newer `capture sync` or `init` can add keys an older release rejects outright. The action installs an exact version (`evalshift-version`, or its own default when the input is absent), which is where drift creeps in: you upgrade locally, re-sync, and CI still installs last month's release.
 
-The CLI checks for this wherever it writes or validates config — `capture sync`, `init` (without `--ci`, next to a workflow it didn't write — `init --ci` pins the scaffolding CLI itself and does not warn about the file it just wrote), `doctor` (a `ci pin` row), and `validate` — by parsing every `.github/workflows/*.yml` for `babaliauskas/evalshift-action` steps and comparing their `evalshift-version` with its own:
+The CLI checks for this wherever it writes or validates config — `capture sync`, `init` (without `--ci`, next to a workflow it didn't write — `init --ci` pins the scaffolding CLI itself and does not warn about the file it just wrote), `doctor` (a `ci pin` row), and `validate` — by parsing every `.github/workflows/*.yml` for `evalshift/evalshift-action` steps and comparing their `evalshift-version` with its own:
 
 - **stale** — a literal pin is older than the local CLI. Fix: set `evalshift-version: "<local version>"` on the step.
 - **unpinned** — a step has no `evalshift-version`, so the action default applies and may lag. Fix: add the pin.
@@ -802,7 +802,7 @@ The CLI checks for this wherever it writes or validates config — `capture sync
 
 Equal pins, `${{ }}` expressions, unparseable versions, and an editable install without metadata (`0.0.0+unknown`) are silent. The check is advisory: it never edits a workflow and never changes an exit code, and in CI it is a no-op by construction (the running CLI *is* the pin). Config `version: 1` is not bumped for additive fields, nor for a removal that fails the load with a message naming the key — see [Configuration](docs/configuration.md#config-version-policy).
 
-Secrets needed: a provider API key matching your config's models, and `EVALSHIFT_TOKEN` — a service account key from Settings → API tokens → Service accounts, scoped to `run:create` + `run:read` + `policy:read`, stored as an encrypted repository or environment secret. Not a personal token, never a literal in the workflow YAML, and never reachable from `pull_request_target`. Rotate by minting the successor first (24h grace), updating the secret, confirming a green run, then letting the old key expire. One thing a scoped key can't do, by design: auto-create the project (`project:create` is owner-only — pre-create it and set `create-project: false`). Full guidance: the action's [README](https://github.com/babaliauskas/evalshift-action#readme).
+Secrets needed: a provider API key matching your config's models, and `EVALSHIFT_TOKEN` — a service account key from Settings → API tokens → Service accounts, scoped to `run:create` + `run:read` + `policy:read`, stored as an encrypted repository or environment secret. Not a personal token, never a literal in the workflow YAML, and never reachable from `pull_request_target`. Rotate by minting the successor first (24h grace), updating the secret, confirming a green run, then letting the old key expire. One thing a scoped key can't do, by design: auto-create the project (`project:create` is owner-only — pre-create it and set `create-project: false`). Full guidance: the action's [README](https://github.com/evalshift/evalshift-action#readme).
 
 ---
 
@@ -993,6 +993,6 @@ Nowhere, by default. Model inputs/outputs go to the providers you configured (th
 - [docs/](docs/) — the mkdocs site: [getting-started](docs/getting-started.md), [configuration](docs/configuration.md), [evaluators](docs/evaluators.md), [methodology](docs/methodology.md), [agents](docs/agents.md), [conversations](docs/conversations.md), [traces](docs/traces.md), [sdk](docs/sdk.md), [hosted](docs/hosted.md), [github-action](docs/github-action.md), [faq](docs/faq.md)
 - [AGENTS.md](AGENTS.md) — repo orientation for AI coding agents; [CLAUDE.md](CLAUDE.md) — contributor workflow rules
 - [CHANGELOG.md](CHANGELOG.md) — release history
-- [evalshift-sdk](https://github.com/babaliauskas/evalshift-sdk) — the in-process capture SDK
+- [evalshift-sdk](https://github.com/evalshift/evalshift-sdk) — the in-process capture SDK
 - [llms-full.txt](llms-full.txt) — dense single-file reference for AI coding tools, hosted at <https://www.evalshift.dev/cli-llms-full.txt>
 - License: Apache-2.0

@@ -23,7 +23,7 @@ Ecosystem — four pieces, one reference each. Fetch the one matching the task:
 | Piece | What it is | Reference for AI tools |
 | CLI (PyPI evalshift) | this document — run/score/analyze/report/bundle/push | https://www.evalshift.dev/cli-llms-full.txt |
 | SDK (PyPI evalshift-sdk) | in-process capture inside the user's agent | https://www.evalshift.dev/sdk-llms-full.txt |
-| GitHub Action (babaliauskas/evalshift-action@v0) | PR run + comment + regression gate | https://www.evalshift.dev/ci-llms-full.txt |
+| GitHub Action (evalshift/evalshift-action@v0) | PR run + comment + regression gate | https://www.evalshift.dev/ci-llms-full.txt |
 | Hosted server (api.evalshift.dev, web app evalshift.dev) | stores pushed bundles, diffs runs, drives PR comments/gating | this document (bundle/push contract) |
 Data flow: SDK captures -> CLI runs and bundles -> server stores/diffs -> web app displays.
 
@@ -157,7 +157,7 @@ evalshift doctor
   Reports the toolset each configured suite carries (name, or the flat golden.jsonl); warns
   (warn-level, exit 0) when a suite's examples carry more than one distinct toolset -- legal
   (each example dispatches its own), but also the shape a wiring mistake takes.
-  Adds a `ci pin` row when any .github/workflows/*.yml uses babaliauskas/evalshift-action:
+  Adds a `ci pin` row when any .github/workflows/*.yml uses evalshift/evalshift-action:
   ok ("pinned to <v>"; "not pinned (version unknown)" when every pin is a ${{ }} expression)
   when nothing drifts; warn (exit 0) on pin drift --
   stale (pin < local), unpinned (input absent -> action default may lag), ahead (all pins >
@@ -303,7 +303,7 @@ evalshift capture sync [--suite S] [--input-var NAME=input] [--tag T]... [--stri
   seeded from cases already promoted in the suite dir, so it spans sync runs.
   Reports "wired generation config for N case(s)" when promoted captures carried one.
   After writing (or printing the block to paste) warns on CI pin drift: a workflow step
-  `uses: babaliauskas/evalshift-action@...` whose evalshift-version is older than this CLI or
+  `uses: evalshift/evalshift-action@...` whose evalshift-version is older than this CLI or
   absent gets a warning naming workflow + job and the `evalshift-version: "<v>"` to set; pins
   all newer than this CLI get one too, with the fix `pip install -U evalshift`.
   Advisory only: never edits the workflow, exit code unchanged. `init` (without --ci) warns
@@ -1273,7 +1273,7 @@ evalshift compare --suite-name <suite> --to gemini-3.1-pro-preview --gate critic
 # baselines PRs diff against and are never cancelled.
 permissions: {contents: read, pull-requests: write, issues: write, statuses: write}
 env: {EVALSHIFT_NONINTERACTIVE: "1", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}"}  # key matches --provider
-uses: babaliauskas/evalshift-action@v0
+uses: evalshift/evalshift-action@v0
 with: {token: "${{ secrets.EVALSHIFT_TOKEN }}", config: evalshift.yaml,
        suite-name: "${{ matrix.suite }}", evalshift-version: "<pinned>",
        fail-on: policy}

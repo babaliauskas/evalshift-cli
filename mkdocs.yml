@@ -1,8 +1,8 @@
 site_name: EvalShift
 site_description: Open-source LLM migration and regression testing for AI agents. Compare two models, detect tool-call regressions, and gate model changes in CI.
-site_url: https://babaliauskas.github.io/evalshift-cli/
-repo_url: https://github.com/babaliauskas/evalshift-cli
-repo_name: babaliauskas/evalshift-cli
+site_url: https://evalshift.github.io/evalshift-cli/
+repo_url: https://github.com/evalshift/evalshift-cli
+repo_name: evalshift/evalshift-cli
 
 theme:
   name: material

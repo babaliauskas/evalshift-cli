@@ -5,7 +5,7 @@ written by a newer CLI can carry keys an older CLI rejects outright. The
 GitHub Action installs an exact CLI version (``evalshift-version``, or its own
 default when the input is absent), which means the *reader* in CI must be at
 least as new as the *writer* on the developer's machine. This module finds
-every ``babaliauskas/evalshift-action`` step under ``.github/workflows/`` and
+every ``evalshift/evalshift-action`` step under ``.github/workflows/`` and
 compares its pin with the running CLI.
 
 Everything here is advisory: unreadable or invalid workflow files are skipped
@@ -24,7 +24,10 @@ import yaml
 from packaging.version import InvalidVersion, Version
 
 #: ``uses:`` prefix that identifies an EvalShift action step.
-ACTION_USES_PREFIX: Final = "babaliauskas/evalshift-action@"
+ACTION_USES_PREFIX: Final = "evalshift/evalshift-action@"
+#: Prefixes the action had before it moved from a personal account to the
+#: `evalshift` org. GitHub redirects them, so existing workflows still use them.
+LEGACY_ACTION_USES_PREFIXES: Final = ("babaliauskas/evalshift-action@",)
 #: The action input that pins the CLI version installed in CI.
 VERSION_INPUT: Final = "evalshift-version"
 #: Version reported by an editable install without package metadata.
@@ -37,7 +40,7 @@ PinStatus = Literal["stale", "unpinned", "ahead"]
 
 @dataclass(frozen=True, slots=True)
 class ActionPin:
-    """One ``babaliauskas/evalshift-action`` step and the CLI version it pins.
+    """One ``evalshift/evalshift-action`` step and the CLI version it pins.
 
     Attributes:
         workflow: Workflow file path relative to the project root.
@@ -107,10 +110,22 @@ def find_action_pins(project_root: Path) -> list[ActionPin]:
                 if not isinstance(step, dict):
                     continue
                 uses = step.get("uses")
-                if not isinstance(uses, str) or not uses.startswith(ACTION_USES_PREFIX):
+                if not isinstance(uses, str) or not _is_action_step(uses):
                     continue
                 pins.append(_pin_from_step(workflow, str(job_name), step))
     return pins
+
+
+def _is_action_step(uses: str) -> bool:
+    """Whether a ``uses:`` value names the EvalShift action under any of its owners.
+
+    GitHub treats owner and repository names case-insensitively, so this does too.
+    """
+    lowered = uses.lower()
+    return any(
+        lowered.startswith(prefix.lower())
+        for prefix in (ACTION_USES_PREFIX, *LEGACY_ACTION_USES_PREFIXES)
+    )
 
 
 def _load_jobs(path: Path) -> dict[Any, Any] | None:
@@ -253,6 +268,7 @@ def _ahead_finding(pins: list[ActionPin], cli_version: str) -> CiPinFinding:
 
 __all__ = [
     "ACTION_USES_PREFIX",
+    "LEGACY_ACTION_USES_PREFIXES",
     "UNKNOWN_VERSION",
     "VERSION_INPUT",
     "WORKFLOWS_DIR",
